@@ -1,11 +1,14 @@
 "use client";
 
 import { useState, useEffect, createContext, useContext, useCallback } from "react";
+import PromptChat from "./PromptChat";
+import SettingsPage from "./SettingsPage";
+import SupportPage from "./SupportPage";
 import {
   Image, FileText, Mic, BookOpen, Subtitles, LayoutDashboard,
   Library as LibraryIcon, LogOut, Menu, X, Coins, Sparkles, ChevronRight, Loader2,
   Copy, MessageSquare, Video, Wand2, Download, Trash2, Clock,
-  RefreshCw, Volume2, Type, Settings,
+  RefreshCw, Volume2, Type, Settings, HelpCircle, Headphones,
 } from "lucide-react";
 
 /* ════════════ Types ════════════ */
@@ -22,19 +25,27 @@ const AuthCtx = createContext<{ user: User | null; logout: () => void; refreshUs
 export const useAuth = () => useContext(AuthCtx);
 
 /* ════════════ Sidebar ════════════ */
-const NAV = [
-  { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { id: "prompts", label: "Generador de Prompts", icon: Wand2, cost: 2 },
-  { id: "images", label: "Generador de Imágenes", icon: Image, cost: 3 },
-  { id: "copy", label: "Copywriting", icon: Copy, cost: 2 },
-  { id: "social", label: "Contenido Redes", icon: MessageSquare, cost: 2 },
-  { id: "script", label: "Scripts de Video", icon: Video, cost: 2 },
-  { id: "email", label: "Email Marketing", icon: FileText, cost: 2 },
-  { id: "voice", label: "Generador de Voz", icon: Mic, cost: 3 },
-  { id: "ebook", label: "Generador de eBooks", icon: BookOpen, cost: 8 },
-  { id: "subtitle", label: "Subtítulos", icon: Subtitles, cost: 2 },
-  { id: "library", label: "Biblioteca", icon: LibraryIcon },
+interface NavItem { id: string; label: string; icon: React.ComponentType<{className?: string}>; cost?: number; badge?: string; section?: string; }
+const NAV_SECTIONS: { title: string; items: NavItem[] }[] = [
+  { title: null, items: [{ id: "dashboard", label: "Panel de control", icon: LayoutDashboard }] },
+  { title: "PRODUCCIÓN", items: [
+    { id: "prompts", label: "Generador de Prompts IA", icon: Wand2, cost: 2, badge: "🔥" },
+    { id: "images", label: "Generador de Imágenes", icon: Image, cost: 3 },
+    { id: "copy", label: "Copywriting", icon: Copy, cost: 2 },
+    { id: "social", label: "Contenido Redes", icon: MessageSquare, cost: 2 },
+    { id: "script", label: "Scripts de Video", icon: Video, cost: 2 },
+    { id: "email", label: "Email Marketing", icon: FileText, cost: 2 },
+    { id: "voice", label: "Voz IA Pro", icon: Mic, cost: 3 },
+    { id: "ebook", label: "Generador de eBooks", icon: BookOpen, cost: 8 },
+    { id: "subtitle", label: "Subtítulos", icon: Subtitles, cost: 2 },
+  ]},
+  { title: "GESTIÓN", items: [
+    { id: "library", label: "Biblioteca de Proyectos", icon: LibraryIcon },
+    { id: "settings", label: "Configuración", icon: Settings },
+    { id: "support", label: "Soporte", icon: Headphones },
+  ]},
 ];
+const FLAT_NAV = NAV_SECTIONS.flatMap(s => s.items);
 
 function Sidebar({ active, onNav, open, onClose, user }: {
   active: string; onNav: (id: string) => void; open: boolean; onClose: () => void; user: User | null;
@@ -61,21 +72,33 @@ function Sidebar({ active, onNav, open, onClose, user }: {
         )}
 
         {/* Nav */}
-        <nav className="flex-1 overflow-y-auto px-3 py-4 space-y-0.5">
-          {NAV.map((item) => (
-            <button
-              key={item.id}
-              onClick={() => { onNav(item.id); onClose(); }}
-              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm transition-all ${
-                active === item.id
-                  ? "bg-gradient-to-r from-[#3b82f6]/20 to-[#7c3aed]/10 text-white border border-[#3b82f6]/20"
-                  : "text-white/50 hover:text-white/80 hover:bg-white/5"
-              }`}
-            >
-              <item.icon className="w-4 h-4 flex-shrink-0" />
-              <span className="flex-1 text-left">{item.label}</span>
-              {item.cost && <span className="text-[10px] text-white/30">-{item.cost}</span>}
-            </button>
+        <nav className="flex-1 overflow-y-auto px-3 py-4 space-y-1">
+          {NAV_SECTIONS.map((section) => (
+            <div key={section.title || "main"}>
+              {section.title && (
+                <div className="flex items-center gap-2 px-3 pt-4 pb-1.5">
+                  <span className="text-[9px] font-bold text-white/20 uppercase tracking-widest">{section.title}</span>
+                </div>
+              )}
+              <div className="space-y-0.5">
+                {section.items.map((item) => (
+                  <button
+                    key={item.id}
+                    onClick={() => { onNav(item.id); onClose(); }}
+                    className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-[13px] transition-all ${
+                      active === item.id
+                        ? "bg-gradient-to-r from-[#3b82f6]/20 to-[#7c3aed]/10 text-white border border-[#3b82f6]/20"
+                        : "text-white/50 hover:text-white/80 hover:bg-white/5"
+                    }`}
+                  >
+                    <item.icon className="w-4 h-4 flex-shrink-0" />
+                    <span className="flex-1 text-left truncate">{item.label}</span>
+                    {item.badge && <span className="text-xs">{item.badge}</span>}
+                    {item.cost && <span className="text-[10px] text-white/20">-{item.cost}</span>}
+                  </button>
+                ))}
+              </div>
+            </div>
           ))}
         </nav>
 
@@ -99,23 +122,46 @@ function Sidebar({ active, onNav, open, onClose, user }: {
 }
 
 /* ════════════ Dashboard ════════════ */
-function Dashboard({ user, generations }: { user: User; generations: Generation[] }) {
-  const stats = [
-    { label: "Imágenes", value: generations.filter(g => g.type === "image").length, icon: Image, color: "from-blue-500 to-blue-700", suffix: "creadas" },
-    { label: "Textos", value: generations.filter(g => g.type === "text").length, icon: FileText, color: "from-purple-500 to-purple-700", suffix: "creados" },
-    { label: "Voces", value: generations.filter(g => g.type === "voice").length, icon: Mic, color: "from-emerald-500 to-emerald-700", suffix: "creadas" },
-    { label: "eBooks", value: generations.filter(g => g.type === "ebook").length, icon: BookOpen, color: "from-orange-500 to-orange-700", suffix: "creados" },
+function Dashboard({ user, generations, onNav }: { user: User; generations: Generation[]; onNav: (id: string) => void }) {
+  const quickTools = [
+    { id: "prompts", label: "Generador de Prompts IA", desc: "Elige lo que quieres crear ahora — te lo entrego listo para usar.", icon: Wand2, badge: "🔥" },
+    { id: "images", label: "Generador de Imágenes", desc: "Crea imágenes profesionales con inteligencia artificial.", icon: Image },
+    { id: "ebook", label: "Generador de eBooks IA Pro", desc: "eBooks completos y profesionales con IA.", icon: BookOpen },
+    { id: "library", label: "Biblioteca de Proyectos", desc: "Historial de todas tus creaciones.", icon: LibraryIcon },
   ];
 
   return (
     <div>
       <div className="mb-8">
-        <h1 className="text-2xl font-extrabold mb-1">¡Hola, <span className="gradient-text">{user.name.split(" ")[0]}</span>!</h1>
-        <p className="text-sm text-white/50">¿Qué vamos a crear hoy con IA?</p>
+        <h1 className="text-2xl font-extrabold mb-1">¡Bienvenido de nuevo, <span className="gradient-text">{user.name.split(" ")[0]}</span>! 👋</h1>
+        <p className="text-sm text-white/50">Crea contenido increíble 10 veces más rápido con inteligencia artificial</p>
       </div>
 
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-        {stats.map((s) => (
+      {/* Quick Tools */}
+      <h2 className="text-base font-bold mb-3 flex items-center gap-2">Herramientas Rápidas ⚡</h2>
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-8">
+        {quickTools.map((t) => (
+          <button key={t.id} onClick={() => onNav(t.id)} className="p-4 rounded-2xl bg-[#0f1629] border border-white/[0.06] hover:border-[#3b82f6]/20 hover:bg-[#3b82f6]/5 transition-all text-left group">
+            <div className="flex items-center justify-between mb-2">
+              <t.icon className="w-5 h-5 text-[#3b82f6]" />
+              {t.badge && <span className="text-sm">{t.badge}</span>}
+              <ChevronRight className="w-4 h-4 text-white/20 group-hover:text-white/50 group-hover:translate-x-1 transition-all" />
+            </div>
+            <p className="text-sm font-semibold mb-0.5">{t.label}</p>
+            <p className="text-[11px] text-white/30 leading-relaxed">{t.desc}</p>
+          </button>
+        ))}
+      </div>
+
+      {/* Stats */}
+      <h2 className="text-base font-bold mb-3">Tu Actividad</h2>
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-8">
+        {[
+          { label: "Imágenes", value: generations.filter(g => g.type === "image").length, icon: Image, color: "from-blue-500 to-blue-700", suffix: "creadas" },
+          { label: "Textos", value: generations.filter(g => g.type === "text" || g.type === "prompt").length, icon: FileText, color: "from-purple-500 to-purple-700", suffix: "creados" },
+          { label: "Voces", value: generations.filter(g => g.type === "voice").length, icon: Mic, color: "from-emerald-500 to-emerald-700", suffix: "creadas" },
+          { label: "eBooks", value: generations.filter(g => g.type === "ebook").length, icon: BookOpen, color: "from-orange-500 to-orange-700", suffix: "creados" },
+        ].map((s) => (
           <div key={s.label} className="p-4 rounded-2xl bg-[#0f1629] border border-white/[0.06]">
             <div className={`inline-flex items-center justify-center w-10 h-10 rounded-xl bg-gradient-to-br ${s.color} mb-3`}>
               <s.icon className="w-5 h-5 text-white" />
@@ -126,33 +172,15 @@ function Dashboard({ user, generations }: { user: User; generations: Generation[
         ))}
       </div>
 
-      {/* Quick Actions */}
-      <h2 className="text-lg font-bold mb-4">Acciones rápidas</h2>
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-        {[
-          { id: "images", label: "Generar imagen", desc: "Crea imágenes profesionales con IA", icon: Wand2 },
-          { id: "copy", label: "Escribir copy", desc: "Textos que venden y convierten", icon: Type },
-          { id: "voice", label: "Generar voz", desc: "Narración profesional con IA", icon: Volume2 },
-        ].map((a) => (
-          <button key={a.id} onClick={() => document.getElementById(`nav-${a.id}`)?.click()} className="p-4 rounded-2xl bg-[#0f1629] border border-white/[0.06] hover:border-white/15 transition-all text-left group">
-            <div className="flex items-center justify-between mb-2">
-              <a.icon className="w-5 h-5 text-[#3b82f6]" />
-              <ChevronRight className="w-4 h-4 text-white/20 group-hover:text-white/50 group-hover:translate-x-1 transition-all" />
-            </div>
-            <p className="text-sm font-semibold">{a.label}</p>
-            <p className="text-xs text-white/40 mt-0.5">{a.desc}</p>
-          </button>
-        ))}
-      </div>
-
+      {/* Recent */}
       {generations.length > 0 && (
-        <div className="mt-8">
-          <h2 className="text-lg font-bold mb-4">Creaciones recientes</h2>
+        <div>
+          <h2 className="text-base font-bold mb-3">Creaciones recientes</h2>
           <div className="space-y-2">
             {generations.slice(0, 5).map((g) => (
               <div key={g.id} className="flex items-center gap-3 p-3 rounded-xl bg-[#0f1629] border border-white/[0.06]">
                 <div className="w-8 h-8 rounded-lg bg-white/5 flex items-center justify-center">
-                  {g.type === "image" ? <Image className="w-4 h-4 text-blue-400" /> : g.type === "voice" ? <Mic className="w-4 h-4 text-emerald-400" /> : g.type === "ebook" ? <BookOpen className="w-4 h-4 text-orange-400" /> : <FileText className="w-4 h-4 text-purple-400" />}
+                  {g.type === "image" ? <Image className="w-4 h-4 text-blue-400" /> : g.type === "voice" ? <Mic className="w-4 h-4 text-emerald-400" /> : g.type === "ebook" ? <BookOpen className="w-4 h-4 text-orange-400" /> : g.type === "prompt" ? <Wand2 className="w-4 h-4 text-purple-400" /> : <FileText className="w-4 h-4 text-purple-400" />}
                 </div>
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium truncate">{g.title}</p>
@@ -499,202 +527,6 @@ function SubtitleGenerator({ user, onUpdateCredits }: { user: User; onUpdateCred
   );
 }
 
-/* ════════════ Prompt Generator ════════════ */
-function PromptGenerator({ user, onUpdateCredits }: { user: User; onUpdateCredits: (c: number) => void }) {
-  const [category, setCategory] = useState("image");
-  const [description, setDescription] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState("");
-  const [error, setError] = useState("");
-
-  const categories = [
-    {
-      id: "image",
-      label: "Imágenes Profesionales",
-      desc: "Prompts técnicos para IA de imágenes con cámara, iluminación y estilo.",
-      icon: Image,
-      color: "from-blue-500 to-blue-700",
-      example: "Una mujer con vestido rojo en un estudio oscuro con luz de neón azul",
-    },
-    {
-      id: "video",
-      label: "Videos Estilo Veo3",
-      desc: "Prompts para videos IA de 5-8s con movimiento y atmósfera.",
-      icon: Video,
-      color: "from-purple-500 to-purple-700",
-      example: "Un hombre caminando por una calle lluviosa de Tokio de noche",
-    },
-    {
-      id: "animate",
-      label: "Animar Imagen",
-      desc: "Prompts para dar movimiento sutil y cinematográfico a imágenes estáticas.",
-      icon: RefreshCw,
-      color: "from-emerald-500 to-emerald-700",
-      example: "Retrato de una mujer con el viento moviendo su cabello suavemente",
-    },
-    {
-      id: "clone",
-      label: "Clone / Gemini",
-      desc: "Prompts para clonar rostros con fidelidad extrema a partir de fotos.",
-      icon: Type,
-      color: "from-orange-500 to-orange-700",
-      example: "Mismo rostro de la foto de referencia pero con expresión sonriente, fondo de playa al atardecer",
-    },
-  ];
-
-  const currentCat = categories.find((c) => c.id === category)!;
-
-  const generate = async () => {
-    setLoading(true);
-    setError("");
-    setResult("");
-    try {
-      const res = await fetch("/api/generate/prompt", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${user.id}` },
-        body: JSON.stringify({ description, category }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        setError(data.error);
-        return;
-      }
-      setResult(data.prompt);
-      onUpdateCredits(data.credits);
-    } catch {
-      setError("Error de conexión");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const fillExample = () => setDescription(currentCat.example);
-
-  return (
-    <div>
-      <div className="mb-6">
-        <h1 className="text-2xl font-extrabold mb-1">Generador de <span className="gradient-text">Prompts</span></h1>
-        <p className="text-sm text-white/50">
-          Transforma ideas simples en prompts profesionales y técnicos para IAs generativas. Costo:{" "}
-          <span className="text-yellow-400 font-semibold">2 créditos</span>
-        </p>
-      </div>
-
-      {/* Category Selection */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-6">
-        {categories.map((cat) => (
-          <button
-            key={cat.id}
-            onClick={() => { setCategory(cat.id); setResult(""); setError(""); }}
-            className={`p-4 rounded-2xl text-left transition-all border ${
-              category === cat.id
-                ? "bg-gradient-to-br from-[#3b82f6]/10 to-[#7c3aed]/10 border-[#3b82f6]/30 text-white"
-                : "bg-[#0f1629] border-white/[0.06] text-white/60 hover:border-white/15 hover:text-white/80"
-            }`}
-          >
-            <div className="flex items-center gap-3 mb-2">
-              <div className={`inline-flex items-center justify-center w-9 h-9 rounded-xl bg-gradient-to-br ${cat.color}`}>
-                <cat.icon className="w-4 h-4 text-white" />
-              </div>
-              <p className="text-sm font-bold">{cat.label}</p>
-            </div>
-            <p className="text-xs text-white/40 leading-relaxed">{cat.desc}</p>
-          </button>
-        ))}
-      </div>
-
-      {/* Info Box */}
-      <div className="mb-6 p-4 rounded-2xl bg-[#0f1629] border border-white/[0.06]">
-        <div className="flex items-start gap-3">
-          <div className={`inline-flex items-center justify-center w-9 h-9 rounded-xl bg-gradient-to-br ${currentCat.color} flex-shrink-0 mt-0.5`}>
-            <currentCat.icon className="w-4 h-4 text-white" />
-          </div>
-          <div>
-            <p className="text-sm font-semibold mb-1">{currentCat.label}</p>
-            <p className="text-xs text-white/40 leading-relaxed">{currentCat.desc}</p>
-            {category === "video" && (
-              <p className="text-[10px] text-yellow-400/80 mt-2 flex items-center gap-1">
-                ⚠️ Los videos IA generan clips de 5-8 segundos máximo. Una sola escena por prompt.
-              </p>
-            )}
-          </div>
-        </div>
-      </div>
-
-      {/* Input Area */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="space-y-4">
-          <div>
-            <div className="flex items-center justify-between mb-1.5">
-              <label className="text-xs text-white/50">Describe lo que quieres crear</label>
-              <button onClick={fillExample} className="text-[10px] text-[#3b82f6] hover:underline flex items-center gap-1">
-                <Sparkles className="w-3 h-3" /> Usar ejemplo
-              </button>
-            </div>
-            <textarea
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              rows={5}
-              className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm placeholder:text-white/30 focus:outline-none focus:border-[#3b82f6] transition-colors resize-none"
-              placeholder={currentCat.example}
-            />
-          </div>
-          <button
-            onClick={generate}
-            disabled={loading || !description}
-            className="w-full py-3.5 rounded-xl bg-gradient-to-b from-[#3b82f6] to-[#1e40af] text-white font-bold text-sm shadow-[0_10px_24px_rgba(30,64,175,0.45)] hover:brightness-110 active:scale-[0.98] transition-all disabled:opacity-50 flex items-center justify-center gap-2"
-          >
-            {loading ? (
-              <>
-                <Loader2 className="w-4 h-4 animate-spin" /> Generando prompt profesional...
-              </>
-            ) : (
-              <>
-                <Wand2 className="w-4 h-4" /> Generar prompt (-2 créditos)
-              </>
-            )}
-          </button>
-          {error && <p className="text-red-400 text-xs text-center">{error}</p>}
-        </div>
-
-        {/* Result */}
-        <div>
-          {result ? (
-            <div className="rounded-2xl border border-white/[0.06] bg-[#0f1629] h-full flex flex-col">
-              <div className="flex items-center justify-between p-3 border-b border-white/[0.06]">
-                <div className="flex items-center gap-2">
-                  <span className="text-xs text-white/40">Prompt generado</span>
-                  <span className="px-2 py-0.5 rounded-md bg-[#3b82f6]/10 text-[#3b82f6] text-[10px] font-medium">{currentCat.label}</span>
-                </div>
-                <button
-                  onClick={() => navigator.clipboard.writeText(result)}
-                  className="text-xs text-[#3b82f6] flex items-center gap-1 hover:underline"
-                >
-                  <Copy className="w-3 h-3" /> Copiar
-                </button>
-              </div>
-              <div className="flex-1 p-4">
-                <pre className="text-sm text-white/80 whitespace-pre-wrap leading-relaxed font-[inherit]">{result}</pre>
-              </div>
-              <div className="p-3 border-t border-white/[0.06]">
-                <p className="text-[10px] text-white/30">El prompt está en inglés para máxima compatibilidad con IAs generativas. Pégalo directamente en tu herramienta de IA favorita.</p>
-              </div>
-            </div>
-          ) : (
-            <div className="h-full min-h-[300px] rounded-2xl border border-dashed border-white/10 flex items-center justify-center bg-white/[0.02]">
-              <div className="text-center text-white/20">
-                <Wand2 className="w-12 h-12 mx-auto mb-3 opacity-50" />
-                <p className="text-sm font-medium mb-1">Tu prompt profesional aparecerá aquí</p>
-                <p className="text-xs text-white/15">Describe tu idea y la IA creará un prompt técnico detallado</p>
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
-
 /* ════════════ Library ════════════ */
 function Library({ user }: { user: User }) {
   const [gens, setGens] = useState<Generation[]>([]);
@@ -804,15 +636,17 @@ export default function AppPage({ onLogout }: AppShellProps) {
 
   const renderPage = () => {
     switch (page) {
-      case "dashboard": return <Dashboard user={user} generations={generations} />;
+      case "dashboard": return <Dashboard user={user} generations={generations} onNav={setPage} />;
+      case "prompts": return <PromptChat user={user} onUpdateCredits={onUpdateCredits} />;
       case "images": return <ImageGenerator user={user} onUpdateCredits={onUpdateCredits} />;
       case "copy": case "social": case "script": case "email": return <TextGenerator type={page} user={user} onUpdateCredits={onUpdateCredits} />;
       case "voice": return <VoiceGenerator user={user} onUpdateCredits={onUpdateCredits} />;
       case "ebook": return <EbookGenerator user={user} onUpdateCredits={onUpdateCredits} />;
       case "subtitle": return <SubtitleGenerator user={user} onUpdateCredits={onUpdateCredits} />;
-      case "prompts": return <PromptGenerator user={user} onUpdateCredits={onUpdateCredits} />;
       case "library": return <Library user={user} />;
-      default: return <Dashboard user={user} generations={generations} />;
+      case "settings": return <SettingsPage user={user} />;
+      case "support": return <SupportPage />;
+      default: return <Dashboard user={user} generations={generations} onNav={setPage} />;
     }
   };
 
