@@ -4,8 +4,9 @@
   "private": true,
   "scripts": {
     "dev": "next dev -p 3000",
-    "build": "npx prisma generate 2>/dev/null; mkdir -p db; npx prisma db push --skip-generate --accept-data-loss 2>/dev/null; next build",
+    "build": "next build",
     "start": "next start -p 3000",
+    "postinstall": "npx prisma generate",
     "lint": "eslint ."
   },
   "dependencies": {

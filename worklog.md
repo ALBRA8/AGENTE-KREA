@@ -157,3 +157,35 @@ Stage Summary:
 - Auto-login creates demo user (demo@p360.com) on first visit
 - App works even without .env file (hardcoded DB path fallback)
 - App works even without DB (auto-login returns fallback user object)
+
+---
+Task ID: 4
+Agent: main
+Task: Full multi-layer review to fix sandbox inactive
+
+Work Log:
+CAPA 1 - Estructura: all files verified, public/ has logo, prisma/ has schema, db/ has custom.db
+CAPA 2 - Module-level code: eliminated ALL 4 require() calls (db.ts, page.tsx, auto-login)
+  - db.ts: removed require('fs'), require('path') - now pure ESM
+  - page.tsx: replaced require() with proper ESM imports at top
+  - auto-login: removed require('child_process') execSync entirely
+CAPA 3 - Config: deleted tailwind.config.ts (v3 syntax incompatible with Tailwind v4)
+  - Tailwind v4 uses @theme in CSS, not tailwind.config.ts
+  - The old config imported tailwindcss-animate with v3 Config type, potential crash
+CAPA 4 - Dependencies: verified all runtime imports have packages installed
+  - Unused UI components reference removed packages but aren't imported by app code
+CAPA 5 - Dev mode test: / returns 200 (77KB), /dashboard 200 (14KB), auto-login works
+CAPA 6 - Build: 16 routes, 0 errors, 135ms startup, all tests pass
+
+Additional fixes:
+- .env was excluded by .gitignore (.env* pattern) - fixed with hardcoded fallback in db.ts
+- Simplified build script to just "next build" (removed prisma commands that could timeout)
+- Added postinstall: "npx prisma generate" (runs during npm install, after @prisma/engines is ready)
+- Regenerated package-lock.json from scratch
+
+Stage Summary:
+- Zero require() calls remain in src/
+- Zero tailwind v3 config files remain
+- db.ts works without .env file
+- All scripts are minimal and simple
+- Both dev and production modes tested successfully

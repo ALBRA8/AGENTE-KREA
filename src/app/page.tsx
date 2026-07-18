@@ -35,6 +35,8 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from "@/components/ui/accordion";
+import AppShell from "@/components/app/AppShell";
+import AuthPage from "@/components/app/AuthPage";
 
 /* ─────────── Animated Counter ─────────── */
 function AnimatedCounter({
@@ -1002,12 +1004,10 @@ export default function Home() {
   }, []);
 
   if (view === "app") {
-    const { default: AppShell } = require("@/components/app/AppShell");
     return <AppShell key={key} onLogout={() => { setView("auth"); setKey(k => k + 1); }} />;
   }
 
   if (view === "auth") {
-    const { default: AuthPage } = require("@/components/app/AuthPage");
     return <AuthPage onLogin={() => { setView("app"); setKey(k => k + 1); }} />;
   }
 
