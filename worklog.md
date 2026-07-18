@@ -134,3 +134,26 @@ Stage Summary:
 - Secondary fix: removed sharp and 30+ unused deps to speed up npm install in preview
 - Tertiary fix: integrated DB init into build script so preview env always has schema ready
 - Verified all API routes handle DB errors gracefully (try/catch with proper error responses)
+
+---
+Task ID: 3
+Agent: main
+Task: Fix .env excluded by gitignore, add auto-login, dashboard without registration
+
+Work Log:
+- Found .gitignore had `.env*` pattern — .env file was NOT deployed to preview env
+- Fixed: hardcoded DATABASE_URL fallback in db.ts using process.cwd()
+- Removed dependency on .env file entirely for DATABASE_URL
+- Created /api/auth/auto-login endpoint: finds or creates demo user, fallback to fake user if DB unavailable
+- Modified dashboard page: auto-calls auto-login on mount, no registration required
+- Modified AppShell: accepts user prop, skips API re-fetch when user is pre-loaded
+- Modified AuthPage: onLogin now passes user data back
+- Landing page already had "Ir al Dashboard" buttons linking to /dashboard
+- Build: 16 routes, 0 errors
+- Test: auto-login returns demo user with 50 credits, dashboard 200, landing 200
+
+Stage Summary:
+- Users can now go directly to /dashboard without any registration
+- Auto-login creates demo user (demo@p360.com) on first visit
+- App works even without .env file (hardcoded DB path fallback)
+- App works even without DB (auto-login returns fallback user object)

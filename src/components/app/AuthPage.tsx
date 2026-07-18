@@ -6,7 +6,7 @@ import { Eye, EyeOff, ArrowRight, Loader2 } from "lucide-react";
 
 type View = "login" | "register";
 
-interface AuthPageProps { onLogin: () => void }
+interface AuthPageProps { onLogin: (user?: any) => void }
 
 export default function AuthPage({ onLogin }: AuthPageProps) {
   const [view, setView] = useState<View>("login");
@@ -42,7 +42,7 @@ export default function AuthPage({ onLogin }: AuthPageProps) {
 
       localStorage.setItem("p360_token", data.id);
       localStorage.setItem("p360_user", JSON.stringify(data));
-      onLogin();
+      onLogin(data);
     } catch {
       setError("Error de conexión");
       setLoading(false);

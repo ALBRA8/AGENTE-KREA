@@ -596,31 +596,39 @@ function Library({ user }: { user: User }) {
 }
 
 /* ════════════ Main App ════════════ */
-interface AppShellProps { onLogout: () => void }
+interface AppShellProps { onLogout: () => void; user?: User | null }
 
-export default function AppPage({ onLogout }: AppShellProps) {
-  const [user, setUser] = useState<User | null>(null);
+export default function AppPage({ onLogout, user: initialUser }: AppShellProps) {
+  const [user, setUser] = useState<User | null>(initialUser || null);
   const [page, setPage] = useState("dashboard");
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!initialUser);
   const [generations, setGenerations] = useState<Generation[]>([]);
 
   const loadUser = useCallback(async () => {
     const token = localStorage.getItem("p360_token");
-    if (!token) { onLogout(); return; }
+    if (!token) { if (!initialUser) onLogout(); else setLoading(false); return; }
     try {
       const res = await fetch("/api/auth/me", { headers: { Authorization: `Bearer ${token}` } });
-      if (!res.ok) { onLogout(); return; }
+      if (!res.ok) { if (!initialUser) onLogout(); else setLoading(false); return; }
       const data = await res.json();
       setUser(data);
-      // Load recent generations
       const gRes = await fetch("/api/generations?limit=10", { headers: { Authorization: `Bearer ${token}` } });
       if (gRes.ok) setGenerations(await gRes.json());
-    } catch { onLogout(); }
+    } catch { if (!initialUser) onLogout(); }
     setLoading(false);
-  }, []);
+  }, [initialUser, onLogout]);
 
-  useEffect(() => { loadUser(); }, [loadUser]);
+  useEffect(() => { if (!initialUser) loadUser(); else {
+    // Load generations for pre-authenticated user
+    const token = localStorage.getItem("p360_token");
+    if (token) {
+      fetch("/api/generations?limit=10", { headers: { Authorization: `Bearer ${token}` } })
+        .then(r => r.ok ? r.json() : [])
+        .then(setGenerations)
+        .catch(() => {});
+    }
+  }}, [initialUser, loadUser]);
 
   const logout = () => { localStorage.removeItem("p360_token"); localStorage.removeItem("p360_user"); onLogout(); };
   const refreshUser = () => loadUser();
