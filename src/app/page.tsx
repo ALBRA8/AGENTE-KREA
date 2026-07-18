@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { motion, useInView, AnimatePresence } from "framer-motion";
+import Link from "next/link";
 import {
   Play,
   Sparkles,
@@ -26,6 +27,7 @@ import {
   BarChart3,
   MessageSquare,
   Shield,
+  LayoutDashboard,
 } from "lucide-react";
 import {
   Accordion,
@@ -150,9 +152,15 @@ function Navbar() {
               {l.label}
             </a>
           ))}
+          <Link
+            href="/dashboard"
+            className="px-5 py-2.5 rounded-xl bg-gradient-to-b from-[#3b82f6] to-[#1e40af] text-sm font-bold text-white shadow-[0_10px_24px_rgba(30,64,175,0.45)] hover:brightness-110 hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center gap-2"
+          >
+            <LayoutDashboard className="w-4 h-4" /> Dashboard
+          </Link>
           <a
             href="#planes"
-            className="px-5 py-2.5 rounded-xl bg-gradient-to-b from-[#3b82f6] to-[#1e40af] text-sm font-bold text-white shadow-[0_10px_24px_rgba(30,64,175,0.45)] hover:brightness-110 hover:scale-[1.02] active:scale-[0.98] transition-all"
+            className="px-5 py-2.5 rounded-xl bg-white/5 border border-white/10 text-sm font-bold text-white/70 hover:text-white hover:bg-white/10 hover:scale-[1.02] active:scale-[0.98] transition-all"
           >
             Comenzar ahora
           </a>
@@ -188,10 +196,17 @@ function Navbar() {
                   {l.label}
                 </a>
               ))}
+              <Link
+                href="/dashboard"
+                onClick={() => setMobileOpen(false)}
+                className="flex items-center justify-center gap-2 w-full text-center px-5 py-3 rounded-xl bg-gradient-to-b from-[#3b82f6] to-[#1e40af] text-sm font-bold text-white"
+              >
+                <LayoutDashboard className="w-4 h-4" /> Ir al Dashboard
+              </Link>
               <a
                 href="#planes"
                 onClick={() => setMobileOpen(false)}
-                className="mt-2 w-full text-center px-5 py-3 rounded-xl bg-gradient-to-b from-[#3b82f6] to-[#1e40af] text-sm font-bold text-white"
+                className="w-full text-center px-5 py-3 rounded-xl bg-white/5 border border-white/10 text-sm font-bold text-white/70"
               >
                 Comenzar ahora
               </a>
@@ -328,13 +343,13 @@ function Hero() {
           transition={{ duration: 0.6, delay: 0.6 }}
           className="w-full max-w-md"
         >
-          <a
-            href="#planes"
+          <Link
+            href="/dashboard"
             className="animate-pulse-glow block w-full py-4 px-6 rounded-2xl bg-gradient-to-b from-[#3b82f6] to-[#1e40af] text-center font-extrabold text-base text-white border border-white/10 hover:brightness-110 hover:scale-[1.01] active:scale-[0.99] transition-all"
           >
-            Comenzar a crear contenido ahora
+            Ir al Dashboard
             <ArrowRight className="inline-block w-4 h-4 ml-2" />
-          </a>
+          </Link>
           <p className="mt-3 text-xs text-white/40 text-center">
             Sin tarjeta de crédito &bull; Acceso inmediato &bull; Resultados
             desde el día 1

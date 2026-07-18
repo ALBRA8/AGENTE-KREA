@@ -34,3 +34,27 @@ Stage Summary:
 - Dark theme UI matching original Productor 360 aesthetic
 - All API routes verified working (register, login, generations query)
 - Complete user flow: Landing → Auth → Dashboard → Tools → Library
+
+---
+Task ID: 3
+Agent: Main Agent
+Task: Add dashboard button to landing page + integrate Prompt Generator skill
+
+Work Log:
+- Added "Ir al Dashboard" button to landing page navbar (desktop + mobile) using Next.js Link to /dashboard
+- Changed hero CTA from "Comenzar a crear contenido ahora" to "Ir al Dashboard" linking to /dashboard
+- Created /dashboard/page.tsx with auth gate (checks localStorage for p360_token, shows AuthPage if not logged in)
+- Created /api/generate/prompt API route with 4 system prompts based on the gerador-de-prompts skill:
+  - image: Professional image prompts with camera, lens, lighting, rendering specs
+  - video: Veo3-style video prompts (5-8s clips, movement, atmosphere)
+  - animate: Image animation prompts (subtle cinematic motion)
+  - clone: Gemini-style face cloning prompts (extreme fidelity specs)
+- Added PromptGenerator component to AppShell with 4 category cards, example filler, info box, copy button
+- Added "Generador de Prompts" to sidebar NAV (Wand2 icon, 2 credits cost)
+- Build verified: all routes compiled successfully
+
+Stage Summary:
+- Landing page now has 3 prominent "Dashboard" entry points (navbar desktop, navbar mobile, hero CTA)
+- Dashboard route /dashboard created with proper auth gating
+- Prompt Generator is the second tool in sidebar (after Dashboard), costs 2 credits per generation
+- All 4 prompt categories from the skill are fully integrated with specialized system prompts

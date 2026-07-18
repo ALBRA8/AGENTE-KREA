@@ -24,6 +24,7 @@ export const useAuth = () => useContext(AuthCtx);
 /* ════════════ Sidebar ════════════ */
 const NAV = [
   { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { id: "prompts", label: "Generador de Prompts", icon: Wand2, cost: 2 },
   { id: "images", label: "Generador de Imágenes", icon: Image, cost: 3 },
   { id: "copy", label: "Copywriting", icon: Copy, cost: 2 },
   { id: "social", label: "Contenido Redes", icon: MessageSquare, cost: 2 },
@@ -498,6 +499,202 @@ function SubtitleGenerator({ user, onUpdateCredits }: { user: User; onUpdateCred
   );
 }
 
+/* ════════════ Prompt Generator ════════════ */
+function PromptGenerator({ user, onUpdateCredits }: { user: User; onUpdateCredits: (c: number) => void }) {
+  const [category, setCategory] = useState("image");
+  const [description, setDescription] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [result, setResult] = useState("");
+  const [error, setError] = useState("");
+
+  const categories = [
+    {
+      id: "image",
+      label: "Imágenes Profesionales",
+      desc: "Prompts técnicos para IA de imágenes con cámara, iluminación y estilo.",
+      icon: Image,
+      color: "from-blue-500 to-blue-700",
+      example: "Una mujer con vestido rojo en un estudio oscuro con luz de neón azul",
+    },
+    {
+      id: "video",
+      label: "Videos Estilo Veo3",
+      desc: "Prompts para videos IA de 5-8s con movimiento y atmósfera.",
+      icon: Video,
+      color: "from-purple-500 to-purple-700",
+      example: "Un hombre caminando por una calle lluviosa de Tokio de noche",
+    },
+    {
+      id: "animate",
+      label: "Animar Imagen",
+      desc: "Prompts para dar movimiento sutil y cinematográfico a imágenes estáticas.",
+      icon: RefreshCw,
+      color: "from-emerald-500 to-emerald-700",
+      example: "Retrato de una mujer con el viento moviendo su cabello suavemente",
+    },
+    {
+      id: "clone",
+      label: "Clone / Gemini",
+      desc: "Prompts para clonar rostros con fidelidad extrema a partir de fotos.",
+      icon: Type,
+      color: "from-orange-500 to-orange-700",
+      example: "Mismo rostro de la foto de referencia pero con expresión sonriente, fondo de playa al atardecer",
+    },
+  ];
+
+  const currentCat = categories.find((c) => c.id === category)!;
+
+  const generate = async () => {
+    setLoading(true);
+    setError("");
+    setResult("");
+    try {
+      const res = await fetch("/api/generate/prompt", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${user.id}` },
+        body: JSON.stringify({ description, category }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error);
+        return;
+      }
+      setResult(data.prompt);
+      onUpdateCredits(data.credits);
+    } catch {
+      setError("Error de conexión");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fillExample = () => setDescription(currentCat.example);
+
+  return (
+    <div>
+      <div className="mb-6">
+        <h1 className="text-2xl font-extrabold mb-1">Generador de <span className="gradient-text">Prompts</span></h1>
+        <p className="text-sm text-white/50">
+          Transforma ideas simples en prompts profesionales y técnicos para IAs generativas. Costo:{" "}
+          <span className="text-yellow-400 font-semibold">2 créditos</span>
+        </p>
+      </div>
+
+      {/* Category Selection */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-6">
+        {categories.map((cat) => (
+          <button
+            key={cat.id}
+            onClick={() => { setCategory(cat.id); setResult(""); setError(""); }}
+            className={`p-4 rounded-2xl text-left transition-all border ${
+              category === cat.id
+                ? "bg-gradient-to-br from-[#3b82f6]/10 to-[#7c3aed]/10 border-[#3b82f6]/30 text-white"
+                : "bg-[#0f1629] border-white/[0.06] text-white/60 hover:border-white/15 hover:text-white/80"
+            }`}
+          >
+            <div className="flex items-center gap-3 mb-2">
+              <div className={`inline-flex items-center justify-center w-9 h-9 rounded-xl bg-gradient-to-br ${cat.color}`}>
+                <cat.icon className="w-4 h-4 text-white" />
+              </div>
+              <p className="text-sm font-bold">{cat.label}</p>
+            </div>
+            <p className="text-xs text-white/40 leading-relaxed">{cat.desc}</p>
+          </button>
+        ))}
+      </div>
+
+      {/* Info Box */}
+      <div className="mb-6 p-4 rounded-2xl bg-[#0f1629] border border-white/[0.06]">
+        <div className="flex items-start gap-3">
+          <div className={`inline-flex items-center justify-center w-9 h-9 rounded-xl bg-gradient-to-br ${currentCat.color} flex-shrink-0 mt-0.5`}>
+            <currentCat.icon className="w-4 h-4 text-white" />
+          </div>
+          <div>
+            <p className="text-sm font-semibold mb-1">{currentCat.label}</p>
+            <p className="text-xs text-white/40 leading-relaxed">{currentCat.desc}</p>
+            {category === "video" && (
+              <p className="text-[10px] text-yellow-400/80 mt-2 flex items-center gap-1">
+                ⚠️ Los videos IA generan clips de 5-8 segundos máximo. Una sola escena por prompt.
+              </p>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Input Area */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="space-y-4">
+          <div>
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="text-xs text-white/50">Describe lo que quieres crear</label>
+              <button onClick={fillExample} className="text-[10px] text-[#3b82f6] hover:underline flex items-center gap-1">
+                <Sparkles className="w-3 h-3" /> Usar ejemplo
+              </button>
+            </div>
+            <textarea
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              rows={5}
+              className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm placeholder:text-white/30 focus:outline-none focus:border-[#3b82f6] transition-colors resize-none"
+              placeholder={currentCat.example}
+            />
+          </div>
+          <button
+            onClick={generate}
+            disabled={loading || !description}
+            className="w-full py-3.5 rounded-xl bg-gradient-to-b from-[#3b82f6] to-[#1e40af] text-white font-bold text-sm shadow-[0_10px_24px_rgba(30,64,175,0.45)] hover:brightness-110 active:scale-[0.98] transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+          >
+            {loading ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" /> Generando prompt profesional...
+              </>
+            ) : (
+              <>
+                <Wand2 className="w-4 h-4" /> Generar prompt (-2 créditos)
+              </>
+            )}
+          </button>
+          {error && <p className="text-red-400 text-xs text-center">{error}</p>}
+        </div>
+
+        {/* Result */}
+        <div>
+          {result ? (
+            <div className="rounded-2xl border border-white/[0.06] bg-[#0f1629] h-full flex flex-col">
+              <div className="flex items-center justify-between p-3 border-b border-white/[0.06]">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-white/40">Prompt generado</span>
+                  <span className="px-2 py-0.5 rounded-md bg-[#3b82f6]/10 text-[#3b82f6] text-[10px] font-medium">{currentCat.label}</span>
+                </div>
+                <button
+                  onClick={() => navigator.clipboard.writeText(result)}
+                  className="text-xs text-[#3b82f6] flex items-center gap-1 hover:underline"
+                >
+                  <Copy className="w-3 h-3" /> Copiar
+                </button>
+              </div>
+              <div className="flex-1 p-4">
+                <pre className="text-sm text-white/80 whitespace-pre-wrap leading-relaxed font-[inherit]">{result}</pre>
+              </div>
+              <div className="p-3 border-t border-white/[0.06]">
+                <p className="text-[10px] text-white/30">El prompt está en inglés para máxima compatibilidad con IAs generativas. Pégalo directamente en tu herramienta de IA favorita.</p>
+              </div>
+            </div>
+          ) : (
+            <div className="h-full min-h-[300px] rounded-2xl border border-dashed border-white/10 flex items-center justify-center bg-white/[0.02]">
+              <div className="text-center text-white/20">
+                <Wand2 className="w-12 h-12 mx-auto mb-3 opacity-50" />
+                <p className="text-sm font-medium mb-1">Tu prompt profesional aparecerá aquí</p>
+                <p className="text-xs text-white/15">Describe tu idea y la IA creará un prompt técnico detallado</p>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ════════════ Library ════════════ */
 function Library({ user }: { user: User }) {
   const [gens, setGens] = useState<Generation[]>([]);
@@ -613,6 +810,7 @@ export default function AppPage({ onLogout }: AppShellProps) {
       case "voice": return <VoiceGenerator user={user} onUpdateCredits={onUpdateCredits} />;
       case "ebook": return <EbookGenerator user={user} onUpdateCredits={onUpdateCredits} />;
       case "subtitle": return <SubtitleGenerator user={user} onUpdateCredits={onUpdateCredits} />;
+      case "prompts": return <PromptGenerator user={user} onUpdateCredits={onUpdateCredits} />;
       case "library": return <Library user={user} />;
       default: return <Dashboard user={user} generations={generations} />;
     }
