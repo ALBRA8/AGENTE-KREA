@@ -599,36 +599,41 @@ function Library({ user }: { user: User }) {
 interface AppShellProps { onLogout: () => void; user?: User | null }
 
 export default function AppPage({ onLogout, user: initialUser }: AppShellProps) {
-  const [user, setUser] = useState<User | null>(initialUser || null);
+  const [user, setUser] = useState<User | null>(() => {
+    if (initialUser) return initialUser;
+    try {
+      const saved = localStorage.getItem("p360_user");
+      return saved ? JSON.parse(saved) : null;
+    } catch { return null; }
+  });
   const [page, setPage] = useState("dashboard");
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [loading, setLoading] = useState(!initialUser);
+  const [loading, setLoading] = useState(false);
   const [generations, setGenerations] = useState<Generation[]>([]);
 
   const loadUser = useCallback(async () => {
     const token = localStorage.getItem("p360_token");
-    if (!token) { if (!initialUser) onLogout(); else setLoading(false); return; }
+    if (!token) { if (!user) onLogout(); else setLoading(false); return; }
     try {
       const res = await fetch("/api/auth/me", { headers: { Authorization: `Bearer ${token}` } });
-      if (!res.ok) { if (!initialUser) onLogout(); else setLoading(false); return; }
+      if (!res.ok) { if (!user) onLogout(); else setLoading(false); return; }
       const data = await res.json();
       setUser(data);
       const gRes = await fetch("/api/generations?limit=10", { headers: { Authorization: `Bearer ${token}` } });
       if (gRes.ok) setGenerations(await gRes.json());
-    } catch { if (!initialUser) onLogout(); }
+    } catch { if (!user) onLogout(); }
     setLoading(false);
-  }, [initialUser, onLogout]);
+  }, [user, onLogout]);
 
-  useEffect(() => { if (!initialUser) loadUser(); else {
-    // Load generations for pre-authenticated user
+  useEffect(() => {
     const token = localStorage.getItem("p360_token");
-    if (token) {
+    if (token && user) {
       fetch("/api/generations?limit=10", { headers: { Authorization: `Bearer ${token}` } })
         .then(r => r.ok ? r.json() : [])
         .then(setGenerations)
         .catch(() => {});
     }
-  }}, [initialUser, loadUser]);
+  }, []);
 
   const logout = () => { localStorage.removeItem("p360_token"); localStorage.removeItem("p360_user"); onLogout(); };
   const refreshUser = () => loadUser();

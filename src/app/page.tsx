@@ -2,7 +2,6 @@
 
 import { useState, useEffect, useRef } from "react";
 import { motion, useInView, AnimatePresence } from "framer-motion";
-import Link from "next/link";
 import {
   Play,
   Sparkles,
@@ -105,7 +104,7 @@ function FadeInSection({
 }
 
 /* ─────────── Nav ─────────── */
-function Navbar() {
+function Navbar({ onEnterApp }: { onEnterApp: () => void }) {
   const [scrolled, setScrolled] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
 
@@ -154,12 +153,12 @@ function Navbar() {
               {l.label}
             </a>
           ))}
-          <Link
-            href="/studio"
+          <button
+            onClick={onEnterApp}
             className="px-5 py-2.5 rounded-xl bg-gradient-to-b from-[#3b82f6] to-[#1e40af] text-sm font-bold text-white shadow-[0_10px_24px_rgba(30,64,175,0.45)] hover:brightness-110 hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center gap-2"
           >
             <LayoutDashboard className="w-4 h-4" /> Dashboard
-          </Link>
+          </button>
           <a
             href="#planes"
             className="px-5 py-2.5 rounded-xl bg-white/5 border border-white/10 text-sm font-bold text-white/70 hover:text-white hover:bg-white/10 hover:scale-[1.02] active:scale-[0.98] transition-all"
@@ -198,13 +197,12 @@ function Navbar() {
                   {l.label}
                 </a>
               ))}
-              <Link
-                href="/studio"
-                onClick={() => setMobileOpen(false)}
+              <button
+                onClick={() => { setMobileOpen(false); onEnterApp(); }}
                 className="flex items-center justify-center gap-2 w-full text-center px-5 py-3 rounded-xl bg-gradient-to-b from-[#3b82f6] to-[#1e40af] text-sm font-bold text-white"
               >
                 <LayoutDashboard className="w-4 h-4" /> Ir al Dashboard
-              </Link>
+              </button>
               <a
                 href="#planes"
                 onClick={() => setMobileOpen(false)}
@@ -221,7 +219,7 @@ function Navbar() {
 }
 
 /* ─────────── Hero ─────────── */
-function Hero() {
+function Hero({ onEnterApp }: { onEnterApp: () => void }) {
   return (
     <section className="relative min-h-screen flex flex-col items-center justify-center px-4 pt-24 pb-16 overflow-hidden">
       {/* Background gradients */}
@@ -345,13 +343,13 @@ function Hero() {
           transition={{ duration: 0.6, delay: 0.6 }}
           className="w-full max-w-md"
         >
-          <Link
-            href="/studio"
+          <button
+            onClick={onEnterApp}
             className="animate-pulse-glow block w-full py-4 px-6 rounded-2xl bg-gradient-to-b from-[#3b82f6] to-[#1e40af] text-center font-extrabold text-base text-white border border-white/10 hover:brightness-110 hover:scale-[1.01] active:scale-[0.99] transition-all"
           >
             Ir al Dashboard
             <ArrowRight className="inline-block w-4 h-4 ml-2" />
-          </Link>
+          </button>
           <p className="mt-3 text-xs text-white/40 text-center">
             Sin tarjeta de crédito &bull; Acceso inmediato &bull; Resultados
             desde el día 1
@@ -962,11 +960,11 @@ function Footer() {
 }
 
 /* ─────────── Landing Page ─────────── */
-function LandingPage() {
+function LandingPage({ onEnterApp }: { onEnterApp: () => void }) {
   return (
     <main className="min-h-screen flex flex-col">
-      <Navbar />
-      <Hero />
+      <Navbar onEnterApp={onEnterApp} />
+      <Hero onEnterApp={onEnterApp} />
       <ToolsSection />
       <HowItWorksSection />
       <BenefitsSection />
@@ -998,6 +996,19 @@ export default function Home() {
   const [view, setView] = useState<View>("landing");
   const [key, setKey] = useState(0);
 
+  async function onEnterApp() {
+    try {
+      const res = await fetch("/api/auth/auto-login", { method: "POST" });
+      if (res.ok) {
+        const data = await res.json();
+        localStorage.setItem("p360_token", data.id);
+        localStorage.setItem("p360_user", JSON.stringify(data));
+      }
+    } catch {}
+    setView("app");
+    setKey(k => k + 1);
+  }
+
   useEffect(() => {
     const token = localStorage.getItem("p360_token");
     if (token) setView("app");
@@ -1013,8 +1024,8 @@ export default function Home() {
 
   return (
     <>
-      <LandingPage />
-      <FloatingAppButton onClick={() => setView("auth")} />
+      <LandingPage onEnterApp={onEnterApp} />
+      <FloatingAppButton onClick={onEnterApp} />
     </>
   );
 }
