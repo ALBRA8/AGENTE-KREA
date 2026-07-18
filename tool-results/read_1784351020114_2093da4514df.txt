@@ -1,0 +1,962 @@
+     1→"use client";
+     2→
+     3→import { useState, useEffect, useRef } from "react";
+     4→import { motion, useInView, AnimatePresence } from "framer-motion";
+     5→import {
+     6→  Play,
+     7→  Sparkles,
+     8→  Video,
+     9→  Image,
+    10→  BookOpen,
+    11→  Wand2,
+    12→  Zap,
+    13→  Clock,
+    14→  Target,
+    15→  TrendingUp,
+    16→  Users,
+    17→  Star,
+    18→  Check,
+    19→  ChevronDown,
+    20→  ArrowRight,
+    21→  Menu,
+    22→  X,
+    23→  Palette,
+    24→  FileText,
+    25→  Bot,
+    26→  BarChart3,
+    27→  MessageSquare,
+    28→  Shield,
+    29→} from "lucide-react";
+    30→import {
+    31→  Accordion,
+    32→  AccordionContent,
+    33→  AccordionItem,
+    34→  AccordionTrigger,
+    35→} from "@/components/ui/accordion";
+    36→
+    37→/* ─────────── Animated Counter ─────────── */
+    38→function AnimatedCounter({
+    39→  target,
+    40→  suffix = "",
+    41→  prefix = "",
+    42→}: {
+    43→  target: number;
+    44→  suffix?: string;
+    45→  prefix?: string;
+    46→}) {
+    47→  const [count, setCount] = useState(0);
+    48→  const ref = useRef<HTMLSpanElement>(null);
+    49→  const isInView = useInView(ref, { once: true });
+    50→
+    51→  useEffect(() => {
+    52→    if (!isInView) return;
+    53→    let start = 0;
+    54→    const duration = 2000;
+    55→    const step = target / (duration / 16);
+    56→    const timer = setInterval(() => {
+    57→      start += step;
+    58→      if (start >= target) {
+    59→        setCount(target);
+    60→        clearInterval(timer);
+    61→      } else {
+    62→        setCount(Math.floor(start));
+    63→      }
+    64→    }, 16);
+    65→    return () => clearInterval(timer);
+    66→  }, [isInView, target]);
+    67→
+    68→  return (
+    69→    <span ref={ref}>
+    70→      {prefix}
+    71→      {count.toLocaleString("es-ES")}
+    72→      {suffix}
+    73→    </span>
+    74→  );
+    75→}
+    76→
+    77→/* ─────────── Fade In Section ─────────── */
+    78→function FadeInSection({
+    79→  children,
+    80→  className = "",
+    81→  delay = 0,
+    82→}: {
+    83→  children: React.ReactNode;
+    84→  className?: string;
+    85→  delay?: number;
+    86→}) {
+    87→  const ref = useRef<HTMLDivElement>(null);
+    88→  const isInView = useInView(ref, { once: true, margin: "-60px" });
+    89→
+    90→  return (
+    91→    <motion.div
+    92→      ref={ref}
+    93→      initial={{ opacity: 0, y: 40 }}
+    94→      animate={isInView ? { opacity: 1, y: 0 } : {}}
+    95→      transition={{ duration: 0.6, delay, ease: "easeOut" }}
+    96→      className={className}
+    97→    >
+    98→      {children}
+    99→    </motion.div>
+   100→  );
+   101→}
+   102→
+   103→/* ─────────── Nav ─────────── */
+   104→function Navbar() {
+   105→  const [scrolled, setScrolled] = useState(false);
+   106→  const [mobileOpen, setMobileOpen] = useState(false);
+   107→
+   108→  useEffect(() => {
+   109→    const onScroll = () => setScrolled(window.scrollY > 40);
+   110→    window.addEventListener("scroll", onScroll, { passive: true });
+   111→    return () => window.removeEventListener("scroll", onScroll);
+   112→  }, []);
+   113→
+   114→  const links = [
+   115→    { label: "Herramientas", href: "#herramientas" },
+   116→    { label: "Cómo funciona", href: "#como-funciona" },
+   117→    { label: "Beneficios", href: "#beneficios" },
+   118→    { label: "Planes", href: "#planes" },
+   119→    { label: "FAQ", href: "#faq" },
+   120→  ];
+   121→
+   122→  return (
+   123→    <nav
+   124→      className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${
+   125→        scrolled
+   126→          ? "glass py-3 shadow-lg shadow-black/20"
+   127→          : "py-5 bg-transparent"
+   128→      }`}
+   129→    >
+   130→      <div className="max-w-6xl mx-auto px-4 flex items-center justify-between">
+   131→        <a href="#" className="flex items-center gap-3 group">
+   132→          <img
+   133→            src="/productor360-logo.png"
+   134→            alt="Productor 360"
+   135→            className="h-9 w-9 rounded-lg object-contain transition-transform group-hover:scale-110"
+   136→          />
+   137→          <span className="text-lg font-bold tracking-tight">
+   138→            Productor <span className="gradient-text">360</span>
+   139→          </span>
+   140→        </a>
+   141→
+   142→        {/* Desktop */}
+   143→        <div className="hidden md:flex items-center gap-8">
+   144→          {links.map((l) => (
+   145→            <a
+   146→              key={l.href}
+   147→              href={l.href}
+   148→              className="text-sm text-white/60 hover:text-white transition-colors duration-200"
+   149→            >
+   150→              {l.label}
+   151→            </a>
+   152→          ))}
+   153→          <a
+   154→            href="#planes"
+   155→            className="px-5 py-2.5 rounded-xl bg-gradient-to-b from-[#3b82f6] to-[#1e40af] text-sm font-bold text-white shadow-[0_10px_24px_rgba(30,64,175,0.45)] hover:brightness-110 hover:scale-[1.02] active:scale-[0.98] transition-all"
+   156→          >
+   157→            Comenzar ahora
+   158→          </a>
+   159→        </div>
+   160→
+   161→        {/* Mobile toggle */}
+   162→        <button
+   163→          className="md:hidden text-white/80 hover:text-white"
+   164→          onClick={() => setMobileOpen(!mobileOpen)}
+   165→          aria-label="Toggle menu"
+   166→        >
+   167→          {mobileOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
+   168→        </button>
+   169→      </div>
+   170→
+   171→      {/* Mobile menu */}
+   172→      <AnimatePresence>
+   173→        {mobileOpen && (
+   174→          <motion.div
+   175→            initial={{ opacity: 0, height: 0 }}
+   176→            animate={{ opacity: 1, height: "auto" }}
+   177→            exit={{ opacity: 0, height: 0 }}
+   178→            className="md:hidden glass mt-2 mx-4 rounded-2xl overflow-hidden"
+   179→          >
+   180→            <div className="flex flex-col p-4 gap-3">
+   181→              {links.map((l) => (
+   182→                <a
+   183→                  key={l.href}
+   184→                  href={l.href}
+   185→                  onClick={() => setMobileOpen(false)}
+   186→                  className="text-sm text-white/70 hover:text-white py-2 px-3 rounded-lg hover:bg-white/5 transition-all"
+   187→                >
+   188→                  {l.label}
+   189→                </a>
+   190→              ))}
+   191→              <a
+   192→                href="#planes"
+   193→                onClick={() => setMobileOpen(false)}
+   194→                className="mt-2 w-full text-center px-5 py-3 rounded-xl bg-gradient-to-b from-[#3b82f6] to-[#1e40af] text-sm font-bold text-white"
+   195→              >
+   196→                Comenzar ahora
+   197→              </a>
+   198→            </div>
+   199→          </motion.div>
+   200→        )}
+   201→      </AnimatePresence>
+   202→    </nav>
+   203→  );
+   204→}
+   205→
+   206→/* ─────────── Hero ─────────── */
+   207→function Hero() {
+   208→  return (
+   209→    <section className="relative min-h-screen flex flex-col items-center justify-center px-4 pt-24 pb-16 overflow-hidden">
+   210→      {/* Background gradients */}
+   211→      <div className="absolute inset-0 pointer-events-none">
+   212→        <div
+   213→          className="absolute top-0 left-1/4 w-[600px] h-[600px] rounded-full opacity-40"
+   214→          style={{
+   215→            background:
+   216→              "radial-gradient(circle, rgba(124, 58, 237, 0.35) 0%, transparent 70%)",
+   217→          }}
+   218→        />
+   219→        <div
+   220→          className="absolute bottom-0 right-1/4 w-[500px] h-[500px] rounded-full opacity-30"
+   221→          style={{
+   222→            background:
+   223→              "radial-gradient(circle, rgba(37, 99, 235, 0.3) 0%, transparent 70%)",
+   224→          }}
+   225→        />
+   226→        {/* Grid pattern */}
+   227→        <div
+   228→          className="absolute inset-0 opacity-[0.03]"
+   229→          style={{
+   230→            backgroundImage:
+   231→              "linear-gradient(rgba(255,255,255,0.1) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.1) 1px, transparent 1px)",
+   232→            backgroundSize: "60px 60px",
+   233→          }}
+   234→        />
+   235→      </div>
+   236→
+   237→      <div className="relative z-10 max-w-3xl mx-auto text-center flex flex-col items-center gap-6">
+   238→        {/* Badge */}
+   239→        <motion.div
+   240→          initial={{ opacity: 0, y: 20 }}
+   241→          animate={{ opacity: 1, y: 0 }}
+   242→          transition={{ duration: 0.5 }}
+   243→          className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full border border-white/10 bg-white/5 text-xs font-medium text-white/70"
+   244→        >
+   245→          <Sparkles className="w-3.5 h-3.5 text-[#7c3aed]" />
+   246→          Potenciado por Inteligencia Artificial
+   247→        </motion.div>
+   248→
+   249→        {/* Logo */}
+   250→        <motion.div
+   251→          initial={{ opacity: 0, scale: 0.8 }}
+   252→          animate={{ opacity: 1, scale: 1 }}
+   253→          transition={{ duration: 0.5, delay: 0.1 }}
+   254→          className="animate-float"
+   255→        >
+   256→          <img
+   257→            src="/productor360-logo.png"
+   258→            alt="Productor 360 Logo"
+   259→            className="h-20 w-20 md:h-24 md:w-24 object-contain"
+   260→          />
+   261→        </motion.div>
+   262→
+   263→        {/* Headline */}
+   264→        <motion.h1
+   265→          initial={{ opacity: 0, y: 20 }}
+   266→          animate={{ opacity: 1, y: 0 }}
+   267→          transition={{ duration: 0.6, delay: 0.2 }}
+   268→          className="text-3xl sm:text-4xl md:text-5xl font-extrabold leading-tight tracking-tight"
+   269→        >
+   270→          Tu fábrica de contenido
+   271→          <br />
+   272→          <span className="gradient-text">con Inteligencia Artificial</span>
+   273→        </motion.h1>
+   274→
+   275→        {/* Subtitle */}
+   276→        <motion.p
+   277→          initial={{ opacity: 0, y: 20 }}
+   278→          animate={{ opacity: 1, y: 0 }}
+   279→          transition={{ duration: 0.6, delay: 0.3 }}
+   280→          className="text-base sm:text-lg text-white/60 max-w-xl leading-relaxed"
+   281→        >
+   282→          Crea{" "}
+   283→          <span className="text-white font-semibold">Creativos Profesionales</span>{" "}
+   284→          en imágenes y videos con IA — incluso sin experiencia y sin saber nada
+   285→          de diseño o edición.
+   286→        </motion.p>
+   287→
+   288→        {/* Video placeholder */}
+   289→        <motion.div
+   290→          initial={{ opacity: 0, y: 20 }}
+   291→          animate={{ opacity: 1, y: 0 }}
+   292→          transition={{ duration: 0.6, delay: 0.4 }}
+   293→          className="w-full max-w-xl aspect-video rounded-2xl overflow-hidden border border-white/10 bg-black/40 relative group cursor-pointer"
+   294→        >
+   295→          <div className="absolute inset-0 bg-gradient-to-br from-[#7c3aed]/20 to-[#2563eb]/20" />
+   296→          <div className="absolute inset-0 flex items-center justify-center">
+   297→            <div className="w-16 h-16 rounded-full bg-white/10 backdrop-blur-sm border border-white/20 flex items-center justify-center group-hover:scale-110 group-hover:bg-white/20 transition-all duration-300">
+   298→              <Play className="w-7 h-7 text-white ml-1" fill="white" />
+   299→            </div>
+   300→          </div>
+   301→          <div className="absolute bottom-4 left-4 right-4 flex items-center gap-2 text-xs text-white/50">
+   302→            <Clock className="w-3.5 h-3.5" />
+   303→            Descubre cómo funciona en 2 minutos
+   304→          </div>
+   305→        </motion.div>
+   306→
+   307→        {/* Pain point */}
+   308→        <motion.div
+   309→          initial={{ opacity: 0, y: 20 }}
+   310→          animate={{ opacity: 1, y: 0 }}
+   311→          transition={{ duration: 0.6, delay: 0.5 }}
+   312→          className="text-center space-y-2 max-w-lg"
+   313→        >
+   314→          <p className="text-sm text-white/50">
+   315→            Basta de perder horas produciendo{" "}
+   316→            <span className="text-red-400 font-semibold">creativos amateurs</span>{" "}
+   317→            que nunca traen resultados.
+   318→          </p>
+   319→          <p className="text-base font-bold text-white">
+   320→            Productor 360 hace todo el trabajo por ti.
+   321→          </p>
+   322→        </motion.div>
+   323→
+   324→        {/* CTA */}
+   325→        <motion.div
+   326→          initial={{ opacity: 0, y: 20 }}
+   327→          animate={{ opacity: 1, y: 0 }}
+   328→          transition={{ duration: 0.6, delay: 0.6 }}
+   329→          className="w-full max-w-md"
+   330→        >
+   331→          <a
+   332→            href="#planes"
+   333→            className="animate-pulse-glow block w-full py-4 px-6 rounded-2xl bg-gradient-to-b from-[#3b82f6] to-[#1e40af] text-center font-extrabold text-base text-white border border-white/10 hover:brightness-110 hover:scale-[1.01] active:scale-[0.99] transition-all"
+   334→          >
+   335→            Comenzar a crear contenido ahora
+   336→            <ArrowRight className="inline-block w-4 h-4 ml-2" />
+   337→          </a>
+   338→          <p className="mt-3 text-xs text-white/40 text-center">
+   339→            Sin tarjeta de crédito &bull; Acceso inmediato &bull; Resultados
+   340→            desde el día 1
+   341→          </p>
+   342→        </motion.div>
+   343→      </div>
+   344→    </section>
+   345→  );
+   346→}
+   347→
+   348→/* ─────────── Tools / Features ─────────── */
+   349→const tools = [
+   350→  {
+   351→    icon: Video,
+   352→    title: "Videos con IA",
+   353→    desc: "Genera videos profesionales con actores virtuales, voces naturales y efectos cinematográficos. Ideales para reels, ads y contenido viral.",
+   354→    color: "from-blue-500 to-blue-700",
+   355→  },
+   356→  {
+   357→    icon: Image,
+   358→    title: "Creativos e Imágenes",
+   359→    desc: "Crea imágenes de alta resolución para redes sociales, anuncios y campañas. Estilos ilimitados con prompts inteligentes en español.",
+   360→    color: "from-purple-500 to-purple-700",
+   361→  },
+   362→  {
+   363→    icon: BookOpen,
+   364→    title: "Ebooks y PDFs",
+   365→    desc: "Genera ebooks completos, guías y lead magnets profesionales en minutos. Ideal para captar leads y posicionar tu marca.",
+   366→    color: "from-emerald-500 to-emerald-700",
+   367→  },
+   368→  {
+   369→    icon: FileText,
+   370→    title: "Copywriting IA",
+   371→    desc: "Escribe textos que venden: titulares, descripciones, scripts de video, emails y contenido para blogs con IA especializada en conversión.",
+   372→    color: "from-orange-500 to-orange-700",
+   373→  },
+   374→  {
+   375→    icon: Bot,
+   376→    title: "Chatbots Inteligentes",
+   377→    desc: "Crea asistentes virtuales para atención al cliente, ventas y soporte. Se entrenan con tu información y responden 24/7.",
+   378→    color: "from-pink-500 to-pink-700",
+   379→  },
+   380→  {
+   381→    icon: BarChart3,
+   382→    title: "Estrategia de Contenido",
+   383→    desc: "Planifica calendarios editoriales, obtén ideas virales y optimiza tu estrategia de contenido con análisis de tendencias en tiempo real.",
+   384→    color: "from-cyan-500 to-cyan-700",
+   385→  },
+   386→];
+   387→
+   388→function ToolsSection() {
+   389→  return (
+   390→    <section id="herramientas" className="relative py-24 px-4">
+   391→      <div className="max-w-6xl mx-auto">
+   392→        <FadeInSection className="text-center mb-16">
+   393→          <span className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full border border-white/10 bg-white/5 text-xs font-medium text-white/70 mb-6">
+   394→            <Wand2 className="w-3.5 h-3.5 text-[#7c3aed]" />
+   395→            Herramientas de IA
+   396→          </span>
+   397→          <h2 className="text-3xl sm:text-4xl font-extrabold tracking-tight mb-4">
+   398→            Todo lo que necesitas para
+   399→            <br />
+   400→            <span className="gradient-text">crear contenido que vende</span>
+   401→          </h2>
+   402→          <p className="text-white/50 max-w-lg mx-auto leading-relaxed">
+   403→            Seis herramientas profesionales de inteligencia artificial diseñadas
+   404→            para que produzcas contenido de calidad sin experiencia previa.
+   405→          </p>
+   406→        </FadeInSection>
+   407→
+   408→        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+   409→          {tools.map((tool, i) => (
+   410→            <FadeInSection key={tool.title} delay={i * 0.1}>
+   411→              <div className="group relative h-full p-6 rounded-2xl bg-[#0f1629] border border-white/[0.06] hover:border-white/15 transition-all duration-300 hover:-translate-y-1">
+   412→                <div
+   413→                  className={`inline-flex items-center justify-center w-12 h-12 rounded-xl bg-gradient-to-br ${tool.color} mb-4`}
+   414→                >
+   415→                  <tool.icon className="w-6 h-6 text-white" />
+   416→                </div>
+   417→                <h3 className="text-lg font-bold mb-2">{tool.title}</h3>
+   418→                <p className="text-sm text-white/50 leading-relaxed">
+   419→                  {tool.desc}
+   420→                </p>
+   421→              </div>
+   422→            </FadeInSection>
+   423→          ))}
+   424→        </div>
+   425→      </div>
+   426→    </section>
+   427→  );
+   428→}
+   429→
+   430→/* ─────────── How it Works ─────────── */
+   431→const steps = [
+   432→  {
+   433→    num: "01",
+   434→    title: "Elige tu herramienta",
+   435→    desc: "Selecciona entre videos, imágenes, ebooks, copy, chatbots o estrategia. Cada herramienta está diseñada para un tipo de contenido específico.",
+   436→    icon: Palette,
+   437→  },
+   438→  {
+   439→    num: "02",
+   440→    title: "Describe lo que quieres",
+   441→    desc: "Escribe en español lo que necesitas. La IA entiende contexto, tono y objetivo. No necesitas ser experto en prompts ni en diseño.",
+   442→    icon: MessageSquare,
+   443→  },
+   444→  {
+   445→    num: "03",
+   446→    title: "La IA crea por ti",
+   447→    desc: "En segundos, Productor 360 genera contenido profesional listo para usar. Puedes editarlo, refinarlo y exportarlo en los formatos que necesites.",
+   448→    icon: Zap,
+   449→  },
+   450→  {
+   451→    num: "04",
+   452→    title: "Publica y vende más",
+   453→    desc: "Sube tus creativos a redes, ads o tu web. Contenido profesional que engancha, convierte y posiciona tu marca por encima de la competencia.",
+   454→    icon: TrendingUp,
+   455→  },
+   456→];
+   457→
+   458→function HowItWorksSection() {
+   459→  return (
+   460→    <section id="como-funciona" className="relative py-24 px-4">
+   461→      {/* Accent line */}
+   462→      <div className="absolute top-0 left-1/2 -translate-x-1/2 w-1/2 h-px bg-gradient-to-r from-transparent via-white/10 to-transparent" />
+   463→
+   464→      <div className="max-w-5xl mx-auto">
+   465→        <FadeInSection className="text-center mb-16">
+   466→          <span className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full border border-white/10 bg-white/5 text-xs font-medium text-white/70 mb-6">
+   467→            <Clock className="w-3.5 h-3.5 text-[#7c3aed]" />
+   468→            En 4 simples pasos
+   469→          </span>
+   470→          <h2 className="text-3xl sm:text-4xl font-extrabold tracking-tight mb-4">
+   471→            Cómo funciona
+   472→            <span className="gradient-text"> Productor 360</span>
+   473→          </h2>
+   474→          <p className="text-white/50 max-w-lg mx-auto leading-relaxed">
+   475→            De la idea al contenido publicado en menos de 3 minutos. Así de
+   476→            simple es revolucionar tu producción de contenido.
+   477→          </p>
+   478→        </FadeInSection>
+   479→
+   480→        <div className="relative">
+   481→          {/* Vertical line connector (desktop) */}
+   482→          <div className="hidden lg:block absolute left-1/2 top-0 bottom-0 w-px bg-gradient-to-b from-[#2563eb]/40 via-[#7c3aed]/40 to-transparent" />
+   483→
+   484→          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 lg:gap-12">
+   485→            {steps.map((step, i) => (
+   486→              <FadeInSection
+   487→                key={step.num}
+   488→                delay={i * 0.15}
+   489→                className={i % 2 === 1 ? "lg:mt-20" : ""}
+   490→              >
+   491→                <div className="relative flex gap-5">
+   492→                  {/* Step number */}
+   493→                  <div className="flex-shrink-0 relative">
+   494→                    <div
+   495→                      className={`w-14 h-14 rounded-2xl flex items-center justify-center text-sm font-bold ${
+   496→                        i % 2 === 0
+   497→                          ? "bg-gradient-to-br from-[#3b82f6] to-[#1e40af]"
+   498→                          : "bg-gradient-to-br from-[#7c3aed] to-[#5b21b6]"
+   499→                      }`}
+   500→                    >
+   501→                      {step.num}
+   502→                    </div>
+   503→                    {i < steps.length - 1 && (
+   504→                      <div className="lg:hidden absolute top-14 left-1/2 -translate-x-1/2 w-px h-8 bg-white/10" />
+   505→                    )}
+   506→                  </div>
+   507→                  <div>
+   508→                    <h3 className="text-lg font-bold mb-1.5">{step.title}</h3>
+   509→                    <p className="text-sm text-white/50 leading-relaxed">
+   510→                      {step.desc}
+   511→                    </p>
+   512→                  </div>
+   513→                </div>
+   514→              </FadeInSection>
+   515→            ))}
+   516→          </div>
+   517→        </div>
+   518→      </div>
+   519→    </section>
+   520→  );
+   521→}
+   522→
+   523→/* ─────────── Benefits / Social Proof ─────────── */
+   524→const benefits = [
+   525→  {
+   526→    icon: Clock,
+   527→    title: "Ahorra 90% del tiempo",
+   528→    desc: "Lo que antes te tomaba horas ahora toma minutos. Automatiza la creación de contenido y enfócate en crecer tu negocio.",
+   529→  },
+   530→  {
+   531→    icon: Target,
+   532→    title: "Contenido que convierte",
+   533→    desc: "Cada pieza está optimizada para generar engagement y ventas. No más contenido decorativo sin impacto real en tus resultados.",
+   534→  },
+   535→  {
+   536→    icon: Zap,
+   537→    title: "Sin curva de aprendizaje",
+   538→    desc: "Interfaz intuitiva en español. Si sabes escribir lo que quieres, ya sabes usar Productor 360. Cero experiencia técnica requerida.",
+   539→  },
+   540→  {
+   541→    icon: Shield,
+   542→    title: "Calidad profesional",
+   543→    desc: "Resultados comparables a producciones de agencias que cobran miles de dólares. Tu contenido se verá siempre impecable.",
+   544→  },
+   545→];
+   546→
+   547→const stats = [
+   548→  { value: 15000, suffix: "+", label: "Usuarios activos" },
+   549→  { value: 500000, suffix: "+", label: "Contenidos creados" },
+   550→  { value: 98, suffix: "%", label: "Satisfacción" },
+   551→  { value: 3, suffix: " min", label: "Tiempo promedio" },
+   552→];
+   553→
+   554→function BenefitsSection() {
+   555→  return (
+   556→    <section id="beneficios" className="relative py-24 px-4">
+   557→      <div className="absolute top-0 left-1/2 -translate-x-1/2 w-1/2 h-px bg-gradient-to-r from-transparent via-white/10 to-transparent" />
+   558→
+   559→      <div className="max-w-6xl mx-auto">
+   560→        <FadeInSection className="text-center mb-16">
+   561→          <span className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full border border-white/10 bg-white/5 text-xs font-medium text-white/70 mb-6">
+   562→            <TrendingUp className="w-3.5 h-3.5 text-[#7c3aed]" />
+   563→            ¿Por qué Productor 360?
+   564→          </span>
+   565→          <h2 className="text-3xl sm:text-4xl font-extrabold tracking-tight mb-4">
+   566→            Deja de crear contenido
+   567→            <br />
+   568→            <span className="gradient-text">como un aficionado</span>
+   569→          </h2>
+   570→        </FadeInSection>
+   571→
+   572→        {/* Benefits grid */}
+   573→        <div className="grid grid-cols-1 sm:grid-cols-2 gap-5 mb-16">
+   574→          {benefits.map((b, i) => (
+   575→            <FadeInSection key={b.title} delay={i * 0.1}>
+   576→              <div className="flex gap-4 p-5 rounded-2xl bg-[#0f1629] border border-white/[0.06]">
+   577→                <div className="flex-shrink-0 w-11 h-11 rounded-xl bg-gradient-to-br from-[#2563eb]/20 to-[#7c3aed]/20 flex items-center justify-center">
+   578→                  <b.icon className="w-5 h-5 text-[#3b82f6]" />
+   579→                </div>
+   580→                <div>
+   581→                  <h3 className="font-bold mb-1">{b.title}</h3>
+   582→                  <p className="text-sm text-white/50 leading-relaxed">
+   583→                    {b.desc}
+   584→                  </p>
+   585→                </div>
+   586→              </div>
+   587→            </FadeInSection>
+   588→          ))}
+   589→        </div>
+   590→
+   591→        {/* Stats */}
+   592→        <FadeInSection>
+   593→          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+   594→            {stats.map((s) => (
+   595→              <div
+   596→                key={s.label}
+   597→                className="text-center p-6 rounded-2xl bg-[#0f1629] border border-white/[0.06]"
+   598→              >
+   599→                <div className="text-3xl sm:text-4xl font-extrabold gradient-text mb-1">
+   600→                  <AnimatedCounter target={s.value} suffix={s.suffix} />
+   601→                </div>
+   602→                <p className="text-xs text-white/50">{s.label}</p>
+   603→              </div>
+   604→            ))}
+   605→          </div>
+   606→        </FadeInSection>
+   607→
+   608→        {/* Testimonials */}
+   609→        <FadeInSection delay={0.2} className="mt-16">
+   610→          <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+   611→            {[
+   612→              {
+   613→                name: "María González",
+   614→                role: "Marketing Manager",
+   615→                text: "Productor 360 transformó nuestra producción de contenido. Pasamos de crear 5 piezas al mes a más de 50, con mejor calidad.",
+   616→                avatar: "MG",
+   617→              },
+   618→              {
+   619→                name: "Carlos Méndez",
+   620→                role: "Emprendedor Digital",
+   621→                text: "Sin saber nada de diseño, ahora creo videos profesionales para mis ads. Mis costos de producción cayeron un 80%.",
+   622→                avatar: "CM",
+   623→              },
+   624→              {
+   625→                name: "Laura Patiño",
+   626→                role: "Creadora de Contenido",
+   627→                text: "La herramienta de ebooks me permitió lanzar 3 lead magnets en una semana. Mi lista de correo se triplicó en un mes.",
+   628→                avatar: "LP",
+   629→              },
+   630→            ].map((t) => (
+   631→              <div
+   632→                key={t.name}
+   633→                className="p-6 rounded-2xl bg-[#0f1629] border border-white/[0.06]"
+   634→              >
+   635→                <div className="flex gap-1 mb-4">
+   636→                  {[...Array(5)].map((_, j) => (
+   637→                    <Star
+   638→                      key={j}
+   639→                      className="w-4 h-4 text-yellow-400 fill-yellow-400"
+   640→                    />
+   641→                  ))}
+   642→                </div>
+   643→                <p className="text-sm text-white/60 leading-relaxed mb-4 italic">
+   644→                  &ldquo;{t.text}&rdquo;
+   645→                </p>
+   646→                <div className="flex items-center gap-3">
+   647→                  <div className="w-9 h-9 rounded-full bg-gradient-to-br from-[#3b82f6] to-[#7c3aed] flex items-center justify-center text-xs font-bold">
+   648→                    {t.avatar}
+   649→                  </div>
+   650→                  <div>
+   651→                    <p className="text-sm font-semibold">{t.name}</p>
+   652→                    <p className="text-xs text-white/40">{t.role}</p>
+   653→                  </div>
+   654→                </div>
+   655→              </div>
+   656→            ))}
+   657→          </div>
+   658→        </FadeInSection>
+   659→      </div>
+   660→    </section>
+   661→  );
+   662→}
+   663→
+   664→/* ─────────── Pricing ─────────── */
+   665→const plans = [
+   666→  {
+   667→    name: "Starter",
+   668→    price: "27",
+   669→    period: "/mes",
+   670→    desc: "Perfecto para comenzar a crear contenido con IA",
+   671→    features: [
+   672→      "50 imágenes por mes",
+   673→      "10 videos cortos (30s)",
+   674→      "5 ebooks / guías",
+   675→      "Copywriting básico",
+   676→      "Soporte por email",
+   677→    ],
+   678→    popular: false,
+   679→  },
+   680→  {
+   681→    name: "Profesional",
+   682→    price: "57",
+   683→    period: "/mes",
+   684→    desc: "Para creadores y emprendedores serios",
+   685→    features: [
+   686→      "500 imágenes por mes",
+   687→      "50 videos (hasta 2 min)",
+   688→      "Ebooks ilimitados",
+   689→      "Copywriting avanzado",
+   690→      "1 chatbot personalizado",
+   691→      "Calendario editorial IA",
+   692→      "Soporte prioritario",
+   693→    ],
+   694→    popular: true,
+   695→  },
+   696→  {
+   697→    name: "Agencia",
+   698→    price: "127",
+   699→    period: "/mes",
+   700→    desc: "Para equipos y agencias de marketing",
+   701→    features: [
+   702→      "Imagenes ilimitadas",
+   703→      "Videos ilimitados",
+   704→      "Todo lo de Profesional",
+   705→      "5 chatbots personalizados",
+   706→      "Estrategia de contenido IA",
+   707→      "API de acceso",
+   708→      "Cuenta gerente dedicado",
+   709→    ],
+   710→    popular: false,
+   711→  },
+   712→];
+   713→
+   714→function PricingSection() {
+   715→  return (
+   716→    <section id="planes" className="relative py-24 px-4">
+   717→      <div className="absolute top-0 left-1/2 -translate-x-1/2 w-1/2 h-px bg-gradient-to-r from-transparent via-white/10 to-transparent" />
+   718→
+   719→      <div className="max-w-5xl mx-auto">
+   720→        <FadeInSection className="text-center mb-16">
+   721→          <span className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full border border-white/10 bg-white/5 text-xs font-medium text-white/70 mb-6">
+   722→            <Sparkles className="w-3.5 h-3.5 text-[#7c3aed]" />
+   723→            Planes y precios
+   724→          </span>
+   725→          <h2 className="text-3xl sm:text-4xl font-extrabold tracking-tight mb-4">
+   726→            Elige el plan que impulse
+   727→            <br />
+   728→            <span className="gradient-text">tu producción de contenido</span>
+   729→          </h2>
+   730→          <p className="text-white/50 max-w-lg mx-auto leading-relaxed">
+   731→            Invierte en tu contenido. Todos los planes incluyen acceso
+   732→            inmediato y sin compromiso.
+   733→          </p>
+   734→        </FadeInSection>
+   735→
+   736→        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-start">
+   737→          {plans.map((plan, i) => (
+   738→            <FadeInSection key={plan.name} delay={i * 0.15}>
+   739→              <div
+   740→                className={`relative h-full p-6 rounded-2xl border transition-all duration-300 hover:-translate-y-1 ${
+   741→                  plan.popular
+   742→                    ? "bg-gradient-to-b from-[#0f1e3d] to-[#0a1128] border-[#2563eb]/50 glow-blue"
+   743→                    : "bg-[#0f1629] border-white/[0.06]"
+   744→                }`}
+   745→              >
+   746→                {plan.popular && (
+   747→                  <div className="absolute -top-3 left-1/2 -translate-x-1/2 px-4 py-1 rounded-full bg-gradient-to-r from-[#3b82f6] to-[#7c3aed] text-xs font-bold">
+   748→                    Más popular
+   749→                  </div>
+   750→                )}
+   751→
+   752→                <div className="mb-6">
+   753→                  <h3 className="text-lg font-bold mb-1">{plan.name}</h3>
+   754→                  <p className="text-xs text-white/40">{plan.desc}</p>
+   755→                </div>
+   756→
+   757→                <div className="mb-6">
+   758→                  <span className="text-4xl font-extrabold">
+   759→                    ${plan.price}
+   760→                  </span>
+   761→                  <span className="text-white/40 text-sm">{plan.period}</span>
+   762→                </div>
+   763→
+   764→                <ul className="space-y-3 mb-8">
+   765→                  {plan.features.map((f) => (
+   766→                    <li key={f} className="flex items-start gap-2.5 text-sm">
+   767→                      <Check className="w-4 h-4 text-[#3b82f6] flex-shrink-0 mt-0.5" />
+   768→                      <span className="text-white/60">{f}</span>
+   769→                    </li>
+   770→                  ))}
+   771→                </ul>
+   772→
+   773→                <button
+   774→                  className={`w-full py-3.5 rounded-xl font-bold text-sm transition-all hover:brightness-110 active:scale-[0.98] ${
+   775→                    plan.popular
+   776→                      ? "bg-gradient-to-b from-[#3b82f6] to-[#1e40af] text-white shadow-[0_10px_24px_rgba(30,64,175,0.45)]"
+   777→                      : "bg-white/5 text-white border border-white/10 hover:bg-white/10"
+   778→                  }`}
+   779→                >
+   780→                  Comenzar con {plan.name}
+   781→                </button>
+   782→              </div>
+   783→            </FadeInSection>
+   784→          ))}
+   785→        </div>
+   786→
+   787→        <FadeInSection delay={0.3} className="mt-10 text-center">
+   788→          <p className="text-xs text-white/30">
+   789→            <Shield className="inline w-3.5 h-3.5 mr-1 -mt-0.5" />
+   790→            Garantía de devolución de 7 días. Sin preguntas. Paga de forma
+   791→            segura con tarjeta o PayPal.
+   792→          </p>
+   793→        </FadeInSection>
+   794→      </div>
+   795→    </section>
+   796→  );
+   797→}
+   798→
+   799→/* ─────────── FAQ ─────────── */
+   800→const faqs = [
+   801→  {
+   802→    q: "¿Necesito experiencia en diseño o edición para usar Productor 360?",
+   803→    a: "No, absolutamente. Productor 360 está diseñado para personas sin experiencia técnica. Solo necesitas escribir en español lo que quieres crear y la IA hace el resto. La interfaz es intuitiva y los resultados son profesionales desde el primer uso.",
+   804→  },
+   805→  {
+   806→    q: "¿Qué tipo de contenido puedo crear?",
+   807→    a: "Puedes crear videos con actores virtuales, imágenes de alta resolución para redes sociales, ebooks completos, textos publicitarios (copywriting), chatbots inteligentes y planes de estrategia de contenido. Todo en español y optimizado para convertir.",
+   808→  },
+   809→  {
+   810→    q: "¿Cuánto tiempo toma crear un contenido?",
+   811→    a: "La mayoría de los contenidos se generan en menos de 3 minutos. Una imagen toma entre 10 y 30 segundos, un video corto de 30 segundos se procesa en 2-3 minutos, y un ebook completo puede estar listo en menos de 5 minutos dependiendo de la extensión.",
+   812→  },
+   813→  {
+   814→    q: "¿Puedo cancelar mi suscripción en cualquier momento?",
+   815→    a: "Sí, puedes cancelar tu plan en cualquier momento sin penalizaciones. Además, ofrecemos una garantía de devolución de 7 días. Si no estás satisfecho, te devolvemos tu dinero sin hacer preguntas.",
+   816→  },
+   817→  {
+   818→    q: "¿Los contenidos generados son únicos?",
+   819→    a: "Sí, cada pieza de contenido generada es 100% única. La IA crea desde cero cada vez, por lo que nunca tendrás contenido duplicado. Los derechos de uso son tuyos y puedes usarlos comercialmente sin restricciones.",
+   820→  },
+   821→  {
+   822→    q: "¿Ofrecen soporte en español?",
+   823→    a: "Sí, todo nuestro equipo de soporte habla español. Ofrecemos asistencia por email, chat en vivo y una base de conocimientos con tutoriales en video. Los planes Profesional y Agencia incluyen soporte prioritario.",
+   824→  },
+   825→];
+   826→
+   827→function FAQSection() {
+   828→  return (
+   829→    <section id="faq" className="relative py-24 px-4">
+   830→      <div className="absolute top-0 left-1/2 -translate-x-1/2 w-1/2 h-px bg-gradient-to-r from-transparent via-white/10 to-transparent" />
+   831→
+   832→      <div className="max-w-2xl mx-auto">
+   833→        <FadeInSection className="text-center mb-12">
+   834→          <span className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full border border-white/10 bg-white/5 text-xs font-medium text-white/70 mb-6">
+   835→            <MessageSquare className="w-3.5 h-3.5 text-[#7c3aed]" />
+   836→            Preguntas frecuentes
+   837→          </span>
+   838→          <h2 className="text-3xl sm:text-4xl font-extrabold tracking-tight mb-4">
+   839→            ¿Tienes <span className="gradient-text">dudas</span>?
+   840→          </h2>
+   841→        </FadeInSection>
+   842→
+   843→        <FadeInSection delay={0.15}>
+   844→          <Accordion type="single" collapsible className="space-y-3">
+   845→            {faqs.map((faq, i) => (
+   846→              <AccordionItem
+   847→                key={i}
+   848→                value={`faq-${i}`}
+   849→                className="rounded-2xl border border-white/[0.06] bg-[#0f1629] px-6 data-[state=open]:border-white/15 transition-colors"
+   850→              >
+   851→                <AccordionTrigger className="text-left text-sm font-semibold hover:no-underline py-4">
+   852→                  {faq.q}
+   853→                </AccordionTrigger>
+   854→                <AccordionContent className="text-sm text-white/50 leading-relaxed pb-4">
+   855→                  {faq.a}
+   856→                </AccordionContent>
+   857→              </AccordionItem>
+   858→            ))}
+   859→          </Accordion>
+   860→        </FadeInSection>
+   861→      </div>
+   862→    </section>
+   863→  );
+   864→}
+   865→
+   866→/* ─────────── Final CTA ─────────── */
+   867→function FinalCTA() {
+   868→  return (
+   869→    <section className="relative py-24 px-4">
+   870→      <div className="absolute top-0 left-1/2 -translate-x-1/2 w-1/2 h-px bg-gradient-to-r from-transparent via-white/10 to-transparent" />
+   871→
+   872→      <div className="max-w-3xl mx-auto">
+   873→        <FadeInSection>
+   874→          <div className="relative rounded-3xl overflow-hidden p-8 sm:p-12 text-center">
+   875→            {/* Background */}
+   876→            <div className="absolute inset-0 bg-gradient-to-br from-[#1e40af]/30 via-[#0f1629] to-[#5b21b6]/30" />
+   877→            <div className="absolute inset-0 border border-white/10 rounded-3xl" />
+   878→
+   879→            <div className="relative z-10">
+   880→              <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full border border-white/10 bg-white/5 text-xs font-medium text-white/70 mb-6">
+   881→                <Users className="w-3.5 h-3.5 text-[#7c3aed]" />
+   882→                Más de 15,000 creadores confían en nosotros
+   883→              </div>
+   884→
+   885→              <h2 className="text-2xl sm:text-3xl md:text-4xl font-extrabold tracking-tight mb-4">
+   886→                Empieza a crear contenido
+   887→                <br />
+   888→                <span className="gradient-text">profesional hoy mismo</span>
+   889→              </h2>
+   890→
+   891→              <p className="text-white/50 max-w-md mx-auto mb-8 leading-relaxed">
+   892→                No más excusas. No más creados amateurs. Productor 360 es tu
+   893→                fábrica de contenido con IA lista para trabajar por ti.
+   894→              </p>
+   895→
+   896→              <a
+   897→                href="#planes"
+   898→                className="animate-pulse-glow inline-block px-10 py-4 rounded-2xl bg-gradient-to-b from-[#3b82f6] to-[#1e40af] font-extrabold text-base text-white border border-white/10 hover:brightness-110 hover:scale-[1.01] active:scale-[0.99] transition-all"
+   899→              >
+   900→                Comenzar ahora &mdash; Desde $27/mes
+   901→              </a>
+   902→
+   903→              <p className="mt-4 text-xs text-white/30">
+   904→                Acceso inmediato &bull; Garantía 7 días &bull; Cancela cuando
+   905→                quieras
+   906→              </p>
+   907→            </div>
+   908→          </div>
+   909→        </FadeInSection>
+   910→      </div>
+   911→    </section>
+   912→  );
+   913→}
+   914→
+   915→/* ─────────── Footer ─────────── */
+   916→function Footer() {
+   917→  return (
+   918→    <footer className="border-t border-white/[0.06] py-10 px-4">
+   919→      <div className="max-w-6xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4">
+   920→        <div className="flex items-center gap-3">
+   921→          <img
+   922→            src="/productor360-logo.png"
+   923→            alt="Productor 360"
+   924→            className="h-7 w-7 rounded-md object-contain"
+   925→          />
+   926→          <span className="text-sm text-white/40">
+   927→            © {new Date().getFullYear()} Productor 360. Todos los derechos
+   928→            reservados.
+   929→          </span>
+   930→        </div>
+   931→        <div className="flex items-center gap-6 text-xs text-white/30">
+   932→          <a href="#" className="hover:text-white/60 transition-colors">
+   933→            Términos de uso
+   934→          </a>
+   935→          <a href="#" className="hover:text-white/60 transition-colors">
+   936→            Política de privacidad
+   937→          </a>
+   938→          <a href="#" className="hover:text-white/60 transition-colors">
+   939→            Contacto
+   940→          </a>
+   941→        </div>
+   942→      </div>
+   943→    </footer>
+   944→  );
+   945→}
+   946→
+   947→/* ─────────── Main Page ─────────── */
+   948→export default function Home() {
+   949→  return (
+   950→    <main className="min-h-screen flex flex-col">
+   951→      <Navbar />
+   952→      <Hero />
+   953→      <ToolsSection />
+   954→      <HowItWorksSection />
+   955→      <BenefitsSection />
+   956→      <PricingSection />
+   957→      <FAQSection />
+   958→      <FinalCTA />
+   959→      <Footer />
+   960→    </main>
+   961→  );
+   962→}
