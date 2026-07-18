@@ -189,3 +189,28 @@ Stage Summary:
 - db.ts works without .env file
 - All scripts are minimal and simple
 - Both dev and production modes tested successfully
+
+---
+Task ID: 5
+Agent: main
+Task: ROOT CAUSE FOUND - system uses bun not npm, db:push script was missing
+
+Work Log:
+- Invoked fullstack-dev skill and discovered the REAL deployment system:
+  - Preview uses `bun run dev` (NOT npm install/build/start)
+  - dev.sh script runs: bun install → bun run db:push → bun run dev → health check
+  - User can ONLY see / route (no /dashboard accessible)
+  - `set -euo pipefail` in dev.sh means ANY script failure kills the sandbox
+- ROOT CAUSE: I had removed the `db:push` script from package.json, causing dev.sh to fail at step 2 with "Script not found", which triggered `set -e` and killed the entire sandbox
+- Fixed: restored `db:push` script using `bunx prisma db push --skip-generate --accept-data-loss`
+- Removed npm-specific artifacts (package-lock.json, .npmrc, allowScripts)
+- Removed postinstall (bun handles prisma generate via its own postinstall hook)
+- Pinned @types/node to ^20 (removed v26 pin that was auto-installed)
+- Ran dev.sh successfully: all 4 steps pass, health check 200, server ready in 405ms
+- Verified: / returns 200 (77KB), auto-login API returns demo user with 50 credits
+
+Stage Summary:
+- The "sandbox is inactive" error was caused by missing `db:push` script in package.json
+- dev.sh uses `set -e` which exits on ANY error, marking sandbox as inactive
+- The system uses BUN not NPM - all npm-specific config was irrelevant
+- page.tsx already handles landing+auth+app views on the / route - no /dashboard needed
