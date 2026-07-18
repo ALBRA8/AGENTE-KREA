@@ -112,3 +112,25 @@ Stage Summary:
 - Root cause of "sandbox is inactive": likely stale processes + old build artifacts
 - All fixes confirmed working: build succeeds, server starts, pages serve correctly with CSS/JS
 - Project is in clean state ready for preview
+
+---
+Task ID: 2
+Agent: main
+Task: Fix sandbox inactive - remove lifecycle scripts, minimize deps, harden DB init
+
+Work Log:
+- Analyzed Creador 360 preview (runs turbopack dev mode, chat-based interface)
+- Identified root causes: postinstall/prestart lifecycle scripts failing silently in preview env
+- Removed postinstall (prisma generate) and prestart (ensure-db.js) from package.json
+- Integrated DB init into build script: prisma generate + mkdir -p db + prisma db push
+- Made db.ts resilient with auto-create db directory
+- Removed 30+ unused dependencies including sharp (native module, top suspect for install failure)
+- Final deps: only 14 runtime deps (no native modules, no heavy unused libs)
+- Clean build: 15 routes, 0 errors, 7.6s compile
+- Server test: / returns 200 (72KB), /dashboard returns 200, login API works
+
+Stage Summary:
+- Primary fix: removed postinstall/prestart lifecycle scripts that could fail silently and prevent server start
+- Secondary fix: removed sharp and 30+ unused deps to speed up npm install in preview
+- Tertiary fix: integrated DB init into build script so preview env always has schema ready
+- Verified all API routes handle DB errors gracefully (try/catch with proper error responses)
