@@ -4,11 +4,12 @@ import { useState, useEffect, createContext, useContext, useCallback } from "rea
 import PromptChat from "./PromptChat";
 import SettingsPage from "./SettingsPage";
 import SupportPage from "./SupportPage";
+import MetricsTracker from "./MetricsTracker";
 import {
   Image, FileText, Mic, BookOpen, Subtitles, LayoutDashboard,
   Library as LibraryIcon, LogOut, Menu, X, Coins, Sparkles, ChevronRight, Loader2,
   Copy, MessageSquare, Video, Wand2, Download, Trash2, Clock,
-  RefreshCw, Volume2, Type, Settings, HelpCircle, Headphones,
+  RefreshCw, Volume2, Type, Settings, HelpCircle, Headphones, BarChart3,
 } from "lucide-react";
 
 /* ════════════ Types ════════════ */
@@ -38,6 +39,9 @@ const NAV_SECTIONS: { title: string; items: NavItem[] }[] = [
     { id: "voice", label: "Voz IA Pro", icon: Mic, cost: 3 },
     { id: "ebook", label: "Generador de eBooks", icon: BookOpen, cost: 8 },
     { id: "subtitle", label: "Subtítulos", icon: Subtitles, cost: 2 },
+  ]},
+  { title: "INTELIGENCIA", items: [
+    { id: "metrics", label: "360 Metrics", icon: BarChart3, badge: "NUEVO" },
   ]},
   { title: "GESTIÓN", items: [
     { id: "library", label: "Biblioteca de Proyectos", icon: LibraryIcon },
@@ -125,6 +129,7 @@ function Sidebar({ active, onNav, open, onClose, user }: {
 function Dashboard({ user, generations, onNav }: { user: User; generations: Generation[]; onNav: (id: string) => void }) {
   const quickTools = [
     { id: "prompts", label: "Generador de Prompts IA", desc: "Elige lo que quieres crear ahora — te lo entrego listo para usar.", icon: Wand2, badge: "🔥" },
+    { id: "metrics", label: "360 Metrics", desc: "Seguimiento de campana con ROAS, beneficio y ventas en tiempo real.", icon: BarChart3, badge: "NUEVO" },
     { id: "images", label: "Generador de Imágenes", desc: "Crea imágenes profesionales con inteligencia artificial.", icon: Image },
     { id: "ebook", label: "Generador de eBooks IA Pro", desc: "eBooks completos y profesionales con IA.", icon: BookOpen },
     { id: "library", label: "Biblioteca de Proyectos", desc: "Historial de todas tus creaciones.", icon: LibraryIcon },
@@ -656,6 +661,7 @@ export default function AppPage({ onLogout, user: initialUser }: AppShellProps) 
       case "voice": return <VoiceGenerator user={user} onUpdateCredits={onUpdateCredits} />;
       case "ebook": return <EbookGenerator user={user} onUpdateCredits={onUpdateCredits} />;
       case "subtitle": return <SubtitleGenerator user={user} onUpdateCredits={onUpdateCredits} />;
+      case "metrics": return <MetricsTracker userId={user.id} />;
       case "library": return <Library user={user} />;
       case "settings": return <SettingsPage user={user} />;
       case "support": return <SupportPage />;
