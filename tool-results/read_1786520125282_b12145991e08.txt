@@ -1,0 +1,646 @@
+    55→  active: string; onNav: (id: string) => void; open: boolean; onClose: () => void; user: User | null;
+    56→}) {
+    57→  return (
+    58→    <>
+    59→      {open && <div className="fixed inset-0 bg-black/50 z-40 lg:hidden" onClick={onClose} />}
+    60→      <aside className={`fixed top-0 left-0 h-full z-50 w-64 bg-[#0a0f1e] border-r border-white/[0.06] flex flex-col transition-transform duration-300 ${open ? "translate-x-0" : "-translate-x-full"} lg:translate-x-0 lg:static lg:z-auto`}>
+    61→        {/* Logo */}
+    62→        <div className="flex items-center gap-3 px-5 py-5 border-b border-white/[0.06]">
+    63→          <img src="/productor360-logo.png" alt="" className="h-8 w-8 rounded-lg object-contain" />
+    64→          <span className="text-sm font-bold">Productor <span className="gradient-text">360</span></span>
+    65→          <button onClick={onClose} className="ml-auto lg:hidden text-white/50"><X className="w-5 h-5" /></button>
+    66→        </div>
+    67→
+    68→        {/* Credits */}
+    69→        {user && (
+    70→          <div className="mx-4 mt-4 p-3 rounded-xl bg-gradient-to-r from-[#2563eb]/10 to-[#7c3aed]/10 border border-white/[0.06]">
+    71→            <div className="flex items-center gap-2 text-xs text-white/50 mb-1">
+    72→              <Coins className="w-3.5 h-3.5 text-yellow-400" /> Créditos disponibles
+    73→            </div>
+    74→            <p className="text-xl font-extrabold">{user.credits} <span className="text-xs font-normal text-white/40">créditos</span></p>
+    75→          </div>
+    76→        )}
+    77→
+    78→        {/* Nav */}
+    79→        <nav className="flex-1 overflow-y-auto px-3 py-4 space-y-1">
+    80→          {NAV_SECTIONS.map((section) => (
+    81→            <div key={section.title || "main"}>
+    82→              {section.title && (
+    83→                <div className="flex items-center gap-2 px-3 pt-4 pb-1.5">
+    84→                  <span className="text-[9px] font-bold text-white/20 uppercase tracking-widest">{section.title}</span>
+    85→                </div>
+    86→              )}
+    87→              <div className="space-y-0.5">
+    88→                {section.items.map((item) => (
+    89→                  <button
+    90→                    key={item.id}
+    91→                    onClick={() => { onNav(item.id); onClose(); }}
+    92→                    className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-[13px] transition-all ${
+    93→                      active === item.id
+    94→                        ? "bg-gradient-to-r from-[#3b82f6]/20 to-[#7c3aed]/10 text-white border border-[#3b82f6]/20"
+    95→                        : "text-white/50 hover:text-white/80 hover:bg-white/5"
+    96→                    }`}
+    97→                  >
+    98→                    <item.icon className="w-4 h-4 flex-shrink-0" />
+    99→                    <span className="flex-1 text-left truncate">{item.label}</span>
+   100→                    {item.badge && <span className="text-xs">{item.badge}</span>}
+   101→                    {item.cost && <span className="text-[10px] text-white/20">-{item.cost}</span>}
+   102→                  </button>
+   103→                ))}
+   104→              </div>
+   105→            </div>
+   106→          ))}
+   107→        </nav>
+   108→
+   109→        {/* User */}
+   110→        {user && (
+   111→          <div className="border-t border-white/[0.06] p-4">
+   112→            <div className="flex items-center gap-3">
+   113→              <div className="w-9 h-9 rounded-full bg-gradient-to-br from-[#3b82f6] to-[#7c3aed] flex items-center justify-center text-xs font-bold">
+   114→                {user.name.split(" ").map(n => n[0]).join("").toUpperCase().substring(0, 2)}
+   115→              </div>
+   116→              <div className="flex-1 min-w-0">
+   117→                <p className="text-sm font-semibold truncate">{user.name}</p>
+   118→                <p className="text-[10px] text-white/40 truncate">{user.email}</p>
+   119→              </div>
+   120→            </div>
+   121→          </div>
+   122→        )}
+   123→      </aside>
+   124→    </>
+   125→  );
+   126→}
+   127→
+   128→/* ════════════ Dashboard ════════════ */
+   129→function Dashboard({ user, generations, onNav }: { user: User; generations: Generation[]; onNav: (id: string) => void }) {
+   130→  const quickTools = [
+   131→    { id: "prompts", label: "Generador de Prompts IA", desc: "Elige lo que quieres crear ahora — te lo entrego listo para usar.", icon: Wand2, badge: "🔥" },
+   132→    { id: "metrics", label: "360 Metrics", desc: "Seguimiento de campana con ROAS, beneficio y ventas en tiempo real.", icon: BarChart3, badge: "NUEVO" },
+   133→    { id: "images", label: "Generador de Imágenes", desc: "Crea imágenes profesionales con inteligencia artificial.", icon: Image },
+   134→    { id: "ebook", label: "Generador de eBooks IA Pro", desc: "eBooks completos y profesionales con IA.", icon: BookOpen },
+   135→    { id: "library", label: "Biblioteca de Proyectos", desc: "Historial de todas tus creaciones.", icon: LibraryIcon },
+   136→  ];
+   137→
+   138→  return (
+   139→    <div>
+   140→      <div className="mb-8">
+   141→        <h1 className="text-2xl font-extrabold mb-1">¡Bienvenido de nuevo, <span className="gradient-text">{user.name.split(" ")[0]}</span>! 👋</h1>
+   142→        <p className="text-sm text-white/50">Crea contenido increíble 10 veces más rápido con inteligencia artificial</p>
+   143→      </div>
+   144→
+   145→      {/* Quick Tools */}
+   146→      <h2 className="text-base font-bold mb-3 flex items-center gap-2">Herramientas Rápidas ⚡</h2>
+   147→      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-8">
+   148→        {quickTools.map((t) => (
+   149→          <button key={t.id} onClick={() => onNav(t.id)} className="p-4 rounded-2xl bg-[#0f1629] border border-white/[0.06] hover:border-[#3b82f6]/20 hover:bg-[#3b82f6]/5 transition-all text-left group">
+   150→            <div className="flex items-center justify-between mb-2">
+   151→              <t.icon className="w-5 h-5 text-[#3b82f6]" />
+   152→              {t.badge && <span className="text-sm">{t.badge}</span>}
+   153→              <ChevronRight className="w-4 h-4 text-white/20 group-hover:text-white/50 group-hover:translate-x-1 transition-all" />
+   154→            </div>
+   155→            <p className="text-sm font-semibold mb-0.5">{t.label}</p>
+   156→            <p className="text-[11px] text-white/30 leading-relaxed">{t.desc}</p>
+   157→          </button>
+   158→        ))}
+   159→      </div>
+   160→
+   161→      {/* Stats */}
+   162→      <h2 className="text-base font-bold mb-3">Tu Actividad</h2>
+   163→      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-8">
+   164→        {[
+   165→          { label: "Imágenes", value: generations.filter(g => g.type === "image").length, icon: Image, color: "from-blue-500 to-blue-700", suffix: "creadas" },
+   166→          { label: "Textos", value: generations.filter(g => g.type === "text" || g.type === "prompt").length, icon: FileText, color: "from-purple-500 to-purple-700", suffix: "creados" },
+   167→          { label: "Voces", value: generations.filter(g => g.type === "voice").length, icon: Mic, color: "from-emerald-500 to-emerald-700", suffix: "creadas" },
+   168→          { label: "eBooks", value: generations.filter(g => g.type === "ebook").length, icon: BookOpen, color: "from-orange-500 to-orange-700", suffix: "creados" },
+   169→        ].map((s) => (
+   170→          <div key={s.label} className="p-4 rounded-2xl bg-[#0f1629] border border-white/[0.06]">
+   171→            <div className={`inline-flex items-center justify-center w-10 h-10 rounded-xl bg-gradient-to-br ${s.color} mb-3`}>
+   172→              <s.icon className="w-5 h-5 text-white" />
+   173→            </div>
+   174→            <p className="text-2xl font-extrabold">{s.value}</p>
+   175→            <p className="text-xs text-white/40">{s.label} {s.suffix}</p>
+   176→          </div>
+   177→        ))}
+   178→      </div>
+   179→
+   180→      {/* Recent */}
+   181→      {generations.length > 0 && (
+   182→        <div>
+   183→          <h2 className="text-base font-bold mb-3">Creaciones recientes</h2>
+   184→          <div className="space-y-2">
+   185→            {generations.slice(0, 5).map((g) => (
+   186→              <div key={g.id} className="flex items-center gap-3 p-3 rounded-xl bg-[#0f1629] border border-white/[0.06]">
+   187→                <div className="w-8 h-8 rounded-lg bg-white/5 flex items-center justify-center">
+   188→                  {g.type === "image" ? <Image className="w-4 h-4 text-blue-400" /> : g.type === "voice" ? <Mic className="w-4 h-4 text-emerald-400" /> : g.type === "ebook" ? <BookOpen className="w-4 h-4 text-orange-400" /> : g.type === "prompt" ? <Wand2 className="w-4 h-4 text-purple-400" /> : <FileText className="w-4 h-4 text-purple-400" />}
+   189→                </div>
+   190→                <div className="flex-1 min-w-0">
+   191→                  <p className="text-sm font-medium truncate">{g.title}</p>
+   192→                  <p className="text-[10px] text-white/30">{new Date(g.createdAt).toLocaleDateString("es-ES")}</p>
+   193→                </div>
+   194→                <span className="text-[10px] text-white/30">-{g.credits} <Coins className="inline w-3 h-3" /></span>
+   195→              </div>
+   196→            ))}
+   197→          </div>
+   198→        </div>
+   199→      )}
+   200→    </div>
+   201→  );
+   202→}
+   203→
+   204→/* ════════════ Image Generator ════════════ */
+   205→function ImageGenerator({ user, onUpdateCredits }: { user: User; onUpdateCredits: (c: number) => void }) {
+   206→  const [prompt, setPrompt] = useState("");
+   207→  const [style, setStyle] = useState("fotográfico, alta calidad");
+   208→  const [loading, setLoading] = useState(false);
+   209→  const [result, setResult] = useState<string | null>(null);
+   210→  const [error, setError] = useState("");
+   211→
+   212→  const generate = async () => {
+   213→    setLoading(true); setError(""); setResult(null);
+   214→    try {
+   215→      const res = await fetch("/api/generate/image", {
+   216→        method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${user.id}` },
+   217→        body: JSON.stringify({ prompt, style }),
+   218→      });
+   219→      const data = await res.json();
+   220→      if (!res.ok) { setError(data.error); return; }
+   221→      setResult(data.imageUrl); onUpdateCredits(data.credits);
+   222→    } catch { setError("Error de conexión"); }
+   223→    finally { setLoading(false); }
+   224→  };
+   225→
+   226→  const styles = ["fotográfico, alta calidad", "ilustración digital", "estilo minimalista", "3D render", "arte conceptual", "diseño publicitario"];
+   227→
+   228→  return (
+   229→    <div>
+   230→      <div className="mb-6">
+   231→        <h1 className="text-2xl font-extrabold mb-1">Generador de <span className="gradient-text">Imágenes</span></h1>
+   232→        <p className="text-sm text-white/50">Crea imágenes profesionales con IA. Costo: <span className="text-yellow-400 font-semibold">3 créditos</span></p>
+   233→      </div>
+   234→
+   235→      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+   236→        <div className="space-y-4">
+   237→          <div>
+   238→            <label className="text-xs text-white/50 mb-1.5 block">Describe la imagen que quieres crear</label>
+   239→            <textarea value={prompt} onChange={(e) => setPrompt(e.target.value)} rows={4} className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm placeholder:text-white/30 focus:outline-none focus:border-[#3b82f6] transition-colors resize-none" placeholder="Ej: Un producto de skincare sobre fondo oscuro con luz neón azul, fotografía publicitaria profesional" />
+   240→          </div>
+   241→          <div>
+   242→            <label className="text-xs text-white/50 mb-1.5 block">Estilo visual</label>
+   243→            <div className="flex flex-wrap gap-2">
+   244→              {styles.map((s) => (
+   245→                <button key={s} onClick={() => setStyle(s)} className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${style === s ? "bg-[#3b82f6] text-white" : "bg-white/5 text-white/50 hover:bg-white/10"}`}>{s}</button>
+   246→              ))}
+   247→            </div>
+   248→          </div>
+   249→          <button onClick={generate} disabled={loading || !prompt} className="w-full py-3.5 rounded-xl bg-gradient-to-b from-[#3b82f6] to-[#1e40af] text-white font-bold text-sm shadow-[0_10px_24px_rgba(30,64,175,0.45)] hover:brightness-110 active:scale-[0.98] transition-all disabled:opacity-50 flex items-center justify-center gap-2">
+   250→            {loading ? <><Loader2 className="w-4 h-4 animate-spin" /> Generando imagen...</> : <><Sparkles className="w-4 h-4" /> Generar imagen (-3 créditos)</>}
+   251→          </button>
+   252→          {error && <p className="text-red-400 text-xs text-center">{error}</p>}
+   253→        </div>
+   254→
+   255→        <div>
+   256→          {result ? (
+   257→            <div className="rounded-2xl overflow-hidden border border-white/[0.06] bg-[#0f1629]">
+   258→              <img src={result} alt="Generated" className="w-full" />
+   259→              <div className="p-3 flex items-center justify-between">
+   260→                <span className="text-xs text-white/40">Imagen generada con IA</span>
+   261→                <a href={result} download className="text-xs text-[#3b82f6] flex items-center gap-1 hover:underline"><Download className="w-3 h-3" /> Descargar</a>
+   262→              </div>
+   263→            </div>
+   264→          ) : (
+   265→            <div className="aspect-square rounded-2xl border border-dashed border-white/10 flex items-center justify-center bg-white/[0.02]">
+   266→              <div className="text-center text-white/20">
+   267→                <Image className="w-12 h-12 mx-auto mb-3 opacity-50" />
+   268→                <p className="text-sm">Tu imagen aparecerá aquí</p>
+   269→              </div>
+   270→            </div>
+   271→          )}
+   272→        </div>
+   273→      </div>
+   274→    </div>
+   275→  );
+   276→}
+   277→
+   278→/* ════════════ Text Generator ════════════ */
+   279→function TextGenerator({ type, user, onUpdateCredits }: { type: string; user: User; onUpdateCredits: (c: number) => void }) {
+   280→  const configs: Record<string, { title: string; desc: string; placeholder: string; label: string }> = {
+   281→    copy: { title: "Copywriting", desc: "Textos persuasivos que venden", placeholder: "Ej: Escribe un headline para una campaña de lanzamiento de un curso de marketing digital para emprendedores", label: "Copy / Publicidad" },
+   282→    social: { title: "Contenido Redes", desc: "Posts virales para Instagram, TikTok, etc.", placeholder: "Ej: Crea 5 ideas de posts para Instagram sobre fitness para mujeres de 30-40 años", label: "Tipo de contenido" },
+   283→    script: { title: "Scripts de Video", desc: "Guiones para YouTube, TikTok, Reels", placeholder: "Ej: Escribe un script de 60 segundos para un reel que promocione una app de productividad", label: "Detalles del video" },
+   284→    email: { title: "Email Marketing", desc: "Emails que abren y convierten", placeholder: "Ej: Escribe una secuencia de 3 emails de bienvenida para nuevos suscriptores de un newsletter de negocios", label: "Objetivo del email" },
+   285→  };
+   286→  const cfg = configs[type] || configs.copy;
+   287→  const [prompt, setPrompt] = useState("");
+   288→  const [loading, setLoading] = useState(false);
+   289→  const [result, setResult] = useState("");
+   290→  const [error, setError] = useState("");
+   291→
+   292→  const generate = async () => {
+   293→    setLoading(true); setError(""); setResult("");
+   294→    try {
+   295→      const res = await fetch("/api/generate/text", {
+   296→        method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${user.id}` },
+   297→        body: JSON.stringify({ prompt, type }),
+   298→      });
+   299→      const data = await res.json();
+   300→      if (!res.ok) { setError(data.error); return; }
+   301→      setResult(data.text); onUpdateCredits(data.credits);
+   302→    } catch { setError("Error de conexión"); }
+   303→    finally { setLoading(false); }
+   304→  };
+   305→
+   306→  const copyToClipboard = () => { navigator.clipboard.writeText(result); };
+   307→
+   308→  return (
+   309→    <div>
+   310→      <div className="mb-6">
+   311→        <h1 className="text-2xl font-extrabold mb-1"><span className="gradient-text">{cfg.title}</span></h1>
+   312→        <p className="text-sm text-white/50">{cfg.desc}. Costo: <span className="text-yellow-400 font-semibold">2 créditos</span></p>
+   313→      </div>
+   314→      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+   315→        <div className="space-y-4">
+   316→          <div>
+   317→            <label className="text-xs text-white/50 mb-1.5 block">{cfg.label}</label>
+   318→            <textarea value={prompt} onChange={(e) => setPrompt(e.target.value)} rows={6} className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm placeholder:text-white/30 focus:outline-none focus:border-[#3b82f6] transition-colors resize-none" placeholder={cfg.placeholder} />
+   319→          </div>
+   320→          <button onClick={generate} disabled={loading || !prompt} className="w-full py-3.5 rounded-xl bg-gradient-to-b from-[#3b82f6] to-[#1e40af] text-white font-bold text-sm shadow-[0_10px_24px_rgba(30,64,175,0.45)] hover:brightness-110 active:scale-[0.98] transition-all disabled:opacity-50 flex items-center justify-center gap-2">
+   321→            {loading ? <><Loader2 className="w-4 h-4 animate-spin" /> Generando...</> : <><Sparkles className="w-4 h-4" /> Generar texto (-2 créditos)</>}
+   322→          </button>
+   323→          {error && <p className="text-red-400 text-xs">{error}</p>}
+   324→        </div>
+   325→        <div>
+   326→          {result ? (
+   327→            <div className="rounded-2xl border border-white/[0.06] bg-[#0f1629] h-full flex flex-col">
+   328→              <div className="flex items-center justify-between p-3 border-b border-white/[0.06]">
+   329→                <span className="text-xs text-white/40">Resultado</span>
+   330→                <button onClick={copyToClipboard} className="text-xs text-[#3b82f6] flex items-center gap-1 hover:underline"><Copy className="w-3 h-3" /> Copiar</button>
+   331→              </div>
+   332→              <pre className="flex-1 p-4 text-sm text-white/80 whitespace-pre-wrap overflow-y-auto max-h-[500px] font-[inherit]">{result}</pre>
+   333→            </div>
+   334→          ) : (
+   335→            <div className="h-full min-h-[300px] rounded-2xl border border-dashed border-white/10 flex items-center justify-center bg-white/[0.02]">
+   336→              <div className="text-center text-white/20"><FileText className="w-12 h-12 mx-auto mb-3 opacity-50" /><p className="text-sm">Tu texto aparecerá aquí</p></div>
+   337→            </div>
+   338→          )}
+   339→        </div>
+   340→      </div>
+   341→    </div>
+   342→  );
+   343→}
+   344→
+   345→/* ════════════ Voice Generator ════════════ */
+   346→function VoiceGenerator({ user, onUpdateCredits }: { user: User; onUpdateCredits: (c: number) => void }) {
+   347→  const [text, setText] = useState("");
+   348→  const [voice, setVoice] = useState("alloy");
+   349→  const [loading, setLoading] = useState(false);
+   350→  const [result, setResult] = useState("");
+   351→  const [error, setError] = useState("");
+   352→  const voices = [
+   353→    { id: "alloy", label: "Alloy", desc: "Neutral y versátil" },
+   354→    { id: "echo", label: "Echo", desc: "Masculino profundo" },
+   355→    { id: "fable", label: "Fable", desc: "Narrativo británico" },
+   356→    { id: "onyx", label: "Onyx", desc: "Masculino autoritario" },
+   357→    { id: "nova", label: "Nova", desc: "Femenino cálido" },
+   358→    { id: "shimmer", label: "Shimmer", desc: "Femenino suave" },
+   359→  ];
+   360→
+   361→  const generate = async () => {
+   362→    setLoading(true); setError(""); setResult("");
+   363→    try {
+   364→      const res = await fetch("/api/generate/voice", {
+   365→        method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${user.id}` },
+   366→        body: JSON.stringify({ text, voice }),
+   367→      });
+   368→      const data = await res.json();
+   369→      if (!res.ok) { setError(data.error); return; }
+   370→      setResult(data.audioUrl); onUpdateCredits(data.credits);
+   371→    } catch { setError("Error de conexión"); }
+   372→    finally { setLoading(false); }
+   373→  };
+   374→
+   375→  return (
+   376→    <div>
+   377→      <div className="mb-6">
+   378→        <h1 className="text-2xl font-extrabold mb-1">Generador de <span className="gradient-text">Voz IA</span></h1>
+   379→        <p className="text-sm text-white/50">Narración profesional con inteligencia artificial. Costo: <span className="text-yellow-400 font-semibold">3 créditos</span></p>
+   380→      </div>
+   381→      <div className="max-w-2xl space-y-4">
+   382→        <div>
+   383→          <label className="text-xs text-white/50 mb-1.5 block">Texto para narrar</label>
+   384→          <textarea value={text} onChange={(e) => setText(e.target.value)} rows={5} className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm placeholder:text-white/30 focus:outline-none focus:border-[#3b82f6] transition-colors resize-none" placeholder="Escribe el texto que quieres convertir a voz profesional..." />
+   385→        </div>
+   386→        <div>
+   387→          <label className="text-xs text-white/50 mb-1.5 block">Voz</label>
+   388→          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+   389→            {voices.map((v) => (
+   390→              <button key={v.id} onClick={() => setVoice(v.id)} className={`p-3 rounded-xl text-left transition-all border ${voice === v.id ? "bg-[#3b82f6]/10 border-[#3b82f6]/30 text-white" : "bg-white/5 border-white/[0.06] text-white/50 hover:bg-white/10"}`}>
+   391→                <p className="text-sm font-semibold">{v.label}</p>
+   392→                <p className="text-[10px] text-white/30">{v.desc}</p>
+   393→              </button>
+   394→            ))}
+   395→          </div>
+   396→        </div>
+   397→        <button onClick={generate} disabled={loading || !text} className="w-full py-3.5 rounded-xl bg-gradient-to-b from-[#3b82f6] to-[#1e40af] text-white font-bold text-sm shadow-[0_10px_24px_rgba(30,64,175,0.45)] hover:brightness-110 active:scale-[0.98] transition-all disabled:opacity-50 flex items-center justify-center gap-2">
+   398→          {loading ? <><Loader2 className="w-4 h-4 animate-spin" /> Generando voz...</> : <><Volume2 className="w-4 h-4" /> Generar voz (-3 créditos)</>}
+   399→        </button>
+   400→        {error && <p className="text-red-400 text-xs">{error}</p>}
+   401→        {result && (
+   402→          <div className="p-4 rounded-2xl border border-white/[0.06] bg-[#0f1629]">
+   403→            <div className="flex items-center justify-between mb-3">
+   404→              <span className="text-xs text-white/40">Audio generado</span>
+   405→              <a href={result} download className="text-xs text-[#3b82f6] flex items-center gap-1 hover:underline"><Download className="w-3 h-3" /> Descargar MP3</a>
+   406→            </div>
+   407→            <audio controls src={result} className="w-full" />
+   408→          </div>
+   409→        )}
+   410→      </div>
+   411→    </div>
+   412→  );
+   413→}
+   414→
+   415→/* ════════════ eBook Generator ════════════ */
+   416→function EbookGenerator({ user, onUpdateCredits }: { user: User; onUpdateCredits: (c: number) => void }) {
+   417→  const [topic, setTopic] = useState("");
+   418→  const [chapters, setChapters] = useState("5");
+   419→  const [audience, setAudience] = useState("emprendedores digitales");
+   420→  const [loading, setLoading] = useState(false);
+   421→  const [result, setResult] = useState("");
+   422→  const [error, setError] = useState("");
+   423→
+   424→  const generate = async () => {
+   425→    setLoading(true); setError(""); setResult("");
+   426→    try {
+   427→      const res = await fetch("/api/generate/ebook", {
+   428→        method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${user.id}` },
+   429→        body: JSON.stringify({ topic, chapters: parseInt(chapters), targetAudience: audience }),
+   430→      });
+   431→      const data = await res.json();
+   432→      if (!res.ok) { setError(data.error); return; }
+   433→      setResult(data.content); onUpdateCredits(data.credits);
+   434→    } catch { setError("Error de conexión"); }
+   435→    finally { setLoading(false); }
+   436→  };
+   437→
+   438→  return (
+   439→    <div>
+   440→      <div className="mb-6">
+   441→        <h1 className="text-2xl font-extrabold mb-1">Generador de <span className="gradient-text">eBooks</span></h1>
+   442→        <p className="text-sm text-white/50">Crea libros electrónicos completos con IA. Costo: <span className="text-yellow-400 font-semibold">8 créditos</span></p>
+   443→      </div>
+   444→      <div className="max-w-3xl space-y-4">
+   445→        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+   446→          <div>
+   447→            <label className="text-xs text-white/50 mb-1.5 block">Tema del eBook</label>
+   448→            <input type="text" value={topic} onChange={(e) => setTopic(e.target.value)} className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm placeholder:text-white/30 focus:outline-none focus:border-[#3b82f6]" placeholder="Ej: Marketing digital para principiantes" />
+   449→          </div>
+   450→          <div className="grid grid-cols-2 gap-3">
+   451→            <div>
+   452→              <label className="text-xs text-white/50 mb-1.5 block">Capítulos</label>
+   453→              <select value={chapters} onChange={(e) => setChapters(e.target.value)} className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm focus:outline-none focus:border-[#3b82f6]">
+   454→                {["3", "5", "7", "10"].map(n => <option key={n} value={n} className="bg-[#0a0f1e]">{n} capítulos</option>)}
+   455→              </select>
+   456→            </div>
+   457→            <div>
+   458→              <label className="text-xs text-white/50 mb-1.5 block">Audiencia</label>
+   459→              <select value={audience} onChange={(e) => setAudience(e.target.value)} className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm focus:outline-none focus:border-[#3b82f6]">
+   460→                {["emprendedores digitales", "profesionales de marketing", "pequeños negocios", "creadores de contenido", "general"].map(a => <option key={a} value={a} className="bg-[#0a0f1e]">{a}</option>)}
+   461→              </select>
+   462→            </div>
+   463→          </div>
+   464→        </div>
+   465→        <button onClick={generate} disabled={loading || !topic} className="w-full py-3.5 rounded-xl bg-gradient-to-b from-[#3b82f6] to-[#1e40af] text-white font-bold text-sm shadow-[0_10px_24px_rgba(30,64,175,0.45)] hover:brightness-110 active:scale-[0.98] transition-all disabled:opacity-50 flex items-center justify-center gap-2">
+   466→          {loading ? <><Loader2 className="w-4 h-4 animate-spin" /> Generando eBook (puede tardar 30-60s)...</> : <><BookOpen className="w-4 h-4" /> Generar eBook (-8 créditos)</>}
+   467→        </button>
+   468→        {error && <p className="text-red-400 text-xs">{error}</p>}
+   469→        {result && (
+   470→          <div className="rounded-2xl border border-white/[0.06] bg-[#0f1629]">
+   471→            <div className="flex items-center justify-between p-3 border-b border-white/[0.06]">
+   472→              <span className="text-xs text-white/40">eBook generado</span>
+   473→              <button onClick={() => navigator.clipboard.writeText(result)} className="text-xs text-[#3b82f6] flex items-center gap-1 hover:underline"><Copy className="w-3 h-3" /> Copiar todo</button>
+   474→            </div>
+   475→            <div className="p-4 max-h-[600px] overflow-y-auto prose prose-invert prose-sm text-white/80">
+   476→              <pre className="whitespace-pre-wrap font-[inherit] text-sm leading-relaxed">{result}</pre>
+   477→            </div>
+   478→          </div>
+   479→        )}
+   480→      </div>
+   481→    </div>
+   482→  );
+   483→}
+   484→
+   485→/* ════════════ Subtitle Generator ════════════ */
+   486→function SubtitleGenerator({ user, onUpdateCredits }: { user: User; onUpdateCredits: (c: number) => void }) {
+   487→  const [url, setUrl] = useState("");
+   488→  const [loading, setLoading] = useState(false);
+   489→  const [result, setResult] = useState("");
+   490→  const [error, setError] = useState("");
+   491→
+   492→  const generate = async () => {
+   493→    setLoading(true); setError(""); setResult("");
+   494→    try {
+   495→      const res = await fetch("/api/generate/subtitle", {
+   496→        method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${user.id}` },
+   497→        body: JSON.stringify({ videoUrl: url || undefined }),
+   498→      });
+   499→      const data = await res.json();
+   500→      if (!res.ok) { setError(data.error); return; }
+   501→      setResult(data.srt); onUpdateCredits(data.credits);
+   502→    } catch { setError("Error de conexión"); }
+   503→    finally { setLoading(false); }
+   504→  };
+   505→
+   506→  return (
+   507→    <div>
+   508→      <div className="mb-6">
+   509→        <h1 className="text-2xl font-extrabold mb-1">Generador de <span className="gradient-text">Subtítulos</span></h1>
+   510→        <p className="text-sm text-white/50">Crea subtítulos SRT profesionales. Costo: <span className="text-yellow-400 font-semibold">2 créditos</span></p>
+   511→      </div>
+   512→      <div className="max-w-2xl space-y-4">
+   513→        <div>
+   514→          <label className="text-xs text-white/50 mb-1.5 block">URL del video (opcional — si lo dejas vacío se genera un template)</label>
+   515→          <input type="url" value={url} onChange={(e) => setUrl(e.target.value)} className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm placeholder:text-white/30 focus:outline-none focus:border-[#3b82f6]" placeholder="https://youtube.com/watch?v=..." />
+   516→        </div>
+   517→        <button onClick={generate} disabled={loading} className="w-full py-3.5 rounded-xl bg-gradient-to-b from-[#3b82f6] to-[#1e40af] text-white font-bold text-sm shadow-[0_10px_24px_rgba(30,64,175,0.45)] hover:brightness-110 active:scale-[0.98] transition-all disabled:opacity-50 flex items-center justify-center gap-2">
+   518→          {loading ? <><Loader2 className="w-4 h-4 animate-spin" /> Generando...</> : <><Subtitles className="w-4 h-4" /> Generar subtítulos (-2 créditos)</>}
+   519→        </button>
+   520→        {error && <p className="text-red-400 text-xs">{error}</p>}
+   521→        {result && (
+   522→          <div className="rounded-2xl border border-white/[0.06] bg-[#0f1629]">
+   523→            <div className="flex items-center justify-between p-3 border-b border-white/[0.06]">
+   524→              <span className="text-xs text-white/40">Subtítulos SRT</span>
+   525→              <button onClick={() => navigator.clipboard.writeText(result)} className="text-xs text-[#3b82f6] flex items-center gap-1 hover:underline"><Copy className="w-3 h-3" /> Copiar SRT</button>
+   526→            </div>
+   527→            <pre className="p-4 text-xs text-white/70 whitespace-pre-wrap max-h-[400px] overflow-y-auto">{result}</pre>
+   528→          </div>
+   529→        )}
+   530→      </div>
+   531→    </div>
+   532→  );
+   533→}
+   534→
+   535→/* ════════════ Library ════════════ */
+   536→function Library({ user }: { user: User }) {
+   537→  const [gens, setGens] = useState<Generation[]>([]);
+   538→  const [filter, setFilter] = useState("all");
+   539→  const [loading, setLoading] = useState(true);
+   540→
+   541→  const load = async () => {
+   542→    setLoading(true);
+   543→    try {
+   544→      const params = filter === "all" ? "" : `?type=${filter}`;
+   545→      const res = await fetch(`/api/generations${params}`, { headers: { Authorization: `Bearer ${user.id}` } });
+   546→      if (res.ok) setGens(await res.json());
+   547→    } catch { /* ignore */ }
+   548→    setLoading(false);
+   549→  };
+   550→
+   551→  useEffect(() => { load(); }, [filter]);
+   552→
+   553→  const typeFilters = [
+   554→    { id: "all", label: "Todos" },
+   555→    { id: "image", label: "Imágenes" },
+   556→    { id: "text", label: "Textos" },
+   557→    { id: "voice", label: "Voces" },
+   558→    { id: "ebook", label: "eBooks" },
+   559→    { id: "subtitle", label: "Subtítulos" },
+   560→  ];
+   561→
+   562→  return (
+   563→    <div>
+   564→      <div className="mb-6">
+   565→        <h1 className="text-2xl font-extrabold mb-1">Mi <span className="gradient-text">Biblioteca</span></h1>
+   566→        <p className="text-sm text-white/50">Historial de todas tus creaciones</p>
+   567→      </div>
+   568→      <div className="flex gap-2 mb-6 overflow-x-auto pb-2">
+   569→        {typeFilters.map((f) => (
+   570→          <button key={f.id} onClick={() => setFilter(f.id)} className={`px-4 py-2 rounded-lg text-xs font-medium whitespace-nowrap transition-all ${filter === f.id ? "bg-[#3b82f6] text-white" : "bg-white/5 text-white/50 hover:bg-white/10"}`}>{f.label}</button>
+   571→        ))}
+   572→      </div>
+   573→      {loading ? (
+   574→        <div className="flex items-center justify-center py-20 text-white/30"><Loader2 className="w-6 h-6 animate-spin mr-2" /> Cargando...</div>
+   575→      ) : gens.length === 0 ? (
+   576→        <div className="text-center py-20 text-white/20"><LibraryIcon className="w-12 h-12 mx-auto mb-3 opacity-50" /><p className="text-sm">No hay creaciones todavía</p></div>
+   577→      ) : (
+   578→        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+   579→          {gens.map((g) => (
+   580→            <div key={g.id} className="rounded-2xl border border-white/[0.06] bg-[#0f1629] overflow-hidden">
+   581→              {g.type === "image" && g.result.startsWith("/") ? (
+   582→                <img src={g.result} alt="" className="w-full aspect-square object-cover" />
+   583→              ) : g.type === "voice" && g.result.startsWith("/") ? (
+   584→                <div className="p-4 bg-white/[0.02]"><audio controls src={g.result} className="w-full" /></div>
+   585→              ) : (
+   586→                <div className="p-4 max-h-40 overflow-y-auto"><pre className="text-xs text-white/50 whitespace-pre-wrap">{g.result.substring(0, 500)}</pre></div>
+   587→              )}
+   588→              <div className="p-3 border-t border-white/[0.06]">
+   589→                <p className="text-sm font-medium truncate">{g.title}</p>
+   590→                <div className="flex items-center justify-between mt-1">
+   591→                  <p className="text-[10px] text-white/30 flex items-center gap-1"><Clock className="w-3 h-3" /> {new Date(g.createdAt).toLocaleDateString("es-ES")}</p>
+   592→                  <span className="text-[10px] text-white/30">-{g.credits} <Coins className="inline w-3 h-3" /></span>
+   593→                </div>
+   594→              </div>
+   595→            </div>
+   596→          ))}
+   597→        </div>
+   598→      )}
+   599→    </div>
+   600→  );
+   601→}
+   602→
+   603→/* ════════════ Main App ════════════ */
+   604→interface AppShellProps { onLogout: () => void; user?: User | null }
+   605→
+   606→export default function AppPage({ onLogout, user: initialUser }: AppShellProps) {
+   607→  const [user, setUser] = useState<User | null>(() => {
+   608→    if (initialUser) return initialUser;
+   609→    try {
+   610→      const saved = localStorage.getItem("p360_user");
+   611→      return saved ? JSON.parse(saved) : null;
+   612→    } catch { return null; }
+   613→  });
+   614→  const [page, setPage] = useState("dashboard");
+   615→  const [sidebarOpen, setSidebarOpen] = useState(false);
+   616→  const [loading, setLoading] = useState(false);
+   617→  const [generations, setGenerations] = useState<Generation[]>([]);
+   618→
+   619→  const loadUser = useCallback(async () => {
+   620→    const token = localStorage.getItem("p360_token");
+   621→    if (!token) { if (!user) onLogout(); else setLoading(false); return; }
+   622→    try {
+   623→      const res = await fetch("/api/auth/me", { headers: { Authorization: `Bearer ${token}` } });
+   624→      if (!res.ok) { if (!user) onLogout(); else setLoading(false); return; }
+   625→      const data = await res.json();
+   626→      setUser(data);
+   627→      const gRes = await fetch("/api/generations?limit=10", { headers: { Authorization: `Bearer ${token}` } });
+   628→      if (gRes.ok) setGenerations(await gRes.json());
+   629→    } catch { if (!user) onLogout(); }
+   630→    setLoading(false);
+   631→  }, [user, onLogout]);
+   632→
+   633→  useEffect(() => {
+   634→    const token = localStorage.getItem("p360_token");
+   635→    if (token && user) {
+   636→      fetch("/api/generations?limit=10", { headers: { Authorization: `Bearer ${token}` } })
+   637→        .then(r => r.ok ? r.json() : [])
+   638→        .then(setGenerations)
+   639→        .catch(() => {});
+   640→    }
+   641→  }, []);
+   642→
+   643→  const logout = () => { localStorage.removeItem("p360_token"); localStorage.removeItem("p360_user"); onLogout(); };
+   644→  const refreshUser = () => loadUser();
+   645→  const onUpdateCredits = (c: number) => { if (user) setUser({ ...user, credits: c }); };
+   646→
+   647→  if (loading) return (
+   648→    <div className="min-h-screen bg-[#080c16] flex items-center justify-center">
+   649→      <Loader2 className="w-8 h-8 animate-spin text-[#3b82f6]" />
+   650→    </div>
+   651→  );
+   652→
+   653→  if (!user) return null;
+   654→
+   655→  const renderPage = () => {
+   656→    switch (page) {
+   657→      case "dashboard": return <Dashboard user={user} generations={generations} onNav={setPage} />;
+   658→      case "prompts": return <PromptChat user={user} onUpdateCredits={onUpdateCredits} />;
+   659→      case "images": return <ImageGenerator user={user} onUpdateCredits={onUpdateCredits} />;
+   660→      case "copy": case "social": case "script": case "email": return <TextGenerator type={page} user={user} onUpdateCredits={onUpdateCredits} />;
+   661→      case "voice": return <VoiceGenerator user={user} onUpdateCredits={onUpdateCredits} />;
+   662→      case "ebook": return <EbookGenerator user={user} onUpdateCredits={onUpdateCredits} />;
+   663→      case "subtitle": return <SubtitleGenerator user={user} onUpdateCredits={onUpdateCredits} />;
+   664→      case "metrics": return <MetricsTracker userId={user.id} />;
+   665→      case "library": return <Library user={user} />;
+   666→      case "settings": return <SettingsPage user={user} />;
+   667→      case "support": return <SupportPage />;
+   668→      default: return <Dashboard user={user} generations={generations} onNav={setPage} />;
+   669→    }
+   670→  };
+   671→
+   672→  return (
+   673→    <AuthCtx.Provider value={{ user, logout, refreshUser }}>
+   674→      <div className="min-h-screen bg-[#080c16] flex">
+   675→        <Sidebar active={page} onNav={setPage} open={sidebarOpen} onClose={() => setSidebarOpen(false)} user={user} />
+   676→        <div className="flex-1 flex flex-col min-h-screen">
+   677→          {/* Top bar */}
+   678→          <header className="sticky top-0 z-30 flex items-center gap-4 px-4 sm:px-6 py-3 border-b border-white/[0.06] backdrop-blur-xl bg-[#080c16]/80">
+   679→            <button onClick={() => setSidebarOpen(true)} className="lg:hidden text-white/50 hover:text-white">
+   680→              <Menu className="w-5 h-5" />
+   681→            </button>
+   682→            <div className="flex-1" />
+   683→            <div className="flex items-center gap-3">
+   684→              <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-yellow-400/10 text-yellow-400 text-xs font-bold">
+   685→                <Coins className="w-3.5 h-3.5" /> {user.credits}
+   686→              </div>
+   687→              <button onClick={logout} className="p-2 rounded-lg hover:bg-white/5 text-white/40 hover:text-white/70 transition-colors" title="Cerrar sesión">
+   688→                <LogOut className="w-4 h-4" />
+   689→              </button>
+   690→            </div>
+   691→          </header>
+   692→          {/* Content */}
+   693→          <main className="flex-1 p-4 sm:p-6 lg:p-8 overflow-y-auto">
+   694→            {renderPage()}
+   695→          </main>
+   696→        </div>
+   697→      </div>
+   698→    </AuthCtx.Provider>
+   699→  );
+   700→}
