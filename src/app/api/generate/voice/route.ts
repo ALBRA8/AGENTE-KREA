@@ -2,18 +2,20 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSessionUser, deductCredits } from "@/lib/auth";
 import { db } from "@/lib/db";
 import ZAI from "z-ai-web-dev-sdk";
-import { writeFileSync } from "fs";
+import { writeFileSync, mkdirSync } from "fs";
 import { join } from "path";
 import { randomUUID } from "crypto";
 
 const COST = 3;
+
+const VALID_VOICES = ["tongtong", "xiaoyi", "zhiyan", "zhichu"];
 
 export async function POST(req: NextRequest) {
   const token = req.headers.get("authorization")?.replace("Bearer ", "");
   const user = await getSessionUser(token || "");
   if (!user) return NextResponse.json({ error: "No autorizado" }, { status: 401 });
 
-  const { text, voice = "alloy" } = await req.json();
+  const { text, voice = "tongtong" } = await req.json();
   if (!text) return NextResponse.json({ error: "Texto requerido" }, { status: 400 });
 
   const ok = await deductCredits(user.id, COST);
@@ -21,14 +23,23 @@ export async function POST(req: NextRequest) {
 
   try {
     const zai = await ZAI.create();
+    const selectedVoice = VALID_VOICES.includes(voice) ? voice : "tongtong";
+
     const response = await zai.audio.tts.create({
       input: text,
-      voice: voice,
+      voice: selectedVoice,
     });
 
-    const buffer = Buffer.from(response.audio || response.content || "", "base64");
+    // ZAI SDK TTS returns a Response object — read as arrayBuffer
+    const arrayBuf = await (response as Response).arrayBuffer();
+    const buffer = Buffer.from(arrayBuf);
+
+    // Ensure generated directory exists
+    const genDir = join(process.cwd(), "public", "generated");
+    mkdirSync(genDir, { recursive: true });
+
     const filename = `${randomUUID()}.mp3`;
-    const filepath = join(process.cwd(), "public", "generated", filename);
+    const filepath = join(genDir, filename);
     writeFileSync(filepath, buffer);
 
     await db.generation.create({

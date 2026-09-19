@@ -345,17 +345,15 @@ function TextGenerator({ type, user, onUpdateCredits }: { type: string; user: Us
 /* ════════════ Voice Generator ════════════ */
 function VoiceGenerator({ user, onUpdateCredits }: { user: User; onUpdateCredits: (c: number) => void }) {
   const [text, setText] = useState("");
-  const [voice, setVoice] = useState("alloy");
+  const [voice, setVoice] = useState("tongtong");
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState("");
   const [error, setError] = useState("");
   const voices = [
-    { id: "alloy", label: "Alloy", desc: "Neutral y versátil" },
-    { id: "echo", label: "Echo", desc: "Masculino profundo" },
-    { id: "fable", label: "Fable", desc: "Narrativo británico" },
-    { id: "onyx", label: "Onyx", desc: "Masculino autoritario" },
-    { id: "nova", label: "Nova", desc: "Femenino cálido" },
-    { id: "shimmer", label: "Shimmer", desc: "Femenino suave" },
+    { id: "tongtong", label: "Tongtong", desc: "Femenino claro" },
+    { id: "xiaoyi", label: "Xiaoyi", desc: "Femenino suave" },
+    { id: "zhiyan", label: "Zhiyan", desc: "Masculino joven" },
+    { id: "zhichu", label: "Zhichu", desc: "Masculino narrador" },
   ];
 
   const generate = async () => {
