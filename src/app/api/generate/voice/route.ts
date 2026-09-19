@@ -21,12 +21,12 @@ export async function POST(req: NextRequest) {
 
   try {
     const zai = await ZAI.create();
-    const response = await zai.audio.speech.create({
+    const response = await zai.audio.tts.create({
       input: text,
       voice: voice,
     });
 
-    const buffer = Buffer.from(response.audio, "base64");
+    const buffer = Buffer.from(response.audio || response.content || "", "base64");
     const filename = `${randomUUID()}.mp3`;
     const filepath = join(process.cwd(), "public", "generated", filename);
     writeFileSync(filepath, buffer);

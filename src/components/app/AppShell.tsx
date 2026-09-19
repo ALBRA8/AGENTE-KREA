@@ -27,7 +27,7 @@ export const useAuth = () => useContext(AuthCtx);
 
 /* ════════════ Sidebar ════════════ */
 interface NavItem { id: string; label: string; icon: React.ComponentType<{className?: string}>; cost?: number; badge?: string; section?: string; }
-const NAV_SECTIONS: { title: string; items: NavItem[] }[] = [
+const NAV_SECTIONS: { title: string | null; items: NavItem[] }[] = [
   { title: null, items: [{ id: "dashboard", label: "Panel de control", icon: LayoutDashboard }] },
   { title: "PRODUCCIÓN", items: [
     { id: "prompts", label: "Generador de Prompts IA", icon: Wand2, cost: 2, badge: "🔥" },
