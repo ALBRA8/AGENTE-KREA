@@ -992,8 +992,16 @@ function FloatingAppButton({ onClick }: { onClick: () => void }) {
 /* ════════════ Root Router ════════════ */
 type View = "landing" | "auth" | "app";
 
+/* Fallback demo user saved to localStorage when auto-login API fails */
+function saveFallbackUser() {
+  const fallback = { id: "demo-fallback", name: "Usuario Demo", email: "demo@krea.ai", credits: 50, plan: "starter" };
+  localStorage.setItem("p360_token", fallback.id);
+  localStorage.setItem("p360_user", JSON.stringify(fallback));
+  return fallback;
+}
+
 export default function Home() {
-  const [view, setView] = useState<View>("landing");
+  const [view, setView] = useState<"loading" | View>("loading");
   const [key, setKey] = useState(0);
 
   async function onEnterApp() {
@@ -1003,16 +1011,37 @@ export default function Home() {
         const data = await res.json();
         localStorage.setItem("p360_token", data.id);
         localStorage.setItem("p360_user", JSON.stringify(data));
+      } else {
+        saveFallbackUser();
       }
-    } catch {}
+    } catch {
+      saveFallbackUser();
+    }
     setView("app");
     setKey(k => k + 1);
   }
 
   useEffect(() => {
+    // On mount: if token exists, enter app directly; otherwise auto-login
     const token = localStorage.getItem("p360_token");
-    if (token) setView("app");
+    if (token) {
+      setView("app");
+    } else {
+      // Auto-login on first visit so user goes straight to dashboard
+      onEnterApp();
+    }
   }, []);
+
+  if (view === "loading") {
+    return (
+      <div className="min-h-screen bg-[#080c16] flex items-center justify-center">
+        <div className="flex flex-col items-center gap-3">
+          <div className="w-10 h-10 border-3 border-[#3b82f6] border-t-transparent rounded-full animate-spin" />
+          <p className="text-sm text-white/50">Cargando Krea...</p>
+        </div>
+      </div>
+    );
+  }
 
   if (view === "app") {
     return <AppShell key={key} onLogout={() => { setView("auth"); setKey(k => k + 1); }} />;
