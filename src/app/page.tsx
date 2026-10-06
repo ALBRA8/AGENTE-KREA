@@ -990,18 +990,28 @@ function FloatingAppButton({ onClick }: { onClick: () => void }) {
 }
 
 /* ════════════ Root Router ════════════ */
+import ErrorBoundary from "@/components/ErrorBoundary";
+
 type View = "landing" | "auth" | "app";
 
 /* Fallback demo user saved to localStorage when auto-login API fails */
 function saveFallbackUser() {
   const fallback = { id: "demo-fallback", name: "Usuario Demo", email: "demo@krea.ai", credits: 50, plan: "starter" };
-  localStorage.setItem("p360_token", fallback.id);
-  localStorage.setItem("p360_user", JSON.stringify(fallback));
+  try { localStorage.setItem("p360_token", fallback.id); } catch {}
+  try { localStorage.setItem("p360_user", JSON.stringify(fallback)); } catch {}
   return fallback;
 }
 
 export default function Home() {
-  const [view, setView] = useState<"loading" | View>("loading");
+  const [view, setView] = useState<View>(() => {
+    // Try to read from localStorage synchronously on init — go straight to app if token exists
+    try {
+      if (typeof window !== "undefined" && localStorage.getItem("p360_token")) {
+        return "app";
+      }
+    } catch {}
+    return "landing";
+  });
   const [key, setKey] = useState(0);
 
   async function onEnterApp() {
@@ -1009,8 +1019,8 @@ export default function Home() {
       const res = await fetch("/api/auth/auto-login", { method: "POST" });
       if (res.ok) {
         const data = await res.json();
-        localStorage.setItem("p360_token", data.id);
-        localStorage.setItem("p360_user", JSON.stringify(data));
+        try { localStorage.setItem("p360_token", data.id); } catch {}
+        try { localStorage.setItem("p360_user", JSON.stringify(data)); } catch {}
       } else {
         saveFallbackUser();
       }
@@ -1021,40 +1031,34 @@ export default function Home() {
     setKey(k => k + 1);
   }
 
+  // Auto-login on first visit (no token in localStorage)
   useEffect(() => {
-    // On mount: if token exists, enter app directly; otherwise auto-login
-    const token = localStorage.getItem("p360_token");
-    if (token) {
-      setView("app");
-    } else {
-      // Auto-login on first visit so user goes straight to dashboard
+    if (view === "landing") {
       onEnterApp();
     }
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  if (view === "loading") {
+  if (view === "app") {
     return (
-      <div className="min-h-screen bg-[#080c16] flex items-center justify-center">
-        <div className="flex flex-col items-center gap-3">
-          <div className="w-10 h-10 border-3 border-[#3b82f6] border-t-transparent rounded-full animate-spin" />
-          <p className="text-sm text-white/50">Cargando Krea...</p>
-        </div>
-      </div>
+      <ErrorBoundary>
+        <AppShell key={key} onLogout={() => { setView("auth"); setKey(k => k + 1); }} />
+      </ErrorBoundary>
     );
   }
 
-  if (view === "app") {
-    return <AppShell key={key} onLogout={() => { setView("auth"); setKey(k => k + 1); }} />;
-  }
-
   if (view === "auth") {
-    return <AuthPage onLogin={() => { setView("app"); setKey(k => k + 1); }} />;
+    return (
+      <ErrorBoundary>
+        <AuthPage onLogin={() => { setView("app"); setKey(k => k + 1); }} />
+      </ErrorBoundary>
+    );
   }
 
+  // Landing view (briefly shown before auto-login completes)
   return (
-    <>
+    <ErrorBoundary>
       <LandingPage onEnterApp={onEnterApp} />
       <FloatingAppButton onClick={onEnterApp} />
-    </>
+    </ErrorBoundary>
   );
 }
