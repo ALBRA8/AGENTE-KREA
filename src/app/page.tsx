@@ -133,12 +133,12 @@ function Navbar({ onEnterApp }: { onEnterApp: () => void }) {
       <div className="max-w-6xl mx-auto px-4 flex items-center justify-between">
         <a href="#" className="flex items-center gap-3 group">
           <img
-            src="/productor360-logo.png"
-            alt="Productor 360"
+            src="/krea-logo.png"
+            alt="Krea"
             className="h-9 w-9 rounded-lg object-contain transition-transform group-hover:scale-110"
           />
           <span className="text-lg font-bold tracking-tight">
-            Productor <span className="gradient-text">360</span>
+            <span className="gradient-text">Krea</span>
           </span>
         </a>
 
@@ -269,8 +269,8 @@ function Hero({ onEnterApp }: { onEnterApp: () => void }) {
           className="animate-float"
         >
           <img
-            src="/productor360-logo.png"
-            alt="Productor 360 Logo"
+            src="/krea-logo.png"
+            alt="Krea Logo"
             className="h-20 w-20 md:h-24 md:w-24 object-contain"
           />
         </motion.div>
@@ -332,7 +332,7 @@ function Hero({ onEnterApp }: { onEnterApp: () => void }) {
             que nunca traen resultados.
           </p>
           <p className="text-base font-bold text-white">
-            Productor 360 hace todo el trabajo por ti.
+            Krea hace todo el trabajo por ti.
           </p>
         </motion.div>
 
@@ -459,7 +459,7 @@ const steps = [
   {
     num: "03",
     title: "La IA crea por ti",
-    desc: "En segundos, Productor 360 genera contenido profesional listo para usar. Puedes editarlo, refinarlo y exportarlo en los formatos que necesites.",
+    desc: "En segundos, Krea genera contenido profesional listo para usar. Puedes editarlo, refinarlo y exportarlo en los formatos que necesites.",
     icon: Zap,
   },
   {
@@ -484,7 +484,7 @@ function HowItWorksSection() {
           </span>
           <h2 className="text-3xl sm:text-4xl font-extrabold tracking-tight mb-4">
             Cómo funciona
-            <span className="gradient-text"> Productor 360</span>
+            <span className="gradient-text"> Krea</span>
           </h2>
           <p className="text-white/50 max-w-lg mx-auto leading-relaxed">
             De la idea al contenido publicado en menos de 3 minutos. Así de
@@ -550,7 +550,7 @@ const benefits = [
   {
     icon: Zap,
     title: "Sin curva de aprendizaje",
-    desc: "Interfaz intuitiva en español. Si sabes escribir lo que quieres, ya sabes usar Productor 360. Cero experiencia técnica requerida.",
+    desc: "Interfaz intuitiva en español. Si sabes escribir lo que quieres, ya sabes usar Krea. Cero experiencia técnica requerida.",
   },
   {
     icon: Shield,
@@ -575,7 +575,7 @@ function BenefitsSection() {
         <FadeInSection className="text-center mb-16">
           <span className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full border border-white/10 bg-white/5 text-xs font-medium text-white/70 mb-6">
             <TrendingUp className="w-3.5 h-3.5 text-[#7c3aed]" />
-            ¿Por qué Productor 360?
+            ¿Por qué Krea?
           </span>
           <h2 className="text-3xl sm:text-4xl font-extrabold tracking-tight mb-4">
             Deja de crear contenido
@@ -627,7 +627,7 @@ function BenefitsSection() {
               {
                 name: "María González",
                 role: "Marketing Manager",
-                text: "Productor 360 transformó nuestra producción de contenido. Pasamos de crear 5 piezas al mes a más de 50, con mejor calidad.",
+                text: "Krea transformó nuestra producción de contenido. Pasamos de crear 5 piezas al mes a más de 50, con mejor calidad.",
                 avatar: "MG",
               },
               {
@@ -814,8 +814,8 @@ function PricingSection() {
 /* ─────────── FAQ ─────────── */
 const faqs = [
   {
-    q: "¿Necesito experiencia en diseño o edición para usar Productor 360?",
-    a: "No, absolutamente. Productor 360 está diseñado para personas sin experiencia técnica. Solo necesitas escribir en español lo que quieres crear y la IA hace el resto. La interfaz es intuitiva y los resultados son profesionales desde el primer uso.",
+    q: "¿Necesito experiencia en diseño o edición para usar Krea?",
+    a: "No, absolutamente. Krea está diseñado para personas sin experiencia técnica. Solo necesitas escribir en español lo que quieres crear y la IA hace el resto. La interfaz es intuitiva y los resultados son profesionales desde el primer uso.",
   },
   {
     q: "¿Qué tipo de contenido puedo crear?",
@@ -904,7 +904,7 @@ function FinalCTA() {
               </h2>
 
               <p className="text-white/50 max-w-md mx-auto mb-8 leading-relaxed">
-                No más excusas. No más creados amateurs. Productor 360 es tu
+                No más excusas. No más creados amateurs. Krea es tu
                 fábrica de contenido con IA lista para trabajar por ti.
               </p>
 
@@ -934,12 +934,12 @@ function Footer() {
       <div className="max-w-6xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4">
         <div className="flex items-center gap-3">
           <img
-            src="/productor360-logo.png"
-            alt="Productor 360"
+            src="/krea-logo.png"
+            alt="Krea"
             className="h-7 w-7 rounded-md object-contain"
           />
           <span className="text-sm text-white/40">
-            © {new Date().getFullYear()} Productor 360. Todos los derechos
+            © {new Date().getFullYear()} Krea. Todos los derechos
             reservados.
           </span>
         </div>

@@ -58,7 +58,7 @@ TÉCNICO: 4K, hiper-realista, ultra-detallado. Iluminación: dirección (lateral
 
 REGLAS: Prompt en INGLÉS. Prioridad absoluta a fidelidad facial. Responde SOLO con el prompt.`,
 
-  default: `Eres Productor 360, un asistente experto en creación de contenido con IA. Ayudas a crear prompts profesionales para imágenes, videos, ebooks, guiones y más.
+  default: `Eres Krea, un asistente experto en creación de contenido con IA. Ayudas a crear prompts profesionales para imágenes, videos, ebooks, guiones y más.
 
 Cuando el usuario te pida crear algo, genera un prompt profesional, detallado y listo para usar en la herramienta de IA correspondiente.
 
@@ -81,7 +81,7 @@ function detectCategory(input: string): string {
 
 export default function PromptChat({ user, onUpdateCredits, onBack }: Props) {
   const [messages, setMessages] = useState<ChatMessage[]>([
-    { role: "assistant", content: "¡Hola! Soy Productor 360 🤖\n\nElige lo que quieres crear ahora — te lo entrego listo para usar.\n\nPuedes pedirme:\n• Prompts profesionales para imágenes\n• Guiones para videos y VSL\n• Estructuras completas de ebooks\n• Creativos para redes sociales\n• Cualquier contenido con IA" },
+    { role: "assistant", content: "¡Hola! Soy Krea 🤖\n\nElige lo que quieres crear ahora — te lo entrego listo para usar.\n\nPuedes pedirme:\n• Prompts profesionales para imágenes\n• Guiones para videos y VSL\n• Estructuras completas de ebooks\n• Creativos para redes sociales\n• Cualquier contenido con IA" },
   ]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
@@ -136,7 +136,7 @@ export default function PromptChat({ user, onUpdateCredits, onBack }: Props) {
       const title = messages[1]?.content?.substring(0, 50) || "Nueva conversación";
       setConversations(prev => [{ id: Date.now(), title, messages }, ...prev].slice(0, 20));
     }
-    setMessages([{ role: "assistant", content: "¡Hola! Soy Productor 360 🤖\n\nElige lo que quieres crear ahora — te lo entrego listo para usar." }]);
+    setMessages([{ role: "assistant", content: "¡Hola! Soy Krea 🤖\n\nElige lo que quieres crear ahora — te lo entrego listo para usar." }]);
     setShowTemplates(true);
     setInput("");
     inputRef.current?.focus();

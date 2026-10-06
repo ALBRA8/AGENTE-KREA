@@ -2,14 +2,14 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Productor 360 | Tu fábrica de contenido con IA",
+  title: "Krea | Tu fábrica de contenido con IA",
   description: "Crea contenido profesional con IA: videos, creativos, ebooks y más, en minutos. Sin experiencia necesaria.",
-  keywords: ["IA", "inteligencia artificial", "creación de contenido", "videos", "creativos", "marketing digital"],
+  keywords: ["IA", "inteligencia artificial", "creación de contenido", "videos", "creativos", "marketing digital", "Krea"],
   icons: {
-    icon: "/productor360-logo.png",
+    icon: "/krea-logo.png",
   },
   openGraph: {
-    title: "Productor 360 | Tu fábrica de contenido con IA",
+    title: "Krea | Tu fábrica de contenido con IA",
     description: "Crea contenido profesional con IA: videos, creativos, ebooks y más, en minutos.",
     type: "website",
   },

@@ -24,7 +24,7 @@ export default function SupportPage() {
   };
 
   const copyEmail = () => {
-    navigator.clipboard.writeText("soporte@productor360.com");
+    navigator.clipboard.writeText("soporte@krea.ai");
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
@@ -72,7 +72,7 @@ export default function SupportPage() {
           <p className="text-sm font-semibold mb-2">¿Prefieres escribir por email?</p>
           <p className="text-xs text-white/40 mb-3">También puedes contactarnos directamente por correo electrónico.</p>
           <button onClick={copyEmail} className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-white/5 border border-white/[0.06] text-sm text-white/60 hover:text-white hover:bg-white/10 transition-all">
-            {copied ? <><Check className="w-4 h-4 text-emerald-400" /> <span className="text-emerald-400">Copiado</span></> : <><Copy className="w-4 h-4" /> soporte@productor360.com</>}
+            {copied ? <><Check className="w-4 h-4 text-emerald-400" /> <span className="text-emerald-400">Copiado</span></> : <><Copy className="w-4 h-4" /> soporte@krea.ai</>}
           </button>
         </div>
       </div>

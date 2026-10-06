@@ -60,8 +60,8 @@ function Sidebar({ active, onNav, open, onClose, user }: {
       <aside className={`fixed top-0 left-0 h-full z-50 w-64 bg-[#0a0f1e] border-r border-white/[0.06] flex flex-col transition-transform duration-300 ${open ? "translate-x-0" : "-translate-x-full"} lg:translate-x-0 lg:static lg:z-auto`}>
         {/* Logo */}
         <div className="flex items-center gap-3 px-5 py-5 border-b border-white/[0.06]">
-          <img src="/productor360-logo.png" alt="" className="h-8 w-8 rounded-lg object-contain" />
-          <span className="text-sm font-bold">Productor <span className="gradient-text">360</span></span>
+          <img src="/krea-logo.png" alt="" className="h-8 w-8 rounded-lg object-contain" />
+          <span className="text-sm font-bold"><span className="gradient-text">Krea</span></span>
           <button onClick={onClose} className="ml-auto lg:hidden text-white/50"><X className="w-5 h-5" /></button>
         </div>
 

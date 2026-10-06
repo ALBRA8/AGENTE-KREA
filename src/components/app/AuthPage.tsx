@@ -57,8 +57,8 @@ export default function AuthPage({ onLogin }: AuthPageProps) {
 
       <motion.div initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }} className="relative z-10 w-full max-w-md">
         <div className="text-center mb-8">
-          <img src="/productor360-logo.png" alt="Logo" className="h-16 w-16 mx-auto mb-4 object-contain" />
-          <h1 className="text-2xl font-extrabold">Productor <span className="gradient-text">360</span></h1>
+          <img src="/krea-logo.png" alt="Logo" className="h-16 w-16 mx-auto mb-4 object-contain" />
+          <h1 className="text-2xl font-extrabold"><span className="gradient-text">Krea</span></h1>
           <p className="text-sm text-white/50 mt-1">Tu fábrica de contenido con IA</p>
         </div>
 
