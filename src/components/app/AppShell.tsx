@@ -5,11 +5,13 @@ import PromptChat from "./PromptChat";
 import SettingsPage from "./SettingsPage";
 import SupportPage from "./SupportPage";
 import MetricsTracker from "./MetricsTracker";
+import ProductDashboard from "./ProductDashboard";
 import {
   Image, FileText, Mic, BookOpen, Subtitles, LayoutDashboard,
   Library as LibraryIcon, LogOut, Menu, X, Coins, Sparkles, ChevronRight, Loader2,
   Copy, MessageSquare, Video, Wand2, Download, Trash2, Clock,
   RefreshCw, Volume2, Type, Settings, HelpCircle, Headphones, BarChart3,
+  Lightbulb, FolderOpen, Factory, Send as SendIcon,
 } from "lucide-react";
 
 /* ════════════ Types ════════════ */
@@ -39,6 +41,12 @@ const NAV_SECTIONS: { title: string | null; items: NavItem[] }[] = [
     { id: "voice", label: "Voz IA Pro", icon: Mic, cost: 3 },
     { id: "ebook", label: "Generador de eBooks", icon: BookOpen, cost: 8 },
     { id: "subtitle", label: "Subtítulos", icon: Subtitles, cost: 2 },
+  ]},
+  { title: "PRODUCT ARCHITECT", items: [
+    { id: "product-opportunities", label: "Oportunidades", icon: Lightbulb, badge: "✨" },
+    { id: "product-dossiers", label: "Dossiers", icon: FolderOpen },
+    { id: "product-production", label: "Producción", icon: Factory },
+    { id: "product-handoff", label: "Handoff", icon: SendIcon },
   ]},
   { title: "INTELIGENCIA", items: [
     { id: "metrics", label: "360 Metrics", icon: BarChart3, badge: "NUEVO" },
@@ -652,6 +660,10 @@ export default function AppPage({ onLogout, user: initialUser }: AppShellProps) 
       case "voice": return <VoiceGenerator user={user} onUpdateCredits={onUpdateCredits} />;
       case "ebook": return <EbookGenerator user={user} onUpdateCredits={onUpdateCredits} />;
       case "subtitle": return <SubtitleGenerator user={user} onUpdateCredits={onUpdateCredits} />;
+      case "product-opportunities": return <ProductDashboard initialSection="opportunities" />;
+      case "product-dossiers": return <ProductDashboard initialSection="dossiers" />;
+      case "product-production": return <ProductDashboard initialSection="production" />;
+      case "product-handoff": return <ProductDashboard initialSection="handoff" />;
       case "metrics": return <MetricsTracker userId={user.id} />;
       case "library": return <Library user={user} />;
       case "settings": return <SettingsPage user={user} />;

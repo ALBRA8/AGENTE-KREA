@@ -1,4 +1,8 @@
 import { db } from "@/lib/db";
+import { SecurityManager } from "@/lib/security";
+
+// Singleton SecurityManager instance for use across all auth routes
+export const security = new SecurityManager();
 
 export interface SessionUser {
   id: string;
@@ -8,11 +12,20 @@ export interface SessionUser {
   plan: string;
 }
 
+/**
+ * Validate a session token and return the associated user.
+ * Uses SecurityManager.validateToken() to look up the Session record,
+ * check expiry, and resolve the userId — then fetches the user.
+ */
 export async function getSessionUser(token: string): Promise<SessionUser | null> {
   if (!token) return null;
   try {
-    const user = await db.user.findUnique({ where: { id: token } });
+    const { valid, userId } = await security.validateToken(token);
+    if (!valid || !userId) return null;
+
+    const user = await db.user.findUnique({ where: { id: userId } });
     if (!user) return null;
+
     return { id: user.id, name: user.name, email: user.email, credits: user.credits, plan: user.plan };
   } catch {
     return null;

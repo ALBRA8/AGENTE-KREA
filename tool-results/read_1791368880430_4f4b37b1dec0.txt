@@ -1,0 +1,1081 @@
+     1→/**
+     2→ * Book Factory — KREA V2
+     3→ *
+     4→ * Orchestrator for the 10-step eBook production pipeline.
+     5→ * Every step must produce a REAL result or throw a REAL error.
+     6→ * No step should set `pdfGenerated = true` without the file existing on disk.
+     7→ *
+     8→ * Pipeline:
+     9→ *  1. ARCHITECTURE      → Book structure (chapters, sections, word targets)
+    10→ *  2. CONTENT GENERATION → Generate chapter content via ZAI
+    11→ *  3. ART DIRECTION     → Determine visual style, color palette, typography
+    12→ *  4. COVER DESIGN      → Generate cover image via ZAI image generation
+    13→ *  5. EDITORIAL DESIGN  → Review and refine content quality
+    14→ *  6. LAYOUT            → Layout content for PDF pages
+    15→ *  7. PDF GENERATION    → Generate actual PDF file via pdf-factory
+    16→ *  8. VISUAL QA         → Inspect the PDF for quality
+    17→ *  9. REPAIR            → Fix issues found in QA
+    18→ * 10. FINAL             → Deliver the product
+    19→ */
+    20→
+    21→import ZAI from "z-ai-web-dev-sdk";
+    22→import fs from "fs/promises";
+    23→import path from "path";
+    24→import { randomUUID } from "crypto";
+    25→import {
+    26→  generatePdf,
+    27→  inspectPdf,
+    28→  defaultPdfConfig,
+    29→  DEFAULT_OUTPUT_DIR,
+    30→  type PdfConfig,
+    31→  type PdfChapter,
+    32→  type PdfResult,
+    33→  type EvidenceTag,
+    34→} from "./pdf-factory";
+    35→import {
+    36→  runVisualQA,
+    37→  repairIssue,
+    38→  type QAReport,
+    39→  type QAIssue,
+    40→} from "./visual-qa";
+    41→
+    42→// ─── Types ────────────────────────────────────────────────────────────────────
+    43→
+    44→export type PipelineStatus =
+    45→  | "PENDING"
+    46→  | "RUNNING"
+    47→  | "PAUSED"
+    48→  | "COMPLETED"
+    49→  | "FAILED";
+    50→
+    51→export interface ChapterDef {
+    52→  index: number;
+    53→  title: string;
+    54→  synopsis: string;
+    55→  targetWords: number;
+    56→  content?: string; // filled after content generation
+    57→}
+    58→
+    59→export interface BookStyle {
+    60→  fontSize: number;
+    61→  fontFamily: string;
+    62→  lineHeight: number;
+    63→  marginSize: number;
+    64→  colorScheme: string;
+    65→  coverStyle: string;
+    66→}
+    67→
+    68→export interface ArtifactMap {
+    69→  coverImagePath?: string;
+    70→  pdfPath?: string;
+    71→  metadataPath?: string;
+    72→}
+    73→
+    74→export interface PipelineError {
+    75→  step: number;
+    76→  stepName: string;
+    77→  message: string;
+    78→  timestamp: Date;
+    79→  recoverable: boolean;
+    80→}
+    81→
+    82→export interface BookProject {
+    83→  projectId: string;
+    84→  userId: string;
+    85→  dossierId: string;
+    86→  title: string;
+    87→  subtitle?: string;
+    88→  author: string;
+    89→  targetAudience: string;
+    90→  chapters: ChapterDef[];
+    91→  style: BookStyle;
+    92→  status: PipelineStatus;
+    93→  currentStep: number;
+    94→  artifacts: ArtifactMap;
+    95→  errors: PipelineError[];
+    96→  startedAt: Date;
+    97→  completedAt?: Date;
+    98→}
+    99→
+   100→export interface BookProjectInput {
+   101→  userId: string;
+   102→  dossierId: string;
+   103→  title: string;
+   104→  subtitle?: string;
+   105→  author: string;
+   106→  targetAudience: string;
+   107→  chapters?: ChapterDef[];
+   108→  style?: Partial<BookStyle>;
+   109→}
+   110→
+   111→// ─── Progress callback ────────────────────────────────────────────────────────
+   112→
+   113→export type StepName =
+   114→  | "ARCHITECTURE"
+   115→  | "CONTENT_GENERATION"
+   116→  | "ART_DIRECTION"
+   117→  | "COVER_DESIGN"
+   118→  | "EDITORIAL_DESIGN"
+   119→  | "LAYOUT"
+   120→  | "PDF_GENERATION"
+   121→  | "VISUAL_QA"
+   122→  | "REPAIR"
+   123→  | "FINAL";
+   124→
+   125→export const STEP_NAMES: StepName[] = [
+   126→  "ARCHITECTURE",
+   127→  "CONTENT_GENERATION",
+   128→  "ART_DIRECTION",
+   129→  "COVER_DESIGN",
+   130→  "EDITORIAL_DESIGN",
+   131→  "LAYOUT",
+   132→  "PDF_GENERATION",
+   133→  "VISUAL_QA",
+   134→  "REPAIR",
+   135→  "FINAL",
+   136→];
+   137→
+   138→export interface ProgressEvent {
+   139→  step: number;
+   140→  stepName: StepName;
+   141→  status: "started" | "completed" | "failed" | "skipped";
+   142→  detail: string;
+   143→  timestamp: Date;
+   144→}
+   145→
+   146→export type ProgressCallback = (event: ProgressEvent) => void;
+   147→
+   148→// ─── ZAI helper ───────────────────────────────────────────────────────────────
+   149→
+   150→async function getZAI() {
+   151→  return ZAI.create();
+   152→}
+   153→
+   154→// ─── In-memory project store ──────────────────────────────────────────────────
+   155→// In production, this would persist to the database via Prisma.
+   156→
+   157→const projectStore = new Map<string, BookProject>();
+   158→
+   159→// ─── createBookProject ────────────────────────────────────────────────────────
+   160→
+   161→/**
+   162→ * Create a new BookProject with PENDING status.
+   163→ * If chapters are provided, they serve as the architecture (Step 1 is pre-done).
+   164→ */
+   165→export function createBookProject(input: BookProjectInput): BookProject {
+   166→  const projectId = randomUUID();
+   167→
+   168→  const defaultStyle: BookStyle = {
+   169→    fontSize: 11,
+   170→    fontFamily: "Helvetica",
+   171→    lineHeight: 1.5,
+   172→    marginSize: 72,
+   173→    colorScheme: "professional",
+   174→    coverStyle: "modern",
+   175→  };
+   176→
+   177→  const style: BookStyle = {
+   178→    ...defaultStyle,
+   179→    ...input.style,
+   180→  };
+   181→
+   182→  const project: BookProject = {
+   183→    projectId,
+   184→    userId: input.userId,
+   185→    dossierId: input.dossierId,
+   186→    title: input.title,
+   187→    subtitle: input.subtitle,
+   188→    author: input.author,
+   189→    targetAudience: input.targetAudience,
+   190→    chapters: input.chapters || [],
+   191→    style,
+   192→    status: "PENDING",
+   193→    currentStep: 0,
+   194→    artifacts: {},
+   195→    errors: [],
+   196→    startedAt: new Date(),
+   197→  };
+   198→
+   199→  projectStore.set(projectId, project);
+   200→  return project;
+   201→}
+   202→
+   203→// ─── getBookProject ───────────────────────────────────────────────────────────
+   204→
+   205→export function getBookProject(projectId: string): BookProject | undefined {
+   206→  return projectStore.get(projectId);
+   207→}
+   208→
+   209→// ─── Step 1: ARCHITECTURE ─────────────────────────────────────────────────────
+   210→
+   211→/**
+   212→ * If chapters are already provided, this step is trivially complete.
+   213→ * Otherwise, use ZAI to generate the book architecture (chapter outline).
+   214→ */
+   215→async function stepArchitecture(
+   216→  project: BookProject,
+   217→  onProgress?: ProgressCallback
+   218→): Promise<void> {
+   219→  onProgress?.({
+   220→    step: 1,
+   221→    stepName: "ARCHITECTURE",
+   222→    status: "started",
+   223→    detail: "Determining book structure",
+   224→    timestamp: new Date(),
+   225→  });
+   226→
+   227→  if (project.chapters.length > 0) {
+   228→    // Chapters already provided — architecture is pre-done
+   229→    onProgress?.({
+   230→      step: 1,
+   231→      stepName: "ARCHITECTURE",
+   232→      status: "completed",
+   233→      detail: `Architecture pre-defined with ${project.chapters.length} chapters`,
+   234→      timestamp: new Date(),
+   235→    });
+   236→    return;
+   237→  }
+   238→
+   239→  // Generate architecture via ZAI
+   240→  try {
+   241→    const zai = await getZAI();
+   242→    const response = await zai.chat.completions.create({
+   243→      messages: [
+   244→        {
+   245→          role: "system",
+   246→          content: `You are a book architect. Design a book structure based on the given topic and audience. Return a JSON array of chapters, each with: title, synopsis (1-2 sentences), targetWords (number). Return ONLY the JSON array, no other text.`,
+   247→        },
+   248→        {
+   249→          role: "user",
+   250→          content: `Book title: "${project.title}"${project.subtitle ? ` — ${project.subtitle}` : ""}\nAuthor: ${project.author}\nTarget audience: ${project.targetAudience}\n\nDesign 5-8 chapters for this book. Return a JSON array.`,
+   251→        },
+   252→      ],
+   253→    });
+   254→
+   255→    const content = response.choices[0]?.message?.content || "[]";
+   256→    // Try to parse the JSON
+   257→    let chaptersRaw: Array<{
+   258→      title: string;
+   259→      synopsis: string;
+   260→      targetWords: number;
+   261→    }>;
+   262→
+   263→    // Extract JSON from potential markdown code blocks
+   264→    const jsonMatch = content.match(/\[[\s\S]*\]/);
+   265→    if (jsonMatch) {
+   266→      chaptersRaw = JSON.parse(jsonMatch[0]);
+   267→    } else {
+   268→      throw new Error("ZAI did not return valid JSON for chapter architecture");
+   269→    }
+   270→
+   271→    project.chapters = chaptersRaw.map((c, i) => ({
+   272→      index: i,
+   273→      title: c.title || `Chapter ${i + 1}`,
+   274→      synopsis: c.synopsis || "",
+   275→      targetWords: c.targetWords || 2000,
+   276→    }));
+   277→
+   278→    onProgress?.({
+   279→      step: 1,
+   280→      stepName: "ARCHITECTURE",
+   281→      status: "completed",
+   282→      detail: `Generated architecture with ${project.chapters.length} chapters`,
+   283→      timestamp: new Date(),
+   284→    });
+   285→  } catch (err) {
+   286→    const msg =
+   287→      err instanceof Error ? err.message : String(err);
+   288→    project.errors.push({
+   289→      step: 1,
+   290→      stepName: "ARCHITECTURE",
+   291→      message: msg,
+   292→      timestamp: new Date(),
+   293→      recoverable: false,
+   294→    });
+   295→    onProgress?.({
+   296→      step: 1,
+   297→      stepName: "ARCHITECTURE",
+   298→      status: "failed",
+   299→      detail: msg,
+   300→      timestamp: new Date(),
+   301→    });
+   302→    throw new Error(`Step 1 ARCHITECTURE failed: ${msg}`);
+   303→  }
+   304→}
+   305→
+   306→// ─── Step 2: CONTENT GENERATION ───────────────────────────────────────────────
+   307→
+   308→/**
+   309→ * Generate content for each chapter via ZAI.
+   310→ * Each chapter's `content` field is filled with the generated text.
+   311→ */
+   312→async function stepContentGeneration(
+   313→  project: BookProject,
+   314→  onProgress?: ProgressCallback
+   315→): Promise<void> {
+   316→  onProgress?.({
+   317→    step: 2,
+   318→    stepName: "CONTENT_GENERATION",
+   319→    status: "started",
+   320→    detail: `Generating content for ${project.chapters.length} chapters`,
+   321→    timestamp: new Date(),
+   322→  });
+   323→
+   324→  const zai = await getZAI();
+   325→  let generatedCount = 0;
+   326→
+   327→  for (const chapter of project.chapters) {
+   328→    try {
+   329→      const response = await zai.chat.completions.create({
+   330→        messages: [
+   331→          {
+   332→            role: "system",
+   333→            content: `You are a professional author writing a book titled "${project.title}" for ${project.targetAudience}. Write clear, engaging, well-structured content. Use markdown formatting for headings, bold, lists. Write approximately ${chapter.targetWords} words.`,
+   334→          },
+   335→          {
+   336→            role: "user",
+   337→            content: `Write Chapter ${chapter.index + 1}: "${chapter.title}"\n\nSynopsis: ${chapter.synopsis}\n\nWrite the full chapter content now.`,
+   338→          },
+   339→        ],
+   340→      });
+   341→
+   342→      chapter.content =
+   343→        response.choices[0]?.message?.content || "";
+   344→      generatedCount++;
+   345→    } catch (err) {
+   346→      const msg =
+   347→        err instanceof Error ? err.message : String(err);
+   348→      project.errors.push({
+   349→        step: 2,
+   350→        stepName: "CONTENT_GENERATION",
+   351→        message: `Chapter ${chapter.index + 1} "${chapter.title}": ${msg}`,
+   352→        timestamp: new Date(),
+   353→        recoverable: true,
+   354→      });
+   355→      // Continue with other chapters — don't abort the entire pipeline
+   356→      chapter.content = `[Content generation failed for this chapter: ${msg}]`;
+   357→    }
+   358→  }
+   359→
+   360→  if (generatedCount === 0) {
+   361→    const msg = "No chapters were generated successfully";
+   362→    project.errors.push({
+   363→      step: 2,
+   364→      stepName: "CONTENT_GENERATION",
+   365→      message: msg,
+   366→      timestamp: new Date(),
+   367→      recoverable: false,
+   368→    });
+   369→    onProgress?.({
+   370→      step: 2,
+   371→      stepName: "CONTENT_GENERATION",
+   372→      status: "failed",
+   373→      detail: msg,
+   374→      timestamp: new Date(),
+   375→    });
+   376→    throw new Error(`Step 2 CONTENT_GENERATION failed: ${msg}`);
+   377→  }
+   378→
+   379→  onProgress?.({
+   380→    step: 2,
+   381→    stepName: "CONTENT_GENERATION",
+   382→    status: "completed",
+   383→    detail: `Generated content for ${generatedCount}/${project.chapters.length} chapters`,
+   384→    timestamp: new Date(),
+   385→  });
+   386→}
+   387→
+   388→// ─── Step 3: ART DIRECTION ────────────────────────────────────────────────────
+   389→
+   390→/**
+   391→ * Determine visual style based on book type and audience.
+   392→ * Uses ZAI to suggest a style, or falls back to defaults.
+   393→ */
+   394→async function stepArtDirection(
+   395→  project: BookProject,
+   396→  onProgress?: ProgressCallback
+   397→): Promise<void> {
+   398→  onProgress?.({
+   399→    step: 3,
+   400→    stepName: "ART_DIRECTION",
+   401→    status: "started",
+   402→    detail: "Determining visual style",
+   403→    timestamp: new Date(),
+   404→  });
+   405→
+   406→  try {
+   407→    const zai = await getZAI();
+   408→    const response = await zai.chat.completions.create({
+   409→      messages: [
+   410→        {
+   411→          role: "system",
+   412→          content: `You are an art director for book design. Based on the book title, audience, and content, suggest a visual style. Return a JSON object with: colorScheme (string describing colors), coverStyle (string like "modern", "classic", "minimal", "bold"), fontSize (number, 10-14), lineHeight (number, 1.2-2.0). Return ONLY the JSON object.`,
+   413→        },
+   414→        {
+   415→          role: "user",
+   416→          content: `Title: "${project.title}"\nAudience: ${project.targetAudience}\nChapters: ${project.chapters.map((c) => c.title).join(", ")}\n\nSuggest a visual style.`,
+   417→        },
+   418→      ],
+   419→    });
+   420→
+   421→    const content = response.choices[0]?.message?.content || "{}";
+   422→    const jsonMatch = content.match(/\{[\s\S]*\}/);
+   423→    if (jsonMatch) {
+   424→      const styleSuggestion = JSON.parse(jsonMatch[0]);
+   425→      // Merge suggestions into project style (don't override user-set values)
+   426→      if (styleSuggestion.colorScheme)
+   427→        project.style.colorScheme = styleSuggestion.colorScheme;
+   428→      if (styleSuggestion.coverStyle)
+   429→        project.style.coverStyle = styleSuggestion.coverStyle;
+   430→      if (
+   431→        typeof styleSuggestion.fontSize === "number" &&
+   432→        styleSuggestion.fontSize >= 10 &&
+   433→        styleSuggestion.fontSize <= 14
+   434→      )
+   435→        project.style.fontSize = styleSuggestion.fontSize;
+   436→      if (
+   437→        typeof styleSuggestion.lineHeight === "number" &&
+   438→        styleSuggestion.lineHeight >= 1.2 &&
+   439→        styleSuggestion.lineHeight <= 2.0
+   440→      )
+   441→        project.style.lineHeight = styleSuggestion.lineHeight;
+   442→    }
+   443→
+   444→    onProgress?.({
+   445→      step: 3,
+   446→      stepName: "ART_DIRECTION",
+   447→      status: "completed",
+   448→      detail: `Style: ${project.style.colorScheme}, cover: ${project.style.coverStyle}, font: ${project.style.fontSize}pt`,
+   449→      timestamp: new Date(),
+   450→    });
+   451→  } catch (err) {
+   452→    // Art direction failure is non-fatal — use defaults
+   453→    onProgress?.({
+   454→      step: 3,
+   455→      stepName: "ART_DIRECTION",
+   456→      status: "completed",
+   457→      detail: `Using default style (ZAI suggestion failed: ${err instanceof Error ? err.message : String(err)})`,
+   458→      timestamp: new Date(),
+   459→    });
+   460→  }
+   461→}
+   462→
+   463→// ─── Step 4: COVER DESIGN ─────────────────────────────────────────────────────
+   464→
+   465→/**
+   466→ * Generate cover image via ZAI image generation.
+   467→ * Saves the image to the download directory.
+   468→ */
+   469→async function stepCoverDesign(
+   470→  project: BookProject,
+   471→  onProgress?: ProgressCallback
+   472→): Promise<void> {
+   473→  onProgress?.({
+   474→    step: 4,
+   475→    stepName: "COVER_DESIGN",
+   476→    status: "started",
+   477→    detail: "Generating cover image",
+   478→    timestamp: new Date(),
+   479→  });
+   480→
+   481→  try {
+   482→    const zai = await getZAI();
+   483→    const coverPrompt = `Book cover design for "${project.title}"${project.subtitle ? `: ${project.subtitle}` : ""} by ${project.author}. Target audience: ${project.targetAudience}. Style: ${project.style.coverStyle}, ${project.style.colorScheme}. Professional, high quality, no text on image except the title.`;
+   484→
+   485→    const response = await zai.images.generations.create({
+   486→      model: "flux-krea-v2",
+   487→      prompt: coverPrompt,
+   488→      size: "1024x1024",
+   489→    });
+   490→
+   491→    const base64 = response.data[0]?.base64;
+   492→    if (!base64) {
+   493→      throw new Error("ZAI image generation returned no base64 data");
+   494→    }
+   495→
+   496→    // Save cover image to disk
+   497→    const outputDir = DEFAULT_OUTPUT_DIR;
+   498→    await fs.mkdir(outputDir, { recursive: true });
+   499→    const coverFileName = `${project.title.replace(/[^a-zA-Z0-9]+/g, "_")}_cover_${randomUUID().slice(0, 8)}.png`;
+   500→    const coverPath = path.join(outputDir, coverFileName);
+   501→
+   502→    // Decode base64 and write
+   503→    const buffer = Buffer.from(base64, "base64");
+   504→    await fs.writeFile(coverPath, buffer);
+   505→
+   506→    // Verify file exists
+   507→    const stat = await fs.stat(coverPath);
+   508→    if (stat.size === 0) {
+   509→      throw new Error("Cover image file is empty after writing");
+   510→    }
+   511→
+   512→    project.artifacts.coverImagePath = coverPath;
+   513→
+   514→    onProgress?.({
+   515→      step: 4,
+   516→      stepName: "COVER_DESIGN",
+   517→      status: "completed",
+   518→      detail: `Cover image saved: ${coverPath} (${stat.size} bytes)`,
+   519→      timestamp: new Date(),
+   520→    });
+   521→  } catch (err) {
+   522→    const msg =
+   523→      err instanceof Error ? err.message : String(err);
+   524→    project.errors.push({
+   525→      step: 4,
+   526→      stepName: "COVER_DESIGN",
+   527→      message: msg,
+   528→      timestamp: new Date(),
+   529→      recoverable: true, // Can proceed without cover
+   530→    });
+   531→    onProgress?.({
+   532→      step: 4,
+   533→      stepName: "COVER_DESIGN",
+   534→      status: "failed",
+   535→      detail: `Cover design failed (proceeding without cover): ${msg}`,
+   536→      timestamp: new Date(),
+   537→    });
+   538→    // Non-fatal — continue without cover image
+   539→  }
+   540→}
+   541→
+   542→// ─── Step 5: EDITORIAL DESIGN ─────────────────────────────────────────────────
+   543→
+   544→/**
+   545→ * Review and refine each chapter's content via ZAI.
+   546→ * This step calls ZAI to review and improve the content.
+   547→ */
+   548→async function stepEditorialDesign(
+   549→  project: BookProject,
+   550→  onProgress?: ProgressCallback
+   551→): Promise<void> {
+   552→  onProgress?.({
+   553→    step: 5,
+   554→    stepName: "EDITORIAL_DESIGN",
+   555→    status: "started",
+   556→    detail: `Reviewing ${project.chapters.length} chapters`,
+   557→    timestamp: new Date(),
+   558→  });
+   559→
+   560→  const zai = await getZAI();
+   561→  let reviewedCount = 0;
+   562→
+   563→  for (const chapter of project.chapters) {
+   564→    if (!chapter.content || chapter.content.startsWith("[Content generation failed")) {
+   565→      // Skip chapters that failed content generation
+   566→      continue;
+   567→    }
+   568→
+   569→    try {
+   570→      const response = await zai.chat.completions.create({
+   571→        messages: [
+   572→          {
+   573→            role: "system",
+   574→            content: `You are an editor reviewing and refining book content. Improve clarity, fix grammar, enhance flow, and ensure consistency. Return the COMPLETE revised chapter content. Do not add meta-commentary — return only the chapter text.`,
+   575→          },
+   576→          {
+   577→            role: "user",
+   578→            content: `Review and refine this chapter from "${project.title}" (Chapter ${chapter.index + 1}: "${chapter.title}"):\n\n${chapter.content}`,
+   579→          },
+   580→        ],
+   581→      });
+   582→
+   583→      const refined =
+   584→        response.choices[0]?.message?.content || chapter.content;
+   585→      // Only replace if we got substantial content back
+   586→      if (refined.length > chapter.content.length * 0.5) {
+   587→        chapter.content = refined;
+   588→      }
+   589→      reviewedCount++;
+   590→    } catch (err) {
+   591→      // Editorial failure for one chapter is non-fatal
+   592→      project.errors.push({
+   593→        step: 5,
+   594→        stepName: "EDITORIAL_DESIGN",
+   595→        message: `Chapter ${chapter.index + 1}: ${err instanceof Error ? err.message : String(err)}`,
+   596→        timestamp: new Date(),
+   597→        recoverable: true,
+   598→      });
+   599→    }
+   600→  }
+   601→
+   602→  onProgress?.({
+   603→    step: 5,
+   604→    stepName: "EDITORIAL_DESIGN",
+   605→    status: "completed",
+   606→    detail: `Reviewed ${reviewedCount}/${project.chapters.length} chapters`,
+   607→    timestamp: new Date(),
+   608→  });
+   609→}
+   610→
+   611→// ─── Step 6: LAYOUT ──────────────────────────────────────────────────────────
+   612→
+   613→/**
+   614→ * Prepare layout data (margins, fonts, page structure).
+   615→ * This step doesn't generate files — it prepares the PdfConfig
+   616→ * that will be used in Step 7.
+   617→ *
+   618→ * We store the config as a side-effect on the project style.
+   619→ */
+   620→async function stepLayout(
+   621→  project: BookProject,
+   622→  onProgress?: ProgressCallback
+   623→): Promise<PdfConfig> {
+   624→  onProgress?.({
+   625→    step: 6,
+   626→    stepName: "LAYOUT",
+   627→    status: "started",
+   628→    detail: "Preparing layout configuration",
+   629→    timestamp: new Date(),
+   630→  });
+   631→
+   632→  const pdfConfig: PdfConfig = {
+   633→    title: project.title,
+   634→    author: project.author,
+   635→    subject: project.subtitle || project.title,
+   636→    pageSize: "A4",
+   637→    orientation: "portrait",
+   638→    margins: {
+   639→      top: project.style.marginSize,
+   640→      bottom: project.style.marginSize,
+   641→      left: project.style.marginSize,
+   642→      right: project.style.marginSize,
+   643→    },
+   644→    defaultFont: project.style.fontFamily,
+   645→    defaultFontSize: project.style.fontSize,
+   646→    lineHeight: project.style.lineHeight,
+   647→  };
+   648→
+   649→  onProgress?.({
+   650→    step: 6,
+   651→    stepName: "LAYOUT",
+   652→    status: "completed",
+   653→    detail: `Layout: ${pdfConfig.pageSize} ${pdfConfig.orientation}, margins=${pdfConfig.margins.top}pt, font=${pdfConfig.defaultFontSize}pt/${pdfConfig.lineHeight}x`,
+   654→    timestamp: new Date(),
+   655→  });
+   656→
+   657→  return pdfConfig;
+   658→}
+   659→
+   660→// ─── Step 7: PDF GENERATION ───────────────────────────────────────────────────
+   661→
+   662→/**
+   663→ * Generate the actual PDF file via pdf-factory.
+   664→ * This is the core output step — it MUST produce a real file.
+   665→ */
+   666→async function stepPdfGeneration(
+   667→  project: BookProject,
+   668→  pdfConfig: PdfConfig,
+   669→  onProgress?: ProgressCallback
+   670→): Promise<PdfResult> {
+   671→  onProgress?.({
+   672→    step: 7,
+   673→    stepName: "PDF_GENERATION",
+   674→    status: "started",
+   675→    detail: "Generating PDF file",
+   676→    timestamp: new Date(),
+   677→  });
+   678→
+   679→  // Prepare chapters for PDF
+   680→  const pdfChapters: PdfChapter[] = project.chapters.map((c) => ({
+   681→    title: c.title,
+   682→    content: c.content || `[No content for ${c.title}]`,
+   683→  }));
+   684→
+   685→  try {
+   686→    const result = await generatePdf(
+   687→      pdfConfig,
+   688→      pdfChapters,
+   689→      project.artifacts.coverImagePath,
+   690→      DEFAULT_OUTPUT_DIR
+   691→    );
+   692→
+   693→    if (!result.success) {
+   694→      throw new Error("PDF generation returned success=false");
+   695→    }
+   696→
+   697→    // Verify file exists on disk (pdf-factory already does this, but double-check)
+   698→    const stat = await fs.stat(result.filePath);
+   699→    if (stat.size === 0) {
+   700→      throw new Error(
+   701→        `PDF file is empty: ${result.filePath}`
+   702→      );
+   703→    }
+   704→
+   705→    project.artifacts.pdfPath = result.filePath;
+   706→
+   707→    onProgress?.({
+   708→      step: 7,
+   709→      stepName: "PDF_GENERATION",
+   710→      status: "completed",
+   711→      detail: `PDF generated: ${result.filePath} (${result.fileSize} bytes, ${result.pageCount} pages, evidence=${result.evidence})`,
+   712→      timestamp: new Date(),
+   713→    });
+   714→
+   715→    return result;
+   716→  } catch (err) {
+   717→    const msg =
+   718→      err instanceof Error ? err.message : String(err);
+   719→    project.errors.push({
+   720→      step: 7,
+   721→      stepName: "PDF_GENERATION",
+   722→      message: msg,
+   723→      timestamp: new Date(),
+   724→      recoverable: false,
+   725→    });
+   726→    onProgress?.({
+   727→      step: 7,
+   728→      stepName: "PDF_GENERATION",
+   729→      status: "failed",
+   730→      detail: msg,
+   731→      timestamp: new Date(),
+   732→    });
+   733→    throw new Error(`Step 7 PDF_GENERATION failed: ${msg}`);
+   734→  }
+   735→}
+   736→
+   737→// ─── Step 8: VISUAL QA ────────────────────────────────────────────────────────
+   738→
+   739→/**
+   740→ * Inspect the PDF for quality using visual-qa module.
+   741→ */
+   742→async function stepVisualQA(
+   743→  project: BookProject,
+   744→  onProgress?: ProgressCallback
+   745→): Promise<QAReport> {
+   746→  onProgress?.({
+   747→    step: 8,
+   748→    stepName: "VISUAL_QA",
+   749→    status: "started",
+   750→    detail: "Running visual QA inspection",
+   751→    timestamp: new Date(),
+   752→  });
+   753→
+   754→  const pdfPath = project.artifacts.pdfPath;
+   755→  if (!pdfPath) {
+   756→    const msg = "No PDF path available for QA inspection";
+   757→    project.errors.push({
+   758→      step: 8,
+   759→      stepName: "VISUAL_QA",
+   760→      message: msg,
+   761→      timestamp: new Date(),
+   762→      recoverable: false,
+   763→    });
+   764→    onProgress?.({
+   765→      step: 8,
+   766→      stepName: "VISUAL_QA",
+   767→      status: "failed",
+   768→      detail: msg,
+   769→      timestamp: new Date(),
+   770→    });
+   771→    throw new Error(`Step 8 VISUAL_QA failed: ${msg}`);
+   772→  }
+   773→
+   774→  const report = await runVisualQA(project.projectId, pdfPath);
+   775→
+   776→  onProgress?.({
+   777→    step: 8,
+   778→    stepName: "VISUAL_QA",
+   779→    status: report.passed ? "completed" : "failed",
+   780→    detail: report.passed
+   781→      ? `QA passed (${report.checks.length} checks, evidence=${report.evidence})`
+   782→      : `QA failed: ${report.issues.filter((i) => i.severity === "CRITICAL").length} critical, ${report.issues.filter((i) => i.severity === "MAJOR").length} major issues`,
+   783→    timestamp: new Date(),
+   784→  });
+   785→
+   786→  return report;
+   787→}
+   788→
+   789→// ─── Step 9: REPAIR ──────────────────────────────────────────────────────────
+   790→
+   791→/**
+   792→ * Fix issues found in QA. Attempts repair for each repairable issue.
+   793→ * After repairs, re-runs QA to verify fixes.
+   794→ */
+   795→async function stepRepair(
+   796→  project: BookProject,
+   797→  qaReport: QAReport,
+   798→  onProgress?: ProgressCallback
+   799→): Promise<QAReport> {
+   800→  onProgress?.({
+   801→    step: 9,
+   802→    stepName: "REPAIR",
+   803→    status: "started",
+   804→    detail: `Attempting to repair ${qaReport.issues.length} issues`,
+   805→    timestamp: new Date(),
+   806→  });
+   807→
+   808→  const pdfPath = project.artifacts.pdfPath;
+   809→  if (!pdfPath) {
+   810→    onProgress?.({
+   811→      step: 9,
+   812→      stepName: "REPAIR",
+   813→      status: "skipped",
+   814→      detail: "No PDF to repair",
+   815→      timestamp: new Date(),
+   816→    });
+   817→    return qaReport;
+   818→  }
+   819→
+   820→  const repairableIssues = qaReport.issues.filter(
+   821→    (i) => i.repairable
+   822→  );
+   823→
+   824→  if (repairableIssues.length === 0) {
+   825→    onProgress?.({
+   826→      step: 9,
+   827→      stepName: "REPAIR",
+   828→      status: "completed",
+   829→      detail: "No repairable issues found",
+   830→      timestamp: new Date(),
+   831→    });
+   832→    return qaReport;
+   833→  }
+   834→
+   835→  let repairedCount = 0;
+   836→  for (const issue of repairableIssues) {
+   837→    try {
+   838→      const result = await repairIssue(issue, pdfPath, {
+   839→        title: project.title,
+   840→        author: project.author,
+   841→      });
+   842→      if (result.repaired) {
+   843→        repairedCount++;
+   844→      }
+   845→    } catch (err) {
+   846→      project.errors.push({
+   847→        step: 9,
+   848→        stepName: "REPAIR",
+   849→        message: `Failed to repair "${issue.description}": ${err instanceof Error ? err.message : String(err)}`,
+   850→        timestamp: new Date(),
+   851→        recoverable: true,
+   852→      });
+   853→    }
+   854→  }
+   855→
+   856→  // Re-run QA after repairs
+   857→  const newReport = await runVisualQA(project.projectId, pdfPath);
+   858→
+   859→  onProgress?.({
+   860→    step: 9,
+   861→    stepName: "REPAIR",
+   862→    status: newReport.passed ? "completed" : "failed",
+   863→    detail: `Repaired ${repairedCount}/${repairableIssues.length} issues. QA after repair: ${newReport.passed ? "PASSED" : "FAILED"}`,
+   864→    timestamp: new Date(),
+   865→  });
+   866→
+   867→  return newReport;
+   868→}
+   869→
+   870→// ─── Step 10: FINAL ──────────────────────────────────────────────────────────
+   871→
+   872→/**
+   873→ * Deliver the product. Writes a metadata JSON file alongside the PDF.
+   874→ * Verifies the PDF still exists on disk.
+   875→ */
+   876→async function stepFinal(
+   877→  project: BookProject,
+   878→  qaReport: QAReport,
+   879→  onProgress?: ProgressCallback
+   880→): Promise<void> {
+   881→  onProgress?.({
+   882→    step: 10,
+   883→    stepName: "FINAL",
+   884→    status: "started",
+   885→    detail: "Finalizing product",
+   886→    timestamp: new Date(),
+   887→  });
+   888→
+   889→  const pdfPath = project.artifacts.pdfPath;
+   890→
+   891→  // Verify PDF still exists
+   892→  if (pdfPath) {
+   893→    try {
+   894→      const stat = await fs.stat(pdfPath);
+   895→      if (stat.size === 0) {
+   896→        throw new Error("PDF file is empty at final step");
+   897→      }
+   898→    } catch (err) {
+   899→      const msg =
+   900→        err instanceof Error ? err.message : String(err);
+   901→      project.errors.push({
+   902→        step: 10,
+   903→        stepName: "FINAL",
+   904→        message: `PDF verification failed: ${msg}`,
+   905→        timestamp: new Date(),
+   906→        recoverable: false,
+   907→      });
+   908→      onProgress?.({
+   909→        step: 10,
+   910→        stepName: "FINAL",
+   911→        status: "failed",
+   912→        detail: msg,
+   913→        timestamp: new Date(),
+   914→      });
+   915→      throw new Error(`Step 10 FINAL failed: ${msg}`);
+   916→    }
+   917→  }
+   918→
+   919→  // Write metadata JSON
+   920→  const metadata = {
+   921→    projectId: project.projectId,
+   922→    title: project.title,
+   923→    subtitle: project.subtitle,
+   924→    author: project.author,
+   925→    targetAudience: project.targetAudience,
+   926→    chapters: project.chapters.map((c) => ({
+   927→      index: c.index,
+   928→      title: c.title,
+   929→      synopsis: c.synopsis,
+   930→      targetWords: c.targetWords,
+   931→      wordCount: c.content?.split(/\s+/).length || 0,
+   932→    })),
+   933→    style: project.style,
+   934→    artifacts: project.artifacts,
+   935→    qa: {
+   936→      passed: qaReport.passed,
+   937→      checksCount: qaReport.checks.length,
+   938→      issuesCount: qaReport.issues.length,
+   939→      evidence: qaReport.evidence,
+   940→    },
+   941→    generatedAt: new Date().toISOString(),
+   942→  };
+   943→
+   944→  const metadataDir = DEFAULT_OUTPUT_DIR;
+   945→  await fs.mkdir(metadataDir, { recursive: true });
+   946→  const metadataFileName = `${project.title.replace(/[^a-zA-Z0-9]+/g, "_")}_metadata_${randomUUID().slice(0, 8)}.json`;
+   947→  const metadataPath = path.join(metadataDir, metadataFileName);
+   948→  await fs.writeFile(metadataPath, JSON.stringify(metadata, null, 2));
+   949→  project.artifacts.metadataPath = metadataPath;
+   950→
+   951→  // Mark completed
+   952→  project.completedAt = new Date();
+   953→
+   954→  onProgress?.({
+   955→    step: 10,
+   956→    stepName: "FINAL",
+   957→    status: "completed",
+   958→    detail: `Product finalized. PDF: ${pdfPath || "none"}, Metadata: ${metadataPath}`,
+   959→    timestamp: new Date(),
+   960→  });
+   961→}
+   962→
+   963→// ─── runPipeline ──────────────────────────────────────────────────────────────
+   964→
+   965→/**
+   966→ * Execute the full 10-step pipeline.
+   967→ *
+   968→ * - Each step must produce a REAL result or throw a REAL error
+   969→ * - Progress is reported via the onProgress callback
+   970→ * - The pipeline stops on CRITICAL errors (steps 1, 2, 7)
+   971→ * - Non-critical errors are logged but the pipeline continues
+   972→ *
+   973→ * Returns the completed BookProject.
+   974→ */
+   975→export async function runPipeline(
+   976→  projectId: string,
+   977→  onProgress?: ProgressCallback
+   978→): Promise<BookProject> {
+   979→  const project = projectStore.get(projectId);
+   980→  if (!project) {
+   981→    throw new Error(`BookProject not found: ${projectId}`);
+   982→  }
+   983→
+   984→  project.status = "RUNNING";
+   985→  project.startedAt = new Date();
+   986→
+   987→  try {
+   988→    // Step 1: ARCHITECTURE
+   989→    project.currentStep = 1;
+   990→    await stepArchitecture(project, onProgress);
+   991→
+   992→    // Step 2: CONTENT GENERATION
+   993→    project.currentStep = 2;
+   994→    await stepContentGeneration(project, onProgress);
+   995→
+   996→    // Step 3: ART DIRECTION
+   997→    project.currentStep = 3;
+   998→    await stepArtDirection(project, onProgress);
+   999→
+  1000→    // Step 4: COVER DESIGN (non-fatal if it fails)
+  1001→    project.currentStep = 4;
+  1002→    await stepCoverDesign(project, onProgress);
+  1003→
+  1004→    // Step 5: EDITORIAL DESIGN
+  1005→    project.currentStep = 5;
+  1006→    await stepEditorialDesign(project, onProgress);
+  1007→
+  1008→    // Step 6: LAYOUT
+  1009→    project.currentStep = 6;
+  1010→    const pdfConfig = await stepLayout(project, onProgress);
+  1011→
+  1012→    // Step 7: PDF GENERATION
+  1013→    project.currentStep = 7;
+  1014→    await stepPdfGeneration(project, pdfConfig, onProgress);
+  1015→
+  1016→    // Step 8: VISUAL QA
+  1017→    project.currentStep = 8;
+  1018→    let qaReport = await stepVisualQA(project, onProgress);
+  1019→
+  1020→    // Step 9: REPAIR (if QA found issues)
+  1021→    project.currentStep = 9;
+  1022→    if (!qaReport.passed) {
+  1023→      qaReport = await stepRepair(project, qaReport, onProgress);
+  1024→    } else {
+  1025→      onProgress?.({
+  1026→        step: 9,
+  1027→        stepName: "REPAIR",
+  1028→        status: "skipped",
+  1029→        detail: "QA passed — no repairs needed",
+  1030→        timestamp: new Date(),
+  1031→      });
+  1032→    }
+  1033→
+  1034→    // Step 10: FINAL
+  1035→    project.currentStep = 10;
+  1036→    await stepFinal(project, qaReport, onProgress);
+  1037→
+  1038→    project.status = "COMPLETED";
+  1039→    project.currentStep = 10;
+  1040→  } catch (err) {
+  1041→    project.status = "FAILED";
+  1042→    const msg =
+  1043→      err instanceof Error ? err.message : String(err);
+  1044→    if (
+  1045→      !project.errors.some(
+  1046→        (e) => e.message === msg && e.step === project.currentStep
+  1047→      )
+  1048→    ) {
+  1049→      project.errors.push({
+  1050→        step: project.currentStep,
+  1051→        stepName: STEP_NAMES[project.currentStep - 1] || "UNKNOWN",
+  1052→        message: msg,
+  1053→        timestamp: new Date(),
+  1054→        recoverable: false,
+  1055→      });
+  1056→    }
+  1057→    onProgress?.({
+  1058→      step: project.currentStep,
+  1059→      stepName: STEP_NAMES[project.currentStep - 1] || "UNKNOWN",
+  1060→      status: "failed",
+  1061→      detail: `Pipeline failed at step ${project.currentStep}: ${msg}`,
+  1062→      timestamp: new Date(),
+  1063→    });
+  1064→  }
+  1065→
+  1066→  return project;
+  1067→}
+  1068→
+  1069→// ─── Convenience: create and run ──────────────────────────────────────────────
+  1070→
+  1071→/**
+  1072→ * Create a book project and immediately run the pipeline.
+  1073→ */
+  1074→export async function createAndRun(
+  1075→  input: BookProjectInput,
+  1076→  onProgress?: ProgressCallback
+  1077→): Promise<BookProject> {
+  1078→  const project = createBookProject(input);
+  1079→  return runPipeline(project.projectId, onProgress);
+  1080→}
+  1081→
