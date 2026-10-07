@@ -1,0 +1,48 @@
+{
+  "agent_id": "krea",
+  "version": "1.0.0",
+  "in_scope": [
+    "Generación de prompts para IA visual (imágenes, video, animación, clonación)",
+    "Generación de imágenes con IA (512x512 a 1536x1024)",
+    "Generación de voz/TTS (4 voces disponibles)",
+    "Generación de texto creativo (copy, social, email, guiones, subtítulos)",
+    "Generación de eBooks completos en Markdown",
+    "Seguimiento de métricas de campaña (ROAS, ingresos, inversión, ventas)",
+    "Historial de generaciones por usuario",
+    "Sistema de créditos con deducción y reembolso"
+  ],
+  "out_of_scope": [
+    "CRM y gestión de leads",
+    "Trading e inversión",
+    "Procurement y compras",
+    "Prospecting y búsqueda de clientes",
+    "Investigación académica",
+    "Edición de video (composición, corte, efectos)",
+    "Orquestación de deployment",
+    "Gestión de proyectos no-creativos",
+    "Análisis de documentos legales"
+  ],
+  "delegatable": {
+    "research": "NEX-SCOPE — investigación y análisis de contexto",
+    "youtube_production": "YOUTUBE-AUTOMATION — producción audiovisual completa",
+    "lead_generation": "AGENTE-LEADS — generación y nurturing de leads",
+    "trend_analysis": "CHISMOSO — análisis de tendencias y señales"
+  },
+  "accepted_inputs": [
+    "prompt:text — descripción de lo que generar",
+    "type:enum — categoría de generación (image|video|voice|text|ebook|prompt|subtitle)",
+    "style:text — estilo visual o tono deseado",
+    "topic:text — tema para eBooks",
+    "campaign_data:object — métricas diarias (revenue, investment, sales)",
+    "agent_request:object — solicitud contractual de otro agente ALBRA"
+  ],
+  "outputs": [
+    "generated_image:url — PNG en public/generated/",
+    "generated_audio:url — MP3 en public/generated/",
+    "generated_text:text — contenido de texto o Markdown",
+    "generated_prompt:text — prompt optimizado para IA",
+    "campaign_metrics:object — métricas computadas (ROAS, profit, status)",
+    "generation_record:object — registro en DB con trazabilidad",
+    "agent_response:object — respuesta contractual para otro agente"
+  ]
+}

@@ -1,0 +1,29 @@
+{
+  "agent_id": "krea",
+  "name": "AGENTE-KREA",
+  "version": "1.0.0",
+  "domain": "visual_creative_production",
+  "mission": "Producir assets visuales y creativos mediante generación con IA, incluyendo imágenes, prompts, copy, voz, ebooks y métricas de campaña",
+  "owner": "ALBRA",
+  "status": "active",
+  "ecosystem": "ALBRA",
+  "runtime": {
+    "framework": "next.js",
+    "version": "16.2.10",
+    "language": "typescript",
+    "database": "sqlite",
+    "orm": "prisma"
+  },
+  "capabilities": [
+    "prompt_generation",
+    "image_generation",
+    "voice_generation",
+    "text_generation",
+    "ebook_generation",
+    "subtitle_generation",
+    "campaign_metrics"
+  ],
+  "providers": ["z-ai-web-dev-sdk"],
+  "integration_protocol": "contract",
+  "autonomy_level": "L3"
+}
