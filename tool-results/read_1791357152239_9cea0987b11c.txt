@@ -1,0 +1,709 @@
+     1→     1→/**
+     2→     2→ * Product Architecture Engine — KREA V2 Product Brain
+     3→     3→ *
+     4→     4→ * Designs the product architecture from opportunity, decision, and evidence.
+     5→     5→ * Produces a complete ProductArchitecture that defines WHAT to build,
+     6→     6→ * for WHOM, WHY, and with what SCOPE boundaries.
+     7→     7→ *
+     8→     8→ * Acceptance Criteria satisfied:
+     9→     9→ *   AC-015: Explicit MUST/SHOULD/COULD/OUT scope boundary
+    10→    10→ *          Must prevent unbounded scope creep
+    11→    11→ *
+    12→    12→ * The architecture includes:
+    13→    13→ *   - Jobs To Be Done (JTBD) framework
+    14→    14→ *   - Value proposition
+    15→    15→ *   - MoSCoW scope (MUST/SHOULD/COULD/OUT)
+    16→    16→ *   - MVP definition
+    17→    17→ *   - Validation requirements
+    18→    18→ *   - Success criteria
+    19→    19→ */
+    20→    20→
+    21→    21→import ZAI from "z-ai-web-dev-sdk";
+    22→    22→import { ProductEvidence, ProductEvidenceType } from "./product-intelligence";
+    23→    23→import { Opportunity } from "./product-fit";
+    24→    24→import { ProductDecision, ProductDecisionType, ConstructorSelection } from "./product-decision";
+    25→    25→import { MemoryManager } from "@/lib/memory";
+    26→    26→import { ExecutionTracer } from "@/lib/execution";
+    27→    27→
+    28→    28→// ─── Types ────────────────────────────────────────────────────────────────────
+    29→    29→
+    30→    30→/** MoSCoW priority item */
+    31→    31→export interface MoscowItem {
+    32→    32→  /** Item description */
+    33→    33→  description: string;
+    34→    34→  /** Rationale for this priority */
+    35→    35→  rationale: string;
+    36→    36→  /** Evidence supporting this item */
+    37→    37→  evidenceIds: string[];
+    38→    38→  /** Estimated effort */
+    39→    39→  effort?: "hours" | "days" | "weeks";
+    40→    40→  /** Whether this is part of MVP */
+    41→    41→  inMvp: boolean;
+    42→    42→}
+    43→    43→
+    44→    44→/** Jobs To Be Done */
+    45→    45→export interface JobToBeDone {
+    46→    46→  /** The job statement: "When [situation], I want to [motivation], so I can [outcome]" */
+    47→    47→  statement: string;
+    48→    48→  /** Situation context */
+    49→    49→  situation: string;
+    50→    50→  /** Motivation */
+    51→    51→  motivation: string;
+    52→    52→  /** Desired outcome */
+    53→    53→  outcome: string;
+    54→    54→  /** Priority of this job */
+    55→    55→  priority: "primary" | "secondary" | "tertiary";
+    56→    56→}
+    57→    57→
+    58→    58→/** Validation requirement */
+    59→    59→export interface ValidationRequirement {
+    60→    60→  /** What needs to be validated */
+    61→    61→  what: string;
+    62→    62→  /** How to validate it */
+    63→    63→  how: string;
+    64→    64→  /** Success criteria */
+    65→    65→  successCriteria: string;
+    66→    66→  /** Minimum sample size or threshold */
+    67→    67→  threshold?: string;
+    68→    68→  /** Priority */
+    69→    69→  priority: "critical" | "high" | "medium";
+    70→    70→}
+    71→    71→
+    72→    72→/** Build requirement */
+    73→    73→export interface BuildRequirement {
+    74→    74→  /** What needs to be built */
+    75→    75→  what: string;
+    76→    76→  /** Technical specification or constraints */
+    77→    77→  specification: string;
+    78→    78→  /** Dependencies */
+    79→    79→  dependencies: string[];
+    80→    80→  /** Estimated effort */
+    81→    81→  effort: "hours" | "days" | "weeks" | "months";
+    82→    82→}
+    83→    83→
+    84→    84→/** Complete product architecture */
+    85→    85→export interface ProductArchitecture {
+    86→    86→  /** Client or target market */
+    87→    87→  client: string;
+    88→    88→  /** Problem statement */
+    89→    89→  problem: string;
+    90→    90→  /** Jobs To Be Done */
+    91→    91→  jtbd: JobToBeDone[];
+    92→    92→  /** Desired outcome */
+    93→    93→  desired_outcome: string;
+    94→    94→  /** Value proposition */
+    95→    95→  value_proposition: string;
+    96→    96→  /** Product format */
+    97→    97→  format: string;
+    98→    98→  /** Scope definition */
+    99→    99→
+   100→   100→  /** AC-015: MUST items — non-negotiable for launch */
+   101→   101→  MUST: MoscowItem[];
+   102→   102→  /** AC-015: SHOULD items — important but not blocking */
+   103→   103→  SHOULD: MoscowItem[];
+   104→   104→  /** AC-015: COULD items — nice to have */
+   105→   105→  COULD: MoscowItem[];
+   106→   106→  /** AC-015: OUT items — explicitly excluded to prevent scope creep */
+   107→   107→  OUT: MoscowItem[];
+   108→   108→
+   109→   109→  /** UX description */
+   110→   110→  ux_description: string;
+   111→   111→  /** Differentiation strategy */
+   112→   112→  differentiation: string;
+   113→   113→  /** Monetization model */
+   114→   114→  monetization: string;
+   115→   115→  /** MVP definition (subset of MUST items) */
+   116→   116→  mvp_definition: {
+   117→   117→    /** MVP scope description */
+   118→   118→    scope: string;
+   119→   119→    /** MVP items (must be subset of MUST) */
+   120→   120→    items: MoscowItem[];
+   121→   121→    /** Time box for MVP */
+   122→   122→    timebox: string;
+   123→   123→    /** Success metrics for MVP */
+   124→   124→    successMetrics: string[];
+   125→   125→  };
+   126→   126→  /** Dependencies */
+   127→   127→  dependencies: string[];
+   128→   128→  /** Risks */
+   129→   129→  risks: string[];
+   130→   130→  /** Assumptions */
+   131→   131→  assumptions: string[];
+   132→   132→  /** Unknowns that need resolution */
+   133→   133→  unknowns: string[];
+   134→   134→  /** Validation requirements */
+   135→   135→  validation_requirements: ValidationRequirement[];
+   136→   136→  /** Build requirements */
+   137→   137→  build_requirements: BuildRequirement[];
+   138→   138→  /** Success criteria */
+   139→   139→  success_criteria: string[];
+   140→   140→  /** Architecture timestamp */
+   141→   141→  architectedAt: string;
+   142→   142→}
+   143→   143→
+   144→   144→// ─── Product Architecture Engine ──────────────────────────────────────────────
+   145→   145→
+   146→   146→/**
+   147→   147→ * ProductArchitectureEngine — Designs the complete product architecture.
+   148→   148→ *
+   149→   149→ * AC-015: The MUST/SHOULD/COULD/OUT boundary is explicit and enforced.
+   150→   150→ *         OUT items prevent scope creep by making exclusions visible.
+   151→   151→ *         MVP is defined as a subset of MUST items only.
+   152→   152→ */
+   153→   153→type ArchZAIInstance = Awaited<ReturnType<typeof ZAI.create>>;
+   154→   154→
+   155→   155→export class ProductArchitectureEngine {
+   156→   156→  private memory: MemoryManager;
+   157→   157→  private tracer: ExecutionTracer;
+   158→   158→  private zai: ArchZAIInstance | null = null;
+   159→   159→
+   160→   160→  constructor(memory?: MemoryManager, tracer?: ExecutionTracer) {
+   161→   161→    this.memory = memory || new MemoryManager();
+   162→   162→    this.tracer = tracer || new ExecutionTracer();
+   163→   163→  }
+   164→   164→
+   165→   165→  private async getZAI(): Promise<ArchZAIInstance> {
+   166→   166→    if (!this.zai) {
+   167→   167→      this.zai = await ZAI.create();
+   168→   168→    }
+   169→   169→    return this.zai;
+   170→   170→  }
+   171→   171→
+   172→   172→  /**
+   173→   173→   * architect — Design the product architecture.
+   174→   174→   *
+   175→   175→   * Produces a complete ProductArchitecture with:
+   176→   176→   *   - JTBD framework
+   177→   177→   *   - Value proposition
+   178→   178→   *   - MoSCoW scope (AC-015)
+   179→   179→   *   - MVP definition
+   180→   180→   *   - Validation and build requirements
+   181→   181→   *   - Success criteria
+   182→   182→   */
+   183→   183→  async architect(
+   184→   184→    opportunity: Opportunity,
+   185→   185→    decision: ProductDecision,
+   186→   186→    evidence: ProductEvidence[]
+   187→   187→  ): Promise<ProductArchitecture> {
+   188→   188→    const executionId = await this.tracer.start("product_architecture:architect", {
+   189→   189→      inputs: { opportunity: opportunity.name, decision: decision.decision },
+   190→   190→    });
+   191→   191→
+   192→   192→    try {
+   193→   193→      const zai = await this.getZAI();
+   194→   194→
+   195→   195→      // AI-powered architecture design
+   196→   196→      const response = await zai.chat.completions.create({
+   197→   197→        messages: [
+   198→   198→          {
+   199→   199→            role: "system",
+   200→   200→            content: `You are a product architect. Design a complete product architecture for the given opportunity.
+   201→   201→
+   202→   202→Your response MUST be valid JSON with this structure:
+   203→   203→{
+   204→   204→  "jtbd": [{ "situation": "...", "motivation": "...", "outcome": "...", "priority": "primary|secondary|tertiary" }],
+   205→   205→  "value_proposition": "...",
+   206→   206→  "desired_outcome": "...",
+   207→   207→  "ux_description": "...",
+   208→   208→  "differentiation": "...",
+   209→   209→  "monetization": "...",
+   210→   210→  "MUST": [{ "description": "...", "rationale": "...", "effort": "hours|days|weeks", "inMvp": true }],
+   211→   211→  "SHOULD": [{ "description": "...", "rationale": "...", "effort": "hours|days|weeks", "inMvp": false }],
+   212→   212→  "COULD": [{ "description": "...", "rationale": "...", "effort": "hours|days|weeks", "inMvp": false }],
+   213→   213→  "OUT": [{ "description": "...", "rationale": "...", "effort": "hours|days|weeks", "inMvp": false }],
+   214→   214→  "risks": ["..."],
+   215→   215→  "assumptions": ["..."],
+   216→   216→  "unknowns": ["..."],
+   217→   217→  "success_criteria": ["..."]
+   218→   218→}
+   219→   219→
+   220→   220→CRITICAL RULES (AC-015 - Scope Control):
+   221→   221→1. MUST items are NON-NEGOTIABLE for launch — without them, the product doesn't solve the core problem
+   222→   222→2. SHOULD items are important but the product launches without them
+   223→   223→3. COULD items are nice-to-have — only if time permits
+   224→   224→4. OUT items are EXPLICITLY EXCLUDED — they prevent scope creep
+   225→   225→5. Every OUT item needs a rationale explaining WHY it's excluded
+   226→   226→6. MVP MUST be a subset of MUST items only
+   227→   227→7. Include at least 2 OUT items to demonstrate scope boundary awareness`,
+   228→   228→          },
+   229→   229→          {
+   230→   230→            role: "user",
+   231→   231→            content: `Opportunity: ${opportunity.name}
+   232→   232→Domain: ${opportunity.domain}
+   233→   233→Problem: ${opportunity.problem}
+   234→   234→Solution: ${opportunity.solution}
+   235→   235→Audience: ${opportunity.audience}
+   236→   236→Format: ${opportunity.format || "unspecified"}
+   237→   237→Decision: ${decision.decision}
+   238→   238→
+   239→   239→Evidence summary:
+   240→   240→${evidence.slice(0, 10).map((e) => `- [${e.type}] ${e.content.substring(0, 100)}`).join("\n")}
+   241→   241→
+   242→   242→Design the product architecture with explicit scope boundaries.`,
+   243→   243→          },
+   244→   244→        ],
+   245→   245→      });
+   246→   246→
+   247→   247→      const archText = response.choices[0]?.message?.content || "";
+   248→   248→      const parsed = this.parseArchitectureResponse(archText);
+   249→   249→
+   250→   250→      // Build the complete architecture
+   251→   251→      const architecture = this.buildArchitecture(
+   252→   252→        opportunity,
+   253→   253→        decision,
+   254→   254→        evidence,
+   255→   255→        parsed
+   256→   256→      );
+   257→   257→
+   258→   258→      // Persist to memory
+   259→   259→      await this.memory.store(
+   260→   260→        "krea",
+   261→   261→        `product:${opportunity.domain}:architecture`,
+   262→   262→        "SEMANTIC",
+   263→   263→        {
+   264→   264→          opportunity: opportunity.name,
+   265→   265→          decision: decision.decision,
+   266→   266→          mustCount: architecture.MUST.length,
+   267→   267→          shouldCount: architecture.SHOULD.length,
+   268→   268→          couldCount: architecture.COULD.length,
+   269→   269→          outCount: architecture.OUT.length,
+   270→   270→          mvpItems: architecture.mvp_definition.items.length,
+   271→   271→        },
+   272→   272→        {
+   273→   273→          source: "product_architecture_engine",
+   274→   274→          sourceType: "AGENT",
+   275→   275→          confidence: 0.8,
+   276→   276→          truthLevel: "ESTIMATED",
+   277→   277→          scope: "agent",
+   278→   278→        }
+   279→   279→      );
+   280→   280→
+   281→   281→      await this.tracer.succeed(executionId, {
+   282→   282→        mustCount: architecture.MUST.length,
+   283→   283→        outCount: architecture.OUT.length,
+   284→   284→      });
+   285→   285→
+   286→   286→      return architecture;
+   287→   287→    } catch (error) {
+   288→   288→      const err = error instanceof Error ? error : new Error(String(error));
+   289→   289→      await this.tracer.fail(executionId, { message: err.message, outputs: {} });
+   290→   290→
+   291→   291→      // Fallback: produce a minimal architecture from the opportunity
+   292→   292→      return this.fallbackArchitecture(opportunity, decision, evidence);
+   293→   293→    }
+   294→   294→  }
+   295→   295→
+   296→   296→  // ─── Architecture Construction ─────────────────────────────────────────
+   297→   297→
+   298→   298→  /** Parse the AI response into structured architecture parts */
+   299→   299→  private parseArchitectureResponse(text: string): Partial<ProductArchitecture> {
+   300→   300→    try {
+   301→   301→      // Try to extract JSON from the response
+   302→   302→      const jsonMatch = text.match(/\{[\s\S]*\}/);
+   303→   303→      if (jsonMatch) {
+   304→   304→        const parsed = JSON.parse(jsonMatch[0]);
+   305→   305→        return parsed;
+   306→   306→      }
+   307→   307→    } catch {
+   308→   308→      // Parse failed — will use fallback
+   309→   309→    }
+   310→   310→    return {};
+   311→   311→  }
+   312→   312→
+   313→   313→  /** Build the complete ProductArchitecture from parsed parts */
+   314→   314→  private buildArchitecture(
+   315→   315→    opportunity: Opportunity,
+   316→   316→    decision: ProductDecision,
+   317→   317→    evidence: ProductEvidence[],
+   318→   318→    parsed: Partial<ProductArchitecture>
+   319→   319→  ): ProductArchitecture {
+   320→   320→    const evidenceIds = evidence.map((e) => e.id);
+   321→   321→
+   322→   322→    // JTBD
+   323→   323→    const jtbd: JobToBeDone[] = (parsed.jtbd || []).map((j: Record<string, unknown>) => ({
+   324→   324→      statement: `When ${j.situation || "context"}, I want to ${j.motivation || "action"}, so I can ${j.outcome || "result"}`,
+   325→   325→      situation: String(j.situation || ""),
+   326→   326→      motivation: String(j.motivation || ""),
+   327→   327→      outcome: String(j.outcome || ""),
+   328→   328→      priority: (["primary", "secondary", "tertiary"].includes(String(j.priority)) ? j.priority : "primary") as JobToBeDone["priority"],
+   329→   329→    }));
+   330→   330→
+   331→   331→    if (jtbd.length === 0) {
+   332→   332→      jtbd.push({
+   333→   333→        statement: `When facing ${opportunity.problem}, I want to ${opportunity.solution}, so I can solve my problem effectively`,
+   334→   334→        situation: opportunity.problem,
+   335→   335→        motivation: opportunity.solution,
+   336→   336→        outcome: "Effective problem resolution",
+   337→   337→        priority: "primary",
+   338→   338→      });
+   339→   339→    }
+   340→   340→
+   341→   341→    // MoSCoW items (AC-015)
+   342→   342→    const MUST: MoscowItem[] = this.buildMoscowItems(parsed.MUST, [
+   343→   343→      {
+   344→   344→        description: `Core problem solution: ${opportunity.solution}`,
+   345→   345→        rationale: "Solves the primary problem identified in the opportunity",
+   346→   346→        evidenceIds,
+   347→   347→        effort: "weeks",
+   348→   348→        inMvp: true,
+   349→   349→      },
+   350→   350→    ], true, evidenceIds);
+   351→   351→
+   352→   352→    const SHOULD: MoscowItem[] = this.buildMoscowItems(parsed.SHOULD, [], false, evidenceIds);
+   353→   353→
+   354→   354→    const COULD: MoscowItem[] = this.buildMoscowItems(parsed.COULD, [], false, evidenceIds);
+   355→   355→
+   356→   356→    // OUT items — AC-015: explicitly excluded to prevent scope creep
+   357→   357→    const OUT: MoscowItem[] = this.buildMoscowItems(parsed.OUT, [
+   358→   358→      {
+   359→   359→        description: "Features not related to the core problem statement",
+   360→   360→        rationale: "Scope boundary — anything not directly addressing the core problem is OUT to prevent scope creep (AC-015)",
+   361→   361→        evidenceIds: [],
+   362→   362→        effort: "weeks",
+   363→   363→        inMvp: false,
+   364→   364→      },
+   365→   365→      {
+   366→   366→        description: "Multi-language support (unless core problem is language-specific)",
+   367→   367→        rationale: "Internationalization is a post-MVP concern. Including it now violates scope control (AC-015)",
+   368→   368→        evidenceIds: [],
+   369→   369→        effort: "months",
+   370→   370→        inMvp: false,
+   371→   371→      },
+   372→   372→    ], false, evidenceIds);
+   373→   373→
+   374→   374→    // MVP definition — subset of MUST items only (AC-015)
+   375→   375→    const mvpItems = MUST.filter((item) => item.inMvp);
+   376→   376→    const mvp_definition = {
+   377→   377→      scope: `MVP: Core problem solution for ${opportunity.audience}`,
+   378→   378→      items: mvpItems.length > 0 ? mvpItems : MUST.slice(0, 1),
+   379→   379→      timebox: this.estimateMvpTimebox(opportunity, decision),
+   380→   380→      successMetrics: (parsed.success_criteria as string[]) || [
+   381→   381→        "Users can solve the core problem end-to-end",
+   382→   382→        "Positive feedback from target audience",
+   383→   383→        "Engagement metrics meet minimum threshold",
+   384→   384→      ],
+   385→   385→    };
+   386→   386→
+   387→   387→    return {
+   388→   388→      client: opportunity.audience,
+   389→   389→      problem: opportunity.problem,
+   390→   390→      jtbd,
+   391→   391→      desired_outcome: parsed.desired_outcome || `Effectively solve ${opportunity.problem} for ${opportunity.audience}`,
+   392→   392→      value_proposition: parsed.value_proposition || `${opportunity.solution} — the most effective way for ${opportunity.audience} to solve ${opportunity.problem}`,
+   393→   393→      format: opportunity.format || "unspecified",
+   394→   394→      MUST,
+   395→   395→      SHOULD,
+   396→   396→      COULD,
+   397→   397→      OUT,
+   398→   398→      ux_description: parsed.ux_description || `Clean, focused interface that guides ${opportunity.audience} through solving ${opportunity.problem} with minimal friction`,
+   399→   399→      differentiation: parsed.differentiation || this.inferDifferentiation(evidence),
+   400→   400→      monetization: parsed.monetization || this.inferMonetization(opportunity, evidence),
+   401→   401→      mvp_definition,
+   402→   402→      dependencies: this.inferDependencies(opportunity, decision),
+   403→   403→      risks: (parsed.risks as string[]) || this.inferRisks(evidence),
+   404→   404→      assumptions: (parsed.assumptions as string[]) || [
+   405→   405→        `The problem (${opportunity.problem}) is real and painful for ${opportunity.audience}`,
+   406→   406→        `The proposed solution (${opportunity.solution}) effectively addresses the problem`,
+   407→   407→        `${opportunity.audience} is willing to adopt a new solution`,
+   408→   408→      ],
+   409→   409→      unknowns: (parsed.unknowns as string[]) || decision.uncertainties,
+   410→   410→      validation_requirements: this.buildValidationRequirements(decision, evidence),
+   411→   411→      build_requirements: this.buildBuildRequirements(opportunity, decision, MUST),
+   412→   412→      success_criteria: (parsed.success_criteria as string[]) || [
+   413→   413→        "Core problem is solved for target audience",
+   414→   414→        "User satisfaction score >= 7/10",
+   415→   415→        "Retention rate >= 40% after 30 days",
+   416→   416→        "Time-to-value < 5 minutes for new users",
+   417→   417→      ],
+   418→   418→      architectedAt: new Date().toISOString(),
+   419→   419→    };
+   420→   420→  }
+   421→   421→
+   422→   422→  /** Build MoSCoW items from parsed data with defaults */
+   423→   423→  private buildMoscowItems(
+   424→   424→    parsedItems: unknown,
+   425→   425→    defaults: MoscowItem[],
+   426→   426→    isMust: boolean,
+   427→   427→    evidenceIds: string[]
+   428→   428→  ): MoscowItem[] {
+   429→   429→    if (Array.isArray(parsedItems) && parsedItems.length > 0) {
+   430→   430→      return parsedItems.map((item: Record<string, unknown>) => ({
+   431→   431→        description: String(item.description || ""),
+   432→   432→        rationale: String(item.rationale || "Derived from product analysis"),
+   433→   433→        evidenceIds: (item.evidenceIds as string[]) || evidenceIds.slice(0, 3),
+   434→   434→        effort: (["hours", "days", "weeks", "months"].includes(String(item.effort)) ? item.effort : "days") as MoscowItem["effort"],
+   435→   435→        inMvp: isMust ? (item.inMvp !== false) : false,
+   436→   436→      }));
+   437→   437→    }
+   438→   438→    return defaults;
+   439→   439→  }
+   440→   440→
+   441→   441→  /** Estimate MVP timebox based on product format */
+   442→   442→  private estimateMvpTimebox(opportunity: Opportunity, decision: ProductDecision): string {
+   443→   443→    const format = (opportunity.format || "").toLowerCase();
+   444→   444→
+   445→   445→    if (["ebook", "guía", "guide", "template"].some((f) => format.includes(f))) {
+   446→   446→      return "1-2 weeks";
+   447→   447→    }
+   448→   448→    if (["workbook", "checklist", "course"].some((f) => format.includes(f))) {
+   449→   449→      return "2-3 weeks";
+   450→   450→    }
+   451→   451→    if (["app", "web app", "tool", "landing page"].some((f) => format.includes(f))) {
+   452→   452→      return "4-6 weeks";
+   453→   453→    }
+   454→   454→    if (["saas", "platform", "api"].some((f) => format.includes(f))) {
+   455→   455→      return "8-12 weeks";
+   456→   456→    }
+   457→   457→    return "4-6 weeks";
+   458→   458→  }
+   459→   459→
+   460→   460→  /** Infer differentiation from evidence */
+   461→   461→  private inferDifferentiation(evidence: ProductEvidence[]): string {
+   462→   462→    const diffEvidence = evidence.filter((e) => e.type === "DIFFERENTIATION");
+   463→   463→    if (diffEvidence.length > 0) {
+   464→   464→      return diffEvidence.map((e) => e.content).join("; ");
+   465→   465→    }
+   466→   466→    return "Unique approach to solving the identified problem — differentiation to be refined based on competitive analysis";
+   467→   467→  }
+   468→   468→
+   469→   469→  /** Infer monetization model from opportunity and evidence */
+   470→   470→  private inferMonetization(opportunity: Opportunity, evidence: ProductEvidence[]): string {
+   471→   471→    const pricingEvidence = evidence.filter((e) => e.type === "PRICING");
+   472→   472→    if (pricingEvidence.length > 0) {
+   473→   473→      return `Based on market pricing evidence: ${pricingEvidence[0].content}`;
+   474→   474→    }
+   475→   475→
+   476→   476→    const format = (opportunity.format || "").toLowerCase();
+   477→   477→    if (["ebook", "guía", "guide", "template"].some((f) => format.includes(f))) {
+   478→   478→      return "One-time purchase (digital product)";
+   479→   479→    }
+   480→   480→    if (["course", "curso"].some((f) => format.includes(f))) {
+   481→   481→      return "Course enrollment fee (one-time or installment)";
+   482→   482→    }
+   483→   483→    if (["saas", "app"].some((f) => format.includes(f))) {
+   484→   484→      return "Subscription (monthly/annual) with free tier";
+   485→   485→    }
+   486→   486→    return "To be determined based on market research and validation";
+   487→   487→  }
+   488→   488→
+   489→   489→  /** Infer dependencies */
+   490→   490→  private inferDependencies(opportunity: Opportunity, decision: ProductDecision): string[] {
+   491→   491→    const deps: string[] = [];
+   492→   492→    const format = (opportunity.format || "").toLowerCase();
+   493→   493→
+   494→   494→    if (["app", "web app", "saas", "platform", "api"].some((f) => format.includes(f))) {
+   495→   495→      deps.push("Hosting/infrastructure");
+   496→   496→      deps.push("Authentication system");
+   497→   497→      deps.push("Database");
+   498→   498→    }
+   499→   499→
+   500→   500→    if (decision.constructor?.secondary) {
+   501→   501→      deps.push(`${decision.constructor.secondary} availability for technical implementation`);
+   502→   502→    }
+   503→   503→
+   504→   504→    deps.push("Content creation tools");
+   505→   505→    return deps;
+   506→   506→  }
+   507→   507→
+   508→   508→  /** Infer risks from evidence */
+   509→   509→  private inferRisks(evidence: ProductEvidence[]): string[] {
+   510→   510→    const risks: string[] = [];
+   511→   511→    const compEvidence = evidence.filter((e) => e.type === "COMPETITION");
+   512→   512→
+   513→   513→    if (compEvidence.length >= 5) {
+   514→   514→      risks.push("Crowded market — may struggle to differentiate");
+   515→   515→    }
+   516→   516→    if (compEvidence.some((e) => e.confidence >= 0.8)) {
+   517→   517→      risks.push("Strong incumbent competitor with high market share");
+   518→   518→    }
+   519→   519→
+   520→   520→    risks.push("Market timing risk — conditions may change during build");
+   521→   521→    risks.push("Adoption risk — target audience may resist change");
+   522→   522→
+   523→   523→    return risks;
+   524→   524→  }
+   525→   525→
+   526→   526→  /** Build validation requirements from decision and evidence */
+   527→   527→  private buildValidationRequirements(
+   528→   528→    decision: ProductDecision,
+   529→   529→    evidence: ProductEvidence[]
+   530→   530→  ): ValidationRequirement[] {
+   531→   531→    const requirements: ValidationRequirement[] = [];
+   532→   532→
+   533→   533→    // Problem validation
+   534→   534→    requirements.push({
+   535→   535→      what: "Problem intensity and frequency",
+   536→   536→      how: "User interviews with 10+ target users",
+   537→   537→      successCriteria: "7+ out of 10 users confirm the problem is real and painful",
+   538→   538→      threshold: "10 interviews",
+   539→   539→      priority: "critical",
+   540→   540→    });
+   541→   541→
+   542→   542→    // Solution validation
+   543→   543→    requirements.push({
+   544→   544→      what: "Solution desirability",
+   545→   545→      how: "Present solution concept to target users, measure interest",
+   546→   546→      successCriteria: "60%+ express strong interest in the solution",
+   547→   547→      threshold: "20 responses",
+   548→   548→      priority: "critical",
+   549→   549→    });
+   550→   550→
+   551→   551→    // Payment validation
+   552→   552→    const pricingEvidence = evidence.filter((e) => e.type === "PRICING");
+   553→   553→    if (pricingEvidence.length === 0) {
+   554→   554→      requirements.push({
+   555→   555→        what: "Willingness to pay",
+   556→   556→        how: "Pre-order or deposit test at proposed price point",
+   557→   557→        successCriteria: "5+ pre-orders or 20%+ expressing purchase intent",
+   558→   558→        threshold: "50 survey responses",
+   559→   559→        priority: "high",
+   560→   560→      });
+   561→   561→    }
+   562→   562→
+   563→   563→    // Usability validation
+   564→   564→    requirements.push({
+   565→   565→      what: "Usability and time-to-value",
+   566→   566→      how: "Usability test with MVP prototype",
+   567→   567→      successCriteria: "80%+ can complete core task without help",
+   568→   568→      threshold: "5 usability tests",
+   569→   569→      priority: "high",
+   570→   570→    });
+   571→   571→
+   572→   572→    return requirements;
+   573→   573→  }
+   574→   574→
+   575→   575→  /** Build requirements for construction */
+   576→   576→  private buildBuildRequirements(
+   577→   577→    opportunity: Opportunity,
+   578→   578→    decision: ProductDecision,
+   579→   579→    mustItems: MoscowItem[]
+   580→   580→  ): BuildRequirement[] {
+   581→   581→    const requirements: BuildRequirement[] = [];
+   582→   582→    const format = (opportunity.format || "").toLowerCase();
+   583→   583→
+   584→   584→    // Content requirements
+   585→   585→    if (["ebook", "guía", "guide", "workbook", "template", "course"].some((f) => format.includes(f))) {
+   586→   586→      requirements.push({
+   587→   587→        what: "Core content creation",
+   588→   588→        specification: "Structured content addressing all MUST items with evidence-backed material",
+   589→   589→        dependencies: ["Research completion", "Outline approval"],
+   590→   590→        effort: "weeks",
+   591→   591→      });
+   592→   592→      requirements.push({
+   593→   593→        what: "Design and formatting",
+   594→   594→        specification: "Professional layout, cover design, and visual elements",
+   595→   595→        dependencies: ["Core content creation"],
+   596→   596→        effort: "days",
+   597→   597→      });
+   598→   598→    }
+   599→   599→
+   600→   600→    // Software requirements
+   601→   601→    if (["app", "saas", "platform", "api", "web app"].some((f) => format.includes(f))) {
+   602→   602→      requirements.push({
+   603→   603→        what: "Core functionality implementation",
+   604→   604→        specification: "Implement all MUST items as defined in architecture",
+   605→   605→        dependencies: ["Technical architecture", "Design system"],
+   606→   606→        effort: "weeks",
+   607→   607→      });
+   608→   608→      requirements.push({
+   609→   609→        what: "Authentication and user management",
+   610→   610→        specification: "User registration, login, profile management",
+   611→   611→        dependencies: ["Database schema", "Hosting setup"],
+   612→   612→        effort: "days",
+   613→   613→      });
+   614→   614→    }
+   615→   615→
+   616→   616→    // Generic: testing
+   617→   617→    requirements.push({
+   618→   618→      what: "Quality assurance",
+   619→   619→      specification: "Test all MVP items against acceptance criteria",
+   620→   620→      dependencies: mustItems.map((m) => m.description),
+   621→   621→      effort: "days",
+   622→   622→    });
+   623→   623→
+   624→   624→    return requirements;
+   625→   625→  }
+   626→   626→
+   627→   627→  /** Fallback architecture when AI fails */
+   628→   628→  private fallbackArchitecture(
+   629→   629→    opportunity: Opportunity,
+   630→   630→    decision: ProductDecision,
+   631→   631→    evidence: ProductEvidence[]
+   632→   632→  ): ProductArchitecture {
+   633→   633→    const evidenceIds = evidence.map((e) => e.id);
+   634→   634→
+   635→   635→    return {
+   636→   636→      client: opportunity.audience,
+   637→   637→      problem: opportunity.problem,
+   638→   638→      jtbd: [{
+   639→   639→        statement: `When facing ${opportunity.problem}, I want to ${opportunity.solution}, so I can solve my problem`,
+   640→   640→        situation: opportunity.problem,
+   641→   641→        motivation: opportunity.solution,
+   642→   642→        outcome: "Problem resolution",
+   643→   643→        priority: "primary",
+   644→   644→      }],
+   645→   645→      desired_outcome: `Solve ${opportunity.problem} for ${opportunity.audience}`,
+   646→   646→      value_proposition: `${opportunity.solution} for ${opportunity.audience}`,
+   647→   647→      format: opportunity.format || "unspecified",
+   648→   648→      MUST: [{
+   649→   649→        description: `Core solution: ${opportunity.solution}`,
+   650→   650→        rationale: "Core problem solution — non-negotiable",
+   651→   651→        evidenceIds,
+   652→   652→        effort: "weeks",
+   653→   653→        inMvp: true,
+   654→   654→      }],
+   655→   655→      SHOULD: [],
+   656→   656→      COULD: [],
+   657→   657→      OUT: [
+   658→   658→        {
+   659→   659→          description: "Anything outside core problem scope",
+   660→   660→          rationale: "AC-015: Scope boundary — prevents scope creep",
+   661→   661→          evidenceIds: [],
+   662→   662→          effort: "weeks",
+   663→   663→          inMvp: false,
+   664→   664→        },
+   665→   665→        {
+   666→   666→          description: "Advanced features not in MUST",
+   667→   667→          rationale: "AC-015: Post-MVP consideration only",
+   668→   668→          evidenceIds: [],
+   669→   669→          effort: "weeks",
+   670→   670→          inMvp: false,
+   671→   671→        },
+   672→   672→      ],
+   673→   673→      ux_description: `Focused interface for ${opportunity.audience} to solve ${opportunity.problem}`,
+   674→   674→      differentiation: "To be determined from competitive analysis",
+   675→   675→      monetization: "To be determined from pricing validation",
+   676→   676→      mvp_definition: {
+   677→   677→        scope: `MVP: Core problem solution for ${opportunity.audience}`,
+   678→   678→        items: [{
+   679→   679→          description: `Core solution: ${opportunity.solution}`,
+   680→   680→          rationale: "Core problem solution — non-negotiable",
+   681→   681→          evidenceIds,
+   682→   682→          effort: "weeks",
+   683→   683→          inMvp: true,
+   684→   684→        }],
+   685→   685→        timebox: "4-6 weeks",
+   686→   686→        successMetrics: ["Core problem solved end-to-end"],
+   687→   687→      },
+   688→   688→      dependencies: [],
+   689→   689→      risks: ["AI architecture generation failed — manual review needed"],
+   690→   690→      assumptions: [`Problem is real for ${opportunity.audience}`],
+   691→   691→      unknowns: decision.uncertainties,
+   692→   692→      validation_requirements: [{
+   693→   693→        what: "Problem validation",
+   694→   694→        how: "User interviews",
+   695→   695→        successCriteria: "Problem confirmed by target users",
+   696→   696→        priority: "critical",
+   697→   697→      }],
+   698→   698→      build_requirements: [{
+   699→   699→        what: "Core implementation",
+   700→   700→        specification: opportunity.solution,
+   701→   701→        dependencies: [],
+   702→   702→        effort: "weeks",
+   703→   703→      }],
+   704→   704→      success_criteria: ["Core problem is solved for target audience"],
+   705→   705→      architectedAt: new Date().toISOString(),
+   706→   706→    };
+   707→   707→  }
+   708→   708→}
+   709→   709→

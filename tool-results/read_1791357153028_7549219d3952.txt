@@ -1,0 +1,716 @@
+     1→     1→/**
+     2→     2→ * Product Fit Engine — KREA V2 Product Brain
+     3→     3→ *
+     4→     4→ * Evaluates product opportunities across multiple dimensions to determine
+     5→     5→ * whether to BUILD, VALIDATE_FIRST, or DO_NOT_BUILD.
+     6→     6→ *
+     7→     7→ * Acceptance Criteria satisfied:
+     8→     8→ *   AC-010: No magic numbers — every score is explained with the variables evaluated
+     9→     9→ *   AC-007: Unknown evidence produces uncertain dimensions and VALIDATE_FIRST recommendation
+    10→    10→ *
+    11→    11→ * Scoring rules:
+    12→    12→ *   - High problem intensity + high demand + low competition → BUILD
+    13→    13→ *   - Good signals but uncertain evidence → VALIDATE_FIRST
+    14→    14→ *   - Low demand or high risk or poor evidence → DO_NOT_BUILD
+    15→    15→ *   - Always explain WHAT variables were evaluated and HOW
+    16→    16→ */
+    17→    17→
+    18→    18→import { ProductEvidence, ProductEvidenceType } from "./product-intelligence";
+    19→    19→import { TruthLevel, TRUTH_LEVEL_ORDER } from "@/contracts/evidence";
+    20→    20→
+    21→    21→// ─── Types ────────────────────────────────────────────────────────────────────
+    22→    22→
+    23→    23→/** An opportunity to evaluate */
+    24→    24→export interface Opportunity {
+    25→    25→  /** Short name */
+    26→    26→  name: string;
+    27→    27→  /** Domain/market */
+    28→    28→  domain: string;
+    29→    29→  /** Problem statement */
+    30→    30→  problem: string;
+    31→    31→  /** Proposed solution concept */
+    32→    32→  solution: string;
+    33→    33→  /** Target audience description */
+    34→    34→  audience: string;
+    35→    35→  /** Product format (eBook, SaaS, API, etc.) */
+    36→    36→  format?: string;
+    37→    37→}
+    38→    38→
+    39→    39→/** A single evaluated dimension */
+    40→    40→export interface EvaluatedDimension {
+    41→    41→  /** Dimension name */
+    42→    42→  name: string;
+    43→    43→  /** Score 0-1 */
+    44→    44→  score: number;
+    45→    45→  /** Evidence supporting this score */
+    46→    46→  evidence: string[];
+    47→    47→  /** Confidence in this score (0-1) */
+    48→    48→  confidence: number;
+    49→    49→  /** Whether this dimension is uncertain (low evidence) */
+    50→    50→  is_uncertain: boolean;
+    51→    51→  /** Explanation of HOW this score was derived (AC-010) */
+    52→    52→  explanation: string;
+    53→    53→}
+    54→    54→
+    55→    55→/** The decision from a fit evaluation */
+    56→    56→export type FitDecision = "BUILD" | "VALIDATE_FIRST" | "DO_NOT_BUILD";
+    57→    57→
+    58→    58→/** Complete fit evaluation result */
+    59→    59→export interface FitResult {
+    60→    60→  /** The decision */
+    61→    61→  decision: FitDecision;
+    62→    62→  /** Overall score 0-1 */
+    63→    63→  score: number;
+    64→    64→  /** Evaluated dimensions */
+    65→    65→  dimensions: EvaluatedDimension[];
+    66→    66→  /** WHY this decision was made (AC-010) */
+    67→    67→  explanation: string;
+    68→    68→  /** What remains unknown */
+    69→    69→  uncertainties: string[];
+    70→    70→  /** Recommended next actions */
+    71→    71→  recommended_actions: string[];
+    72→    72→  /** All evidence referenced in the evaluation */
+    73→    73→  evidence_used: ProductEvidence[];
+    74→    74→  /** Timestamp */
+    75→    75→  evaluatedAt: string;
+    76→    76→}
+    77→    77→
+    78→    78→// ─── Dimension Names ─────────────────────────────────────────────────────────
+    79→    79→
+    80→    80→const DIMENSION_NAMES = [
+    81→    81→  "problem_intensity",
+    82→    82→  "demand",
+    83→    83→  "payment_intent",
+    84→    84→  "audience_size",
+    85→    85→  "competition",
+    86→    86→  "differentiation",
+    87→    87→  "feasibility",
+    88→    88→  "build_time",
+    89→    89→  "economics",
+    90→    90→  "risk",
+    91→    91→  "evidence_quality",
+    92→    92→] as const;
+    93→    93→
+    94→    94→export type DimensionName = (typeof DIMENSION_NAMES)[number];
+    95→    95→
+    96→    96→// ─── Scoring Weights ─────────────────────────────────────────────────────────
+    97→    97→
+    98→    98→/**
+    99→    99→ * Weights for each dimension in the overall score.
+   100→   100→ * Higher weight = more important for the BUILD decision.
+   101→   101→ *
+   102→   102→ * These are NOT magic numbers — each weight reflects a deliberate
+   103→   103→ * prioritization of what makes a product opportunity viable.
+   104→   104→ */
+   105→   105→const DIMENSION_WEIGHTS: Record<DimensionName, number> = {
+   106→   106→  problem_intensity: 0.18,  // Core: how painful is the problem?
+   107→   107→  demand: 0.16,             // Core: is there real demand?
+   108→   108→  payment_intent: 0.12,     // Key: will people pay?
+   109→   109→  audience_size: 0.10,      // Important: enough potential customers?
+   110→   110→  competition: 0.10,        // Important: is the space crowded? (inverse — less competition = better)
+   111→   111→  differentiation: 0.10,    // Important: can we stand out?
+   112→   112→  feasibility: 0.08,        // Supporting: can we actually build it?
+   113→   113→  build_time: 0.04,         // Supporting: how long will it take?
+   114→   114→  economics: 0.06,          // Supporting: does the math work?
+   115→   115→  risk: 0.04,               // Supporting: what could go wrong? (inverse)
+   116→   116→  evidence_quality: 0.02,   // Meta: how good is our evidence?
+   117→   117→};
+   118→   118→
+   119→   119→// ─── Product Fit Engine ──────────────────────────────────────────────────────
+   120→   120→
+   121→   121→/**
+   122→   122→ * ProductFitEngine — Evaluates opportunities across 11 dimensions.
+   123→   123→ *
+   124→   124→ * Each dimension is scored 0-1 with explicit explanation of how
+   125→   125→ * the score was derived from evidence. No magic numbers (AC-010).
+   126→   126→ */
+   127→   127→export class ProductFitEngine {
+   128→   128→  /**
+   129→   129→   * evaluate — Produce a FitResult for an opportunity given evidence.
+   130→   130→   *
+   131→   131→   * Decision logic (AC-010 — every threshold explained):
+   132→   132→   *   - BUILD:       score >= 0.65 AND no critical uncertainties AND evidence_quality >= 0.5
+   133→   133→   *   - VALIDATE_FIRST: score >= 0.40 OR (score >= 0.30 AND has uncertain dimensions)
+   134→   134→   *   - DO_NOT_BUILD:  score < 0.40 AND no uncertain dimensions that could improve score
+   135→   135→   */
+   136→   136→  evaluate(opportunity: Opportunity, evidence: ProductEvidence[]): FitResult {
+   137→   137→    const evidenceByType = this.groupEvidenceByType(evidence);
+   138→   138→
+   139→   139→    // Evaluate each dimension
+   140→   140→    const dimensions: EvaluatedDimension[] = [
+   141→   141→      this.evaluateProblemIntensity(evidenceByType),
+   142→   142→      this.evaluateDemand(evidenceByType),
+   143→   143→      this.evaluatePaymentIntent(evidenceByType),
+   144→   144→      this.evaluateAudienceSize(evidenceByType),
+   145→   145→      this.evaluateCompetition(evidenceByType),
+   146→   146→      this.evaluateDifferentiation(evidenceByType),
+   147→   147→      this.evaluateFeasibility(evidenceByType, opportunity),
+   148→   148→      this.evaluateBuildTime(evidenceByType, opportunity),
+   149→   149→      this.evaluateEconomics(evidenceByType),
+   150→   150→      this.evaluateRisk(evidenceByType),
+   151→   151→      this.evaluateEvidenceQuality(evidence),
+   152→   152→    ];
+   153→   153→
+   154→   154→    // Calculate weighted overall score
+   155→   155→    const score = this.calculateWeightedScore(dimensions);
+   156→   156→
+   157→   157→    // Determine decision
+   158→   158→    const decision = this.determineDecision(score, dimensions);
+   159→   159→
+   160→   160→    // Collect uncertainties
+   161→   161→    const uncertainties = dimensions
+   162→   162→      .filter((d) => d.is_uncertain)
+   163→   163→      .map((d) => `${d.name}: ${d.explanation}`);
+   164→   164→
+   165→   165→    // Generate explanation
+   166→   166→    const explanation = this.generateExplanation(decision, score, dimensions, opportunity);
+   167→   167→
+   168→   168→    // Recommended actions
+   169→   169→    const recommended_actions = this.recommendActions(decision, dimensions, uncertainties);
+   170→   170→
+   171→   171→    return {
+   172→   172→      decision,
+   173→   173→      score: Math.round(score * 100) / 100,
+   174→   174→      dimensions,
+   175→   175→      explanation,
+   176→   176→      uncertainties,
+   177→   177→      recommended_actions,
+   178→   178→      evidence_used: evidence,
+   179→   179→      evaluatedAt: new Date().toISOString(),
+   180→   180→    };
+   181→   181→  }
+   182→   182→
+   183→   183→  // ─── Dimension Evaluators ──────────────────────────────────────────────
+   184→   184→
+   185→   185→  /** Problem intensity: how painful is the problem? */
+   186→   186→  private evaluateProblemIntensity(
+   187→   187→    evidenceByType: Map<ProductEvidenceType, ProductEvidence[]>
+   188→   188→  ): EvaluatedDimension {
+   189→   189→    const problemEvidence = evidenceByType.get("PROBLEM") || [];
+   190→   190→    const needEvidence = evidenceByType.get("NEED") || [];
+   191→   191→    const allEvidence = [...problemEvidence, ...needEvidence];
+   192→   192→
+   193→   193→    if (allEvidence.length === 0) {
+   194→   194→      return {
+   195→   195→        name: "problem_intensity",
+   196→   196→        score: 0.3,
+   197→   197→        evidence: [],
+   198→   198→        confidence: 0,
+   199→   199→        is_uncertain: true,
+   200→   200→        explanation: "No PROBLEM or NEED evidence found. Default score 0.3 assigned due to absence of evidence (AC-007). REQUIERE_VALIDACION — research problem intensity before deciding.",
+   201→   201→      };
+   202→   202→    }
+   203→   203→
+   204→   204→    // Average confidence of problem evidence indicates intensity
+   205→   205→    const avgConfidence = allEvidence.reduce((s, e) => s + e.confidence, 0) / allEvidence.length;
+   206→   206→    const highConfidenceCount = allEvidence.filter((e) => e.confidence >= 0.7).length;
+   207→   207→    const ratio = highConfidenceCount / allEvidence.length;
+   208→   208→
+   209→   209→    // Score: weighted combination of average confidence and ratio of high-confidence evidence
+   210→   210→    const score = 0.6 * avgConfidence + 0.4 * ratio;
+   211→   211→    const isUncertain = avgConfidence < 0.5;
+   212→   212→
+   213→   213→    return {
+   214→   214→      name: "problem_intensity",
+   215→   215→      score: Math.round(score * 100) / 100,
+   216→   216→      evidence: allEvidence.map((e) => e.id),
+   217→   217→      confidence: avgConfidence,
+   218→   218→      is_uncertain: isUncertain,
+   219→   219→      explanation: isUncertain
+   220→   220→        ? `Problem intensity estimated at ${score.toFixed(2)} from ${allEvidence.length} evidence items (avg confidence: ${avgConfidence.toFixed(2)}, ${highConfidenceCount} high-confidence). Low confidence makes this uncertain — VALIDATE problem intensity with users.`
+   221→   221→        : `Problem intensity scored ${score.toFixed(2)}: ${allEvidence.length} evidence items, average confidence ${avgConfidence.toFixed(2)}, ${highConfidenceCount} items with confidence >= 0.7 (ratio: ${ratio.toFixed(2)}). Formula: 0.6 * avgConfidence + 0.4 * highRatio.`,
+   222→   222→    };
+   223→   223→  }
+   224→   224→
+   225→   225→  /** Demand: is there real demand? */
+   226→   226→  private evaluateDemand(
+   227→   227→    evidenceByType: Map<ProductEvidenceType, ProductEvidence[]>
+   228→   228→  ): EvaluatedDimension {
+   229→   229→    const demandEvidence = evidenceByType.get("DEMAND") || [];
+   230→   230→    const behaviorEvidence = evidenceByType.get("BEHAVIOR") || [];
+   231→   231→    const allEvidence = [...demandEvidence, ...behaviorEvidence];
+   232→   232→
+   233→   233→    if (allEvidence.length === 0) {
+   234→   234→      return {
+   235→   235→        name: "demand",
+   236→   236→        score: 0.2,
+   237→   237→        evidence: [],
+   238→   238→        confidence: 0,
+   239→   239→        is_uncertain: true,
+   240→   240→        explanation: "No DEMAND or BEHAVIOR evidence found. Default score 0.2 — cannot confirm demand without evidence (AC-007). REQUIERE_VALIDACION.",
+   241→   241→      };
+   242→   242→    }
+   243→   243→
+   244→   244→    const avgConfidence = allEvidence.reduce((s, e) => s + e.confidence, 0) / allEvidence.length;
+   245→   245→    const demandSpecific = demandEvidence.length / Math.max(allEvidence.length, 1);
+   246→   246→    const score = 0.5 * avgConfidence + 0.3 * demandSpecific + 0.2 * (allEvidence.length > 3 ? 1 : allEvidence.length / 3);
+   247→   247→
+   248→   248→    return {
+   249→   249→      name: "demand",
+   250→   250→      score: Math.round(score * 100) / 100,
+   251→   251→      evidence: allEvidence.map((e) => e.id),
+   252→   252→      confidence: avgConfidence,
+   253→   253→      is_uncertain: avgConfidence < 0.5 || demandEvidence.length === 0,
+   254→   254→      explanation: `Demand scored ${score.toFixed(2)}: ${demandEvidence.length} demand + ${behaviorEvidence.length} behavior evidence items. Formula: 0.5 * avgConfidence(${avgConfidence.toFixed(2)}) + 0.3 * demandRatio(${demandSpecific.toFixed(2)}) + 0.2 * volumeBonus.`,
+   255→   255→    };
+   256→   256→  }
+   257→   257→
+   258→   258→  /** Payment intent: will people pay? */
+   259→   259→  private evaluatePaymentIntent(
+   260→   260→    evidenceByType: Map<ProductEvidenceType, ProductEvidence[]>
+   261→   261→  ): EvaluatedDimension {
+   262→   262→    const demandEvidence = evidenceByType.get("DEMAND") || [];
+   263→   263→    const pricingEvidence = evidenceByType.get("PRICING") || [];
+   264→   264→    const allEvidence = [...demandEvidence, ...pricingEvidence];
+   265→   265→
+   266→   266→    if (pricingEvidence.length === 0 && demandEvidence.length === 0) {
+   267→   267→      return {
+   268→   268→        name: "payment_intent",
+   269→   269→        score: 0.3,
+   270→   270→        evidence: [],
+   271→   271→        confidence: 0,
+   272→   272→        is_uncertain: true,
+   273→   273→        explanation: "No PRICING or DEMAND evidence to assess payment intent. Default 0.3. REQUIERE_VALIDACION — validate willingness to pay.",
+   274→   274→      };
+   275→   275→    }
+   276→   276→
+   277→   277→    // Pricing evidence is the strongest signal for payment intent
+   278→   278→    const pricingSignal = pricingEvidence.length > 0
+   279→   279→      ? pricingEvidence.reduce((s, e) => s + e.confidence, 0) / pricingEvidence.length
+   280→   280→      : 0.3;
+   281→   281→    const demandSignal = demandEvidence.length > 0
+   282→   282→      ? demandEvidence.reduce((s, e) => s + e.confidence, 0) / demandEvidence.length
+   283→   283→      : 0.3;
+   284→   284→
+   285→   285→    const score = 0.6 * pricingSignal + 0.4 * demandSignal;
+   286→   286→
+   287→   287→    return {
+   288→   288→      name: "payment_intent",
+   289→   289→      score: Math.round(score * 100) / 100,
+   290→   290→      evidence: allEvidence.map((e) => e.id),
+   291→   291→      confidence: (pricingSignal + demandSignal) / 2,
+   292→   292→      is_uncertain: pricingEvidence.length === 0,
+   293→   293→      explanation: `Payment intent scored ${score.toFixed(2)}: pricing signal ${pricingSignal.toFixed(2)} from ${pricingEvidence.length} items, demand signal ${demandSignal.toFixed(2)} from ${demandEvidence.length} items. Formula: 0.6 * pricingSignal + 0.4 * demandSignal.${pricingEvidence.length === 0 ? " No pricing evidence — uncertain." : ""}`,
+   294→   294→    };
+   295→   295→  }
+   296→   296→
+   297→   297→  /** Audience size: enough potential customers? */
+   298→   298→  private evaluateAudienceSize(
+   299→   299→    evidenceByType: Map<ProductEvidenceType, ProductEvidence[]>
+   300→   300→  ): EvaluatedDimension {
+   301→   301→    const audienceEvidence = evidenceByType.get("AUDIENCE") || [];
+   302→   302→
+   303→   303→    if (audienceEvidence.length === 0) {
+   304→   304→      return {
+   305→   305→        name: "audience_size",
+   306→   306→        score: 0.3,
+   307→   307→        evidence: [],
+   308→   308→        confidence: 0,
+   309→   309→        is_uncertain: true,
+   310→   310→        explanation: "No AUDIENCE evidence found. Cannot estimate audience size. Default 0.3. REQUIERE_VALIDACION.",
+   311→   311→      };
+   312→   312→    }
+   313→   313→
+   314→   314→    const avgConfidence = audienceEvidence.reduce((s, e) => s + e.confidence, 0) / audienceEvidence.length;
+   315→   315→    // More audience evidence items suggests a larger, more identifiable audience
+   316→   316→    const volumeFactor = Math.min(1, audienceEvidence.length / 5);
+   317→   317→    const score = 0.6 * avgConfidence + 0.4 * volumeFactor;
+   318→   318→
+   319→   319→    return {
+   320→   320→      name: "audience_size",
+   321→   321→      score: Math.round(score * 100) / 100,
+   322→   322→      evidence: audienceEvidence.map((e) => e.id),
+   323→   323→      confidence: avgConfidence,
+   324→   324→      is_uncertain: avgConfidence < 0.4,
+   325→   325→      explanation: `Audience size scored ${score.toFixed(2)}: ${audienceEvidence.length} audience evidence items, avg confidence ${avgConfidence.toFixed(2)}, volume factor ${volumeFactor.toFixed(2)}. Formula: 0.6 * avgConfidence + 0.4 * volumeFactor.`,
+   326→   326→    };
+   327→   327→  }
+   328→   328→
+   329→   329→  /** Competition: is the space crowded? (inverse — less competition = higher score) */
+   330→   330→  private evaluateCompetition(
+   331→   331→    evidenceByType: Map<ProductEvidenceType, ProductEvidence[]>
+   332→   332→  ): EvaluatedDimension {
+   333→   333→    const compEvidence = evidenceByType.get("COMPETITION") || [];
+   334→   334→    const productEvidence = evidenceByType.get("EXISTING_PRODUCT") || [];
+   335→   335→    const allEvidence = [...compEvidence, ...productEvidence];
+   336→   336→
+   337→   337→    if (allEvidence.length === 0) {
+   338→   338→      return {
+   339→   339→        name: "competition",
+   340→   340→        score: 0.5,
+   341→   341→        evidence: [],
+   342→   342→        confidence: 0,
+   343→   343→        is_uncertain: true,
+   344→   344→        explanation: "No COMPETITION or EXISTING_PRODUCT evidence. Cannot assess competitive landscape. Default 0.5 (neutral). REQUIERE_VALIDACION.",
+   345→   345→      };
+   346→   346→    }
+   347→   347→
+   348→   348→    // More competitors = lower score (inverse relationship)
+   349→   349→    const competitorCount = allEvidence.length;
+   350→   350→    const avgStrength = allEvidence.reduce((s, e) => s + e.confidence, 0) / allEvidence.length;
+   351→   351→
+   352→   352→    // Fewer competitors and weaker existing solutions → higher score
+   353→   353→    const crowdingFactor = Math.max(0, 1 - (competitorCount / 10));
+   354→   354→    const strengthFactor = Math.max(0, 1 - avgStrength);
+   355→   355→    const score = 0.5 * crowdingFactor + 0.5 * strengthFactor;
+   356→   356→
+   357→   357→    return {
+   358→   358→      name: "competition",
+   359→   359→      score: Math.round(score * 100) / 100,
+   360→   360→      evidence: allEvidence.map((e) => e.id),
+   361→   361→      confidence: 0.7,
+   362→   362→      is_uncertain: compEvidence.length === 0,
+   363→   363→      explanation: `Competition scored ${score.toFixed(2)} (inverse — higher = less competition): ${competitorCount} competitors/products found, avg strength ${avgStrength.toFixed(2)}. Crowding factor ${crowdingFactor.toFixed(2)}, strength factor ${strengthFactor.toFixed(2)}. Formula: 0.5 * crowding + 0.5 * strength.`,
+   364→   364→    };
+   365→   365→  }
+   366→   366→
+   367→   367→  /** Differentiation: can we stand out? */
+   368→   368→  private evaluateDifferentiation(
+   369→   369→    evidenceByType: Map<ProductEvidenceType, ProductEvidence[]>
+   370→   370→  ): EvaluatedDimension {
+   371→   371→    const diffEvidence = evidenceByType.get("DIFFERENTIATION") || [];
+   372→   372→    const compEvidence = evidenceByType.get("COMPETITION") || [];
+   373→   373→
+   374→   374→    if (diffEvidence.length === 0 && compEvidence.length === 0) {
+   375→   375→      return {
+   376→   376→        name: "differentiation",
+   377→   377→        score: 0.4,
+   378→   378→        evidence: [],
+   379→   379→        confidence: 0,
+   380→   380→        is_uncertain: true,
+   381→   381→        explanation: "No DIFFERENTIATION or COMPETITION evidence. Cannot assess differentiation potential. Default 0.4. REQUIERE_VALIDACION.",
+   382→   382→      };
+   383→   383→    }
+   384→   384→
+   385→   385→    const diffSignal = diffEvidence.length > 0
+   386→   386→      ? diffEvidence.reduce((s, e) => s + e.confidence, 0) / diffEvidence.length
+   387→   387→      : 0.3;
+   388→   388→    // Gaps in competition suggest differentiation opportunity
+   389→   389→    const gapSignal = compEvidence.length > 0
+   390→   390→      ? 0.5 // Competitors exist but gaps may too
+   391→   391→      : 0.7; // No competitors found — differentiation by default
+   392→   392→
+   393→   393→    const score = 0.6 * diffSignal + 0.4 * gapSignal;
+   394→   394→
+   395→   395→    return {
+   396→   396→      name: "differentiation",
+   397→   397→      score: Math.round(score * 100) / 100,
+   398→   398→      evidence: [...diffEvidence, ...compEvidence].map((e) => e.id),
+   399→   399→      confidence: diffEvidence.length > 0 ? diffSignal : 0.3,
+   400→   400→      is_uncertain: diffEvidence.length === 0,
+   401→   401→      explanation: `Differentiation scored ${score.toFixed(2)}: ${diffEvidence.length} differentiation evidence (signal: ${diffSignal.toFixed(2)}), gap signal ${gapSignal.toFixed(2)}. Formula: 0.6 * diffSignal + 0.4 * gapSignal.${diffEvidence.length === 0 ? " No explicit differentiation evidence — uncertain." : ""}`,
+   402→   402→    };
+   403→   403→  }
+   404→   404→
+   405→   405→  /** Feasibility: can we actually build it? */
+   406→   406→  private evaluateFeasibility(
+   407→   407→    evidenceByType: Map<ProductEvidenceType, ProductEvidence[]>,
+   408→   408→    opportunity: Opportunity
+   409→   409→  ): EvaluatedDimension {
+   410→   410→    // Assess feasibility based on product format
+   411→   411→    const format = (opportunity.format || "").toLowerCase();
+   412→   412→    let baseFeasibility = 0.5;
+   413→   413→
+   414→   414→    // Content products are highly feasible for KREA
+   415→   415→    if (["ebook", "guía", "guide", "workbook", "template", "checklist", "curso", "course"].some((f) => format.includes(f))) {
+   416→   416→      baseFeasibility = 0.85;
+   417→   417→    }
+   418→   418→    // Simple web apps are moderately feasible
+   419→   419→    else if (["app", "web app", "saas", "tool"].some((f) => format.includes(f))) {
+   420→   420→      baseFeasibility = 0.5;
+   421→   421→    }
+   422→   422→    // Complex infrastructure is less feasible
+   423→   423→    else if (["api", "platform", "infrastructure", "backend", "infra"].some((f) => format.includes(f))) {
+   424→   424→      baseFeasibility = 0.35;
+   425→   425→    }
+   426→   426→
+   427→   427→    const oppEvidence = evidenceByType.get("OPPORTUNITY") || [];
+   428→   428→    const evidenceBoost = oppEvidence.length > 0 ? 0.1 : 0;
+   429→   429→
+   430→   430→    const score = Math.min(1, baseFeasibility + evidenceBoost);
+   431→   431→
+   432→   432→    return {
+   433→   433→      name: "feasibility",
+   434→   434→      score: Math.round(score * 100) / 100,
+   435→   435→      evidence: oppEvidence.map((e) => e.id),
+   436→   436→      confidence: 0.7,
+   437→   437→      is_uncertain: format === "",
+   438→   438→      explanation: `Feasibility scored ${score.toFixed(2)}: base feasibility ${baseFeasibility.toFixed(2)} for format "${format || "unknown"}", evidence boost ${evidenceBoost}. Content products are more feasible for KREA; infrastructure requires delegation.`,
+   439→   439→    };
+   440→   440→  }
+   441→   441→
+   442→   442→  /** Build time: how long will it take? (inverse — shorter = better) */
+   443→   443→  private evaluateBuildTime(
+   444→   444→    evidenceByType: Map<ProductEvidenceType, ProductEvidence[]>,
+   445→   445→    opportunity: Opportunity
+   446→   446→  ): EvaluatedDimension {
+   447→   447→    const format = (opportunity.format || "").toLowerCase();
+   448→   448→    let baseScore = 0.5;
+   449→   449→
+   450→   450→    // Content: fast to produce
+   451→   451→    if (["ebook", "guía", "guide", "workbook", "template", "checklist"].some((f) => format.includes(f))) {
+   452→   452→      baseScore = 0.8; // Days to weeks
+   453→   453→    }
+   454→   454→    // Simple app: moderate
+   455→   455→    else if (["app", "web app", "tool"].some((f) => format.includes(f))) {
+   456→   456→      baseScore = 0.5; // Weeks to months
+   457→   457→    }
+   458→   458→    // Complex: slow
+   459→   459→    else if (["saas", "platform", "api", "infrastructure"].some((f) => format.includes(f))) {
+   460→   460→      baseScore = 0.25; // Months
+   461→   461→    }
+   462→   462→
+   463→   463→    return {
+   464→   464→      name: "build_time",
+   465→   465→      score: Math.round(baseScore * 100) / 100,
+   466→   466→      evidence: [],
+   467→   467→      confidence: 0.6,
+   468→   468→      is_uncertain: format === "",
+   469→   469→      explanation: `Build time scored ${baseScore.toFixed(2)} (inverse — higher = faster): based on format "${format || "unknown"}". Content=0.8 (days), App=0.5 (weeks), Platform=0.25 (months).`,
+   470→   470→    };
+   471→   471→  }
+   472→   472→
+   473→   473→  /** Economics: does the math work? */
+   474→   474→  private evaluateEconomics(
+   475→   475→    evidenceByType: Map<ProductEvidenceType, ProductEvidence[]>
+   476→   476→  ): EvaluatedDimension {
+   477→   477→    const pricingEvidence = evidenceByType.get("PRICING") || [];
+   478→   478→    const demandEvidence = evidenceByType.get("DEMAND") || [];
+   479→   479→
+   480→   480→    if (pricingEvidence.length === 0 && demandEvidence.length === 0) {
+   481→   481→      return {
+   482→   482→        name: "economics",
+   483→   483→        score: 0.3,
+   484→   484→        evidence: [],
+   485→   485→        confidence: 0,
+   486→   486→        is_uncertain: true,
+   487→   487→        explanation: "No PRICING or DEMAND evidence to evaluate economics. Default 0.3. REQUIERE_VALIDACION — need pricing and cost data.",
+   488→   488→      };
+   489→   489→    }
+   490→   490→
+   491→   491→    const pricingSignal = pricingEvidence.length > 0
+   492→   492→      ? pricingEvidence.reduce((s, e) => s + e.confidence, 0) / pricingEvidence.length
+   493→   493→      : 0.3;
+   494→   494→    const demandSignal = demandEvidence.length > 0
+   495→   495→      ? demandEvidence.reduce((s, e) => s + e.confidence, 0) / demandEvidence.length
+   496→   496→      : 0.3;
+   497→   497→
+   498→   498→    const score = 0.5 * pricingSignal + 0.5 * demandSignal;
+   499→   499→
+   500→   500→    return {
+   501→   501→      name: "economics",
+   502→   502→      score: Math.round(score * 100) / 100,
+   503→   503→      evidence: [...pricingEvidence, ...demandEvidence].map((e) => e.id),
+   504→   504→      confidence: (pricingSignal + demandSignal) / 2,
+   505→   505→      is_uncertain: pricingEvidence.length === 0,
+   506→   506→      explanation: `Economics scored ${score.toFixed(2)}: pricing signal ${pricingSignal.toFixed(2)}, demand signal ${demandSignal.toFixed(2)}. Formula: 0.5 * pricing + 0.5 * demand.${pricingEvidence.length === 0 ? " No pricing evidence — uncertain." : ""}`,
+   507→   507→    };
+   508→   508→  }
+   509→   509→
+   510→   510→  /** Risk: what could go wrong? (inverse — less risk = higher score) */
+   511→   511→  private evaluateRisk(
+   512→   512→    evidenceByType: Map<ProductEvidenceType, ProductEvidence[]>
+   513→   513→  ): EvaluatedDimension {
+   514→   514→    const compEvidence = evidenceByType.get("COMPETITION") || [];
+   515→   515→    const productEvidence = evidenceByType.get("EXISTING_PRODUCT") || [];
+   516→   516→
+   517→   517→    // Risk factors
+   518→   518→    const highCompetition = compEvidence.length >= 5;
+   519→   519→    const strongExisting = productEvidence.some((e) => e.confidence >= 0.8);
+   520→   520→    const lowEvidence = compEvidence.length + productEvidence.length < 2;
+   521→   521→
+   522→   522→    let riskScore = 0.6; // Base: moderate-low risk
+   523→   523→
+   524→   524→    if (highCompetition) riskScore -= 0.15;
+   525→   525→    if (strongExisting) riskScore -= 0.1;
+   526→   526→    if (lowEvidence) riskScore -= 0.2; // Unknown = risky
+   527→   527→
+   528→   528→    riskScore = Math.max(0, Math.min(1, riskScore));
+   529→   529→
+   530→   530→    return {
+   531→   531→      name: "risk",
+   532→   532→      score: Math.round(riskScore * 100) / 100,
+   533→   533→      evidence: [...compEvidence, ...productEvidence].map((e) => e.id),
+   534→   534→      confidence: 0.5,
+   535→   535→      is_uncertain: lowEvidence,
+   536→   536→      explanation: `Risk scored ${riskScore.toFixed(2)} (inverse — higher = less risk): base 0.6, highCompetition(${highCompetition}) -0.15, strongExisting(${strongExisting}) -0.1, lowEvidence(${lowEvidence}) -0.2. Less evidence = more risk.`,
+   537→   537→    };
+   538→   538→  }
+   539→   539→
+   540→   540→  /** Evidence quality: how good is our evidence overall? */
+   541→   541→  private evaluateEvidenceQuality(allEvidence: ProductEvidence[]): EvaluatedDimension {
+   542→   542→    if (allEvidence.length === 0) {
+   543→   543→      return {
+   544→   544→        name: "evidence_quality",
+   545→   545→        score: 0,
+   546→   546→        evidence: [],
+   547→   547→        confidence: 0,
+   548→   548→        is_uncertain: true,
+   549→   549→        explanation: "No evidence at all. Evidence quality is 0. REQUIERE_VALIDACION — research is required before any decision.",
+   550→   550→      };
+   551→   551→    }
+   552→   552→
+   553→   553→    const avgConfidence = allEvidence.reduce((s, e) => s + e.confidence, 0) / allEvidence.length;
+   554→   554→    const avgTruthLevel = allEvidence.reduce((s, e) => s + TRUTH_LEVEL_ORDER[e.truthLevel], 0) / allEvidence.length / 5;
+   555→   555→    const verifiedCount = allEvidence.filter((e) => e.verificationStatus === "VERIFIED_PASS").length;
+   556→   556→    const verifiedRatio = verifiedCount / allEvidence.length;
+   557→   557→
+   558→   558→    const score = 0.4 * avgConfidence + 0.3 * avgTruthLevel + 0.3 * (verifiedRatio > 0 ? verifiedRatio : avgConfidence * 0.5);
+   559→   559→
+   560→   560→    return {
+   561→   561→      name: "evidence_quality",
+   562→   562→      score: Math.round(score * 100) / 100,
+   563→   563→      evidence: allEvidence.map((e) => e.id),
+   564→   564→      confidence: avgConfidence,
+   565→   565→      is_uncertain: avgConfidence < 0.5,
+   566→   566→      explanation: `Evidence quality scored ${score.toFixed(2)}: ${allEvidence.length} items, avg confidence ${avgConfidence.toFixed(2)}, avg truth level ${avgTruthLevel.toFixed(2)}, ${verifiedCount} verified (${verifiedRatio.toFixed(2)}). Formula: 0.4 * confidence + 0.3 * truthLevel + 0.3 * verifiedRatio.`,
+   567→   567→    };
+   568→   568→  }
+   569→   569→
+   570→   570→  // ─── Decision Logic ────────────────────────────────────────────────────
+   571→   571→
+   572→   572→  /** Calculate weighted overall score from dimensions */
+   573→   573→  private calculateWeightedScore(dimensions: EvaluatedDimension[]): number {
+   574→   574→    let totalWeight = 0;
+   575→   575→    let weightedSum = 0;
+   576→   576→
+   577→   577→    for (const dim of dimensions) {
+   578→   578→      const weight = DIMENSION_WEIGHTS[dim.name as DimensionName] || 0.05;
+   579→   579→      weightedSum += dim.score * weight;
+   580→   580→      totalWeight += weight;
+   581→   581→    }
+   582→   582→
+   583→   583→    return totalWeight > 0 ? weightedSum / totalWeight : 0;
+   584→   584→  }
+   585→   585→
+   586→   586→  /** Determine the fit decision based on score and dimensions */
+   587→   587→  private determineDecision(score: number, dimensions: EvaluatedDimension[]): FitDecision {
+   588→   588→    const evidenceQuality = dimensions.find((d) => d.name === "evidence_quality");
+   589→   589→    const uncertainCount = dimensions.filter((d) => d.is_uncertain).length;
+   590→   590→    const criticalUncertain = dimensions.filter(
+   591→   591→      (d) => d.is_uncertain && (d.name === "problem_intensity" || d.name === "demand" || d.name === "payment_intent")
+   592→   592→    ).length;
+   593→   593→
+   594→   594→    // DO_NOT_BUILD: very low score with no critical uncertainties that could change things
+   595→   595→    if (score < 0.30 && criticalUncertain === 0) {
+   596→   596→      return "DO_NOT_BUILD";
+   597→   597→    }
+   598→   598→
+   599→   599→    // VALIDATE_FIRST: good signals but uncertain evidence
+   600→   600→    if (score >= 0.30 && score < 0.65) {
+   601→   601→      return "VALIDATE_FIRST";
+   602→   602→    }
+   603→   603→
+   604→   604→    // VALIDATE_FIRST: decent score but critical uncertainties
+   605→   605→    if (score >= 0.65 && (criticalUncertain > 0 || (evidenceQuality && evidenceQuality.score < 0.5))) {
+   606→   606→      return "VALIDATE_FIRST";
+   607→   607→    }
+   608→   608→
+   609→   609→    // BUILD: strong score, good evidence, no critical uncertainties
+   610→   610→    if (score >= 0.65 && criticalUncertain === 0 && uncertainCount <= 3) {
+   611→   611→      return "BUILD";
+   612→   612→    }
+   613→   613→
+   614→   614→    // Default: validate if uncertain
+   615→   615→    if (uncertainCount > 3) {
+   616→   616→      return "VALIDATE_FIRST";
+   617→   617→    }
+   618→   618→
+   619→   619→    return "DO_NOT_BUILD";
+   620→   620→  }
+   621→   621→
+   622→   622→  /** Generate a human-readable explanation of the decision (AC-010) */
+   623→   623→  private generateExplanation(
+   624→   624→    decision: FitDecision,
+   625→   625→    score: number,
+   626→   626→    dimensions: EvaluatedDimension[],
+   627→   627→    opportunity: Opportunity
+   628→   628→  ): string {
+   629→   629→    const topDims = dimensions
+   630→   630→      .sort((a, b) => (DIMENSION_WEIGHTS[b.name as DimensionName] || 0) - (DIMENSION_WEIGHTS[a.name as DimensionName] || 0))
+   631→   631→      .slice(0, 5);
+   632→   632→
+   633→   633→    const uncertainDims = dimensions.filter((d) => d.is_uncertain);
+   634→   634→
+   635→   635→    const decisionExplanations: Record<FitDecision, string> = {
+   636→   636→      BUILD: `BUILD recommendation for "${opportunity.name}" (score: ${score.toFixed(2)}). Key factors: ${topDims.map((d) => `${d.name}=${d.score.toFixed(2)}`).join(", ")}. Evidence is sufficient and no critical uncertainties remain.`,
+   637→   637→      VALIDATE_FIRST: `VALIDATE_FIRST recommendation for "${opportunity.name}" (score: ${score.toFixed(2)}). Key factors: ${topDims.map((d) => `${d.name}=${d.score.toFixed(2)}`).join(", ")}. Uncertain dimensions: ${uncertainDims.map((d) => d.name).join(", ") || "none"}. Validation needed before committing to build.`,
+   638→   638→      DO_NOT_BUILD: `DO_NOT_BUILD recommendation for "${opportunity.name}" (score: ${score.toFixed(2)}). Key factors: ${topDims.map((d) => `${d.name}=${d.score.toFixed(2)}`).join(", ")}. The evidence does not support investment at this time.`,
+   639→   639→    };
+   640→   640→
+   641→   641→    return decisionExplanations[decision];
+   642→   642→  }
+   643→   643→
+   644→   644→  /** Recommend specific next actions based on the decision */
+   645→   645→  private recommendActions(
+   646→   646→    decision: FitDecision,
+   647→   647→    dimensions: EvaluatedDimension[],
+   648→   648→    uncertainties: string[]
+   649→   649→  ): string[] {
+   650→   650→    const actions: string[] = [];
+   651→   651→
+   652→   652→    if (decision === "BUILD") {
+   653→   653→      actions.push("Proceed to product architecture and specification");
+   654→   654→      actions.push("Define MVP scope (MUST items only)");
+   655→   655→      actions.push("Set up build tracking and success criteria");
+   656→   656→    } else if (decision === "VALIDATE_FIRST") {
+   657→   657→      // Recommend validation based on uncertain dimensions
+   658→   658→      const uncertain = dimensions.filter((d) => d.is_uncertain);
+   659→   659→      for (const dim of uncertain) {
+   660→   660→        switch (dim.name) {
+   661→   661→          case "problem_intensity":
+   662→   662→            actions.push("Validate problem intensity: interview 10+ potential users about their pain");
+   663→   663→            break;
+   664→   664→          case "demand":
+   665→   665→            actions.push("Validate demand: run a smoke test or landing page to measure interest");
+   666→   666→            break;
+   667→   667→          case "payment_intent":
+   668→   668→            actions.push("Validate payment intent: test pricing with pre-orders or deposit requests");
+   669→   669→            break;
+   670→   670→          case "audience_size":
+   671→   671→            actions.push("Validate audience size: research market size data and search volumes");
+   672→   672→            break;
+   673→   673→          case "competition":
+   674→   674→            actions.push("Validate competitive landscape: audit existing solutions and their gaps");
+   675→   675→            break;
+   676→   676→          case "differentiation":
+   677→   677→            actions.push("Validate differentiation: test unique value proposition with target audience");
+   678→   678→            break;
+   679→   679→          case "economics":
+   680→   680→            actions.push("Validate economics: estimate costs and revenue model with real data");
+   681→   681→            break;
+   682→   682→          default:
+   683→   683→            actions.push(`Validate ${dim.name}: gather more evidence to reduce uncertainty`);
+   684→   684→        }
+   685→   685→      }
+   686→   686→      if (actions.length === 0) {
+   687→   687→        actions.push("Gather more evidence for uncertain dimensions before deciding");
+   688→   688→      }
+   689→   689→    } else {
+   690→   690→      // DO_NOT_BUILD
+   691→   691→      actions.push("Document why this opportunity was rejected (evidence trail)");
+   692→   692→      actions.push("Set reminder to re-evaluate if market conditions change");
+   693→   693→      if (uncertainties.length > 0) {
+   694→   694→        actions.push("If new evidence becomes available, re-run fit evaluation");
+   695→   695→      }
+   696→   696→    }
+   697→   697→
+   698→   698→    return actions;
+   699→   699→  }
+   700→   700→
+   701→   701→  // ─── Utility ───────────────────────────────────────────────────────────
+   702→   702→
+   703→   703→  /** Group evidence items by their type */
+   704→   704→  private groupEvidenceByType(
+   705→   705→    evidence: ProductEvidence[]
+   706→   706→  ): Map<ProductEvidenceType, ProductEvidence[]> {
+   707→   707→    const map = new Map<ProductEvidenceType, ProductEvidence[]>();
+   708→   708→    for (const item of evidence) {
+   709→   709→      const items = map.get(item.type) || [];
+   710→   710→      items.push(item);
+   711→   711→      map.set(item.type, items);
+   712→   712→    }
+   713→   713→    return map;
+   714→   714→  }
+   715→   715→}
+   716→   716→
