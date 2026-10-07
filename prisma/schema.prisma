@@ -17,8 +17,13 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  generations Generation[]
+  generations     Generation[]
   campaignEntries CampaignEntry[]
+  memories        Memory[]
+  executions      Execution[]
+  feedbacks       Feedback[]
+  auditEvents     AuditEvent[]
+  sessions        Session[]
 }
 
 model CampaignEntry {
@@ -43,6 +48,149 @@ model Generation {
   prompt    String
   result    String   // URL for images/voice, text content for text/ebooks
   credits   Int
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// MemoryDV - Agent Memory System
+model Memory {
+  id            String   @id @default(cuid())
+  agentId       String   @default("krea")
+  userId        String?  // nullable = global agent memory, non-null = user-scoped
+  domain        String   // e.g., "generation", "campaign", "product"
+  type          String   // EPISODIC | SEMANTIC | FACTUAL | PROCEDURAL
+  content       String   // JSON string for structured content
+  source        String?  // where this memory came from
+  sourceType    String?  // USER | AGENT | SYSTEM | EXTERNAL | FEEDBACK | INFERENCE
+  evidence      String?  // JSON - evidence/provenance data
+  confidence    Float    @default(0.5)
+  truthLevel    String   @default("ESTIMATED") // OBSERVED|VERIFIED|ESTIMATED|MODELED|INFERRED|UNKNOWN
+  relevance     Float    @default(1.0)
+  utility       Float    @default(0.5)
+  decay         Float    @default(0.0) // 0 = no decay, increases over time
+  scope         String   @default("agent") // agent | user | global | ecosistema
+  status        String   @default("ACTIVE") // ACTIVE | CONSOLIDATED | INVALIDATED | ARCHIVED
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  lastVerified  DateTime?
+
+  user User? @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// Skill System
+model Skill {
+  id              String   @id @default(cuid())
+  agentId         String   @default("krea")
+  name            String
+  description     String
+  purpose         String
+  trigger         String?  // when this skill activates
+  prerequisites   String?  // JSON array of prerequisite skill IDs or conditions
+  procedure       String   // JSON - structured procedure steps
+  toolsRequired   String?  // JSON array of tool IDs
+  expectedResult  String?
+  verification    String?  // how to verify the skill worked
+  pitfalls        String?  // JSON array of known pitfalls
+  evidence        String?  // JSON - evidence data
+  confidence      Float    @default(0.5)
+  successRate     Float    @default(0.0)
+  origin          String?  // MANUAL | LEARNED | FEEDBACK | IMPORTED
+  version         Int      @default(1)
+  status          String   @default("PROPOSED") // PROPOSED|VALIDATING|ACTIVE|DEPRECATED|RETIRED
+  lastValidated   DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([agentId, name, version])
+}
+
+// Execution Trace
+model Execution {
+  id            String   @id @default(cuid())
+  agentId       String   @default("krea")
+  userId        String?
+  task          String
+  toolsUsed     String?  // JSON array
+  skillsUsed    String?  // JSON array
+  inputs        String?  // JSON
+  outputs       String?  // JSON
+  errors        String?  // JSON array
+  evidence      String?  // JSON
+  approvals     String?  // JSON array
+  cost          Float    @default(0)
+  status        String   @default("PENDING") // PENDING|RUNNING|SUCCEEDED|FAILED|CANCELLED
+  startedAt     DateTime?
+  completedAt   DateTime?
+  correlationId String?
+  createdAt     DateTime @default(now())
+
+  user     User?     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  feedbacks Feedback[]
+}
+
+// Feedback & Learning
+model Feedback {
+  id              String   @id @default(cuid())
+  agentId         String   @default("krea")
+  userId          String?
+  executionId     String?  // link to execution
+  input           String?  // JSON - what was the input
+  result          String?  // JSON - what was the result
+  feedbackType    String   // SUCCESS | PARTIAL_SUCCESS | FAILURE | TECHNICAL_ERROR | BAD_DECISION | BAD_HYPOTHESIS | BAD_TOOL | BAD_EXECUTION | UNKNOWN
+  feedbackText    String?
+  analysis        String?  // JSON - automated analysis
+  learning        String?  // JSON - what was learned
+  evidence        String?  // JSON
+  confidence      Float    @default(0.5)
+  validationStatus String @default("PENDING") // PENDING|VALIDATED|INVALIDATED
+  createdAt       DateTime @default(now())
+
+  execution Execution? @relation(fields: [executionId], references: [id], onDelete: SetNull)
+  user      User?     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// Agent Interaction Log (agent-to-agent communication)
+model AgentInteraction {
+  id              String   @id @default(cuid())
+  requesterAgent  String
+  targetAgent     String
+  objective       String
+  input           String?  // JSON
+  constraints     String?  // JSON
+  requestedOutput String?  // JSON
+  status          String   @default("PENDING") // PENDING|SENT|RECEIVED|SUCCEEDED|FAILED|TIMEOUT
+  result          String?  // JSON
+  evidence        String?  // JSON
+  confidence      Float    @default(0.5)
+  executionId     String?
+  correlationId   String?
+  createdAt       DateTime @default(now())
+  completedAt     DateTime?
+}
+
+// Audit Event Log
+model AuditEvent {
+  id          String   @id @default(cuid())
+  agentId     String   @default("krea")
+  userId      String?
+  action      String   // e.g., "generate_image", "deduct_credits", "skill_execute"
+  resource    String?  // what was affected
+  details     String?  // JSON
+  result      String?  // SUCCESS | FAILURE | PARTIAL
+  evidence    String?  // JSON
+  ip          String?
+  createdAt   DateTime @default(now())
+
+  user User? @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// Session Management
+model Session {
+  id        String   @id @default(cuid())
+  userId    String
+  token     String   @unique
+  expiresAt DateTime
   createdAt DateTime @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)

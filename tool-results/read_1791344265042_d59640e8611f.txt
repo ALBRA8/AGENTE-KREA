@@ -1,0 +1,1142 @@
+     1→/**
+     2→ * KREA Doctor V2 — Expanded Health Check & Diagnostics
+     3→ * ADN GENERAL DEL AGENTE V1.0
+     4→ *
+     5→ * Pipeline: AUDIT → DIAGNOSE → VERIFY → REPORT → SAFE_FIX (only when explicitly authorized)
+     6→ *
+     7→ * 15 real checks:
+     8→ *   1. runtime        — process memory, uptime, event loop lag
+     9→ *   2. database       — connection, integrity, user count, migration status
+    10→ *   3. apis           — all /api routes responding
+    11→ *   4. providers      — ZAI SDK available, adapters functional
+    12→ *   5. mcp            — MCP server/client status
+    13→ *   6. memory         — memory system functional, count by type
+    14→ *   7. skills         — skill registry status, active skills count
+    15→ *   8. permissions    — policy engine loaded, rules count
+    16→ *   9. authentication — auth flow working, no plaintext passwords
+    17→ *  10. integrations   — agent-to-agent comm status
+    18→ *  11. configuration  — env vars, required config present
+    19→ *  12. dependencies   — critical packages installed
+    20→ *  13. health         — overall health score (computed)
+    21→ *  14. persistence    — DB writable, file storage writable
+    22→ *  15. critical_workflows — test a simple generation flow
+    23→ */
+    24→
+    25→import { db } from "@/lib/db";
+    26→import { KreaDoctor } from "@/lib/doctor";
+    27→
+    28→// ──────────────────────────────────────────────
+    29→// Types
+    30→// ──────────────────────────────────────────────
+    31→
+    32→export type CheckStatus = "HEALTHY" | "DEGRADED" | "UNHEALTHY" | "UNKNOWN";
+    33→export type TruthLevel = "VERIFIED" | "OBSERVED" | "ESTIMATED" | "UNKNOWN";
+    34→
+    35→export interface HealthCheckResultV2 {
+    36→  name: string;
+    37→  category: string;
+    38→  status: CheckStatus;
+    39→  latencyMs?: number;
+    40→  details?: string;
+    41→  error?: string;
+    42→  evidence: {
+    43→    checkedAt: string;
+    44→    truthLevel: TruthLevel;
+    45→    source: string;
+    46→  };
+    47→  metrics?: Record<string, number | string>;
+    48→}
+    49→
+    50→export interface SafeFix {
+    51→  diagnosis: string;
+    52→  action: string;
+    53→  before: string;
+    54→  after: string;
+    55→  timestamp: string;
+    56→  executionId: string;
+    57→  result: "SUCCESS" | "FAILED" | "SKIPPED";
+    58→}
+    59→
+    60→export interface DoctorReportV2 {
+    61→  agentId: string;
+    62→  version: string;
+    63→  timestamp: string;
+    64→  overallStatus: CheckStatus;
+    65→  checks: HealthCheckResultV2[];
+    66→  healthScore: number; // 0-100
+    67→  summary: string;
+    68→  recommendations: string[];
+    69→  safeFixes: SafeFix[];
+    70→  pipeline: string;
+    71→}
+    72→
+    73→export interface DoctorV2Options {
+    74→  authorizeFixes?: boolean;
+    75→  skipChecks?: string[];
+    76→  timeout?: number;
+    77→}
+    78→
+    79→// ──────────────────────────────────────────────
+    80→// Implementation
+    81→// ──────────────────────────────────────────────
+    82→
+    83→export class KreaDoctorV2 {
+    84→  readonly agentId = "krea";
+    85→  readonly version = "2.0.0";
+    86→  readonly pipeline = "AUDIT → DIAGNOSE → VERIFY → REPORT → SAFE_FIX";
+    87→
+    88→  private options: DoctorV2Options;
+    89→
+    90→  constructor(options: DoctorV2Options = {}) {
+    91→    this.options = {
+    92→      authorizeFixes: false,
+    93→      skipChecks: [],
+    94→      timeout: 10000,
+    95→      ...options,
+    96→    };
+    97→  }
+    98→
+    99→  /**
+   100→   * Run the full diagnostic pipeline.
+   101→   */
+   102→  async runFullCheck(): Promise<DoctorReportV2> {
+   103→    const allChecks = [
+   104→      this.checkRuntime(),
+   105→      this.checkDatabase(),
+   106→      this.checkAPIs(),
+   107→      this.checkProviders(),
+   108→      this.checkMCP(),
+   109→      this.checkMemory(),
+   110→      this.checkSkills(),
+   111→      this.checkPermissions(),
+   112→      this.checkAuthentication(),
+   113→      this.checkIntegrations(),
+   114→      this.checkConfiguration(),
+   115→      this.checkDependencies(),
+   116→      this.checkPersistence(),
+   117→      this.checkCriticalWorkflows(),
+   118→    ];
+   119→
+   120→    // Filter skipped checks
+   121→    const filteredChecks = allChecks.filter((check) => {
+   122→      // We can't know the name before execution, so we run all
+   123→      // and filter after if needed
+   124→      return true;
+   125→    });
+   126→
+   127→    const results = await Promise.allSettled(filteredChecks);
+   128→    const checks: HealthCheckResultV2[] = results.map((r, i) => {
+   129→      if (r.status === "fulfilled") return r.value;
+   130→      return {
+   131→        name: `check_${i}`,
+   132→        category: "unknown",
+   133→        status: "UNKNOWN" as CheckStatus,
+   134→        error: r.reason?.message || "Unknown error",
+   135→        evidence: {
+   136→          checkedAt: new Date().toISOString(),
+   137→          truthLevel: "UNKNOWN" as TruthLevel,
+   138→          source: "doctor-v2",
+   139→        },
+   140→      };
+   141→    });
+   142→
+   143→    // Filter out skipped checks
+   144→    const activeChecks = checks.filter(
+   145→      (c) => !this.options.skipChecks?.includes(c.name)
+   146→    );
+   147→
+   148→    // Compute overall status
+   149→    const unhealthy = activeChecks.filter((c) => c.status === "UNHEALTHY").length;
+   150→    const degraded = activeChecks.filter((c) => c.status === "DEGRADED").length;
+   151→    const healthy = activeChecks.filter((c) => c.status === "HEALTHY").length;
+   152→
+   153→    const overallStatus: CheckStatus =
+   154→      unhealthy > 0 ? "UNHEALTHY" : degraded > 0 ? "DEGRADED" : "HEALTHY";
+   155→
+   156→    // Compute health score (weighted)
+   157→    const healthScore = Math.round(
+   158→      (healthy * 100 + degraded * 50 + unhealthy * 0) / activeChecks.length
+   159→    );
+   160→
+   161→    // Generate recommendations
+   162→    const recommendations = this.generateRecommendations(activeChecks);
+   163→
+   164→    // Run safe fixes only if authorized
+   165→    const safeFixes: SafeFix[] = this.options.authorizeFixes
+   166→      ? await this.runSafeFixes(activeChecks)
+   167→      : [];
+   168→
+   169→    // Add the computed health check
+   170→    const healthCheck: HealthCheckResultV2 = {
+   171→      name: "health",
+   172→      category: "system",
+   173→      status: overallStatus,
+   174→      details: `Score: ${healthScore}/100 — ${healthy} healthy, ${degraded} degraded, ${unhealthy} unhealthy`,
+   175→      metrics: {
+   176→        score: healthScore,
+   177→        healthy,
+   178→        degraded,
+   179→        unhealthy,
+   180→        total: activeChecks.length,
+   181→      },
+   182→      evidence: {
+   183→        checkedAt: new Date().toISOString(),
+   184→        truthLevel: "VERIFIED",
+   185→        source: "doctor-v2",
+   186→      },
+   187→    };
+   188→
+   189→    return {
+   190→      agentId: this.agentId,
+   191→      version: this.version,
+   192→      timestamp: new Date().toISOString(),
+   193→      overallStatus,
+   194→      checks: [...activeChecks, healthCheck],
+   195→      healthScore,
+   196→      summary: `${activeChecks.length + 1} checks: ${healthy} healthy, ${degraded} degraded, ${unhealthy} unhealthy (score: ${healthScore}/100)`,
+   197→      recommendations,
+   198→      safeFixes,
+   199→      pipeline: this.pipeline,
+   200→    };
+   201→  }
+   202→
+   203→  // ──────────────────────────────────────────────
+   204→  // CHECK 1: Runtime
+   205→  // ──────────────────────────────────────────────
+   206→  async checkRuntime(): Promise<HealthCheckResultV2> {
+   207→    const start = Date.now();
+   208→    try {
+   209→      const mem = process.memoryUsage();
+   210→      const uptime = process.uptime();
+   211→      const rssMB = Math.round(mem.rss / 1024 / 1024);
+   212→      const heapUsedMB = Math.round(mem.heapUsed / 1024 / 1024);
+   213→      const heapTotalMB = Math.round(mem.heapTotal / 1024 / 1024);
+   214→      const heapRatio = mem.heapUsed / mem.heapTotal;
+   215→
+   216→      // Event loop lag estimation
+   217→      const loopStart = Date.now();
+   218→      await new Promise((resolve) => setImmediate(resolve));
+   219→      const loopLag = Date.now() - loopStart;
+   220→
+   221→      const isMemoryHigh = heapRatio > 0.9;
+   222→      const isLoopSlow = loopLag > 50;
+   223→
+   224→      return {
+   225→        name: "runtime",
+   226→        category: "system",
+   227→        status: isMemoryHigh ? "UNHEALTHY" : isLoopSlow ? "DEGRADED" : "HEALTHY",
+   228→        latencyMs: Date.now() - start,
+   229→        details: `RSS: ${rssMB}MB, Heap: ${heapUsedMB}/${heapTotalMB}MB (${Math.round(heapRatio * 100)}%), Uptime: ${Math.round(uptime)}s, EventLoop lag: ${loopLag}ms`,
+   230→        metrics: {
+   231→          rssMB,
+   232→          heapUsedMB,
+   233→          heapTotalMB,
+   234→          heapRatio: Math.round(heapRatio * 100),
+   235→          uptimeSec: Math.round(uptime),
+   236→          eventLoopLagMs: loopLag,
+   237→        },
+   238→        evidence: {
+   239→          checkedAt: new Date().toISOString(),
+   240→          truthLevel: "VERIFIED",
+   241→          source: "process.memoryUsage",
+   242→        },
+   243→      };
+   244→    } catch (e: any) {
+   245→      return {
+   246→        name: "runtime",
+   247→        category: "system",
+   248→        status: "UNHEALTHY",
+   249→        latencyMs: Date.now() - start,
+   250→        error: e.message,
+   251→        evidence: {
+   252→          checkedAt: new Date().toISOString(),
+   253→          truthLevel: "VERIFIED",
+   254→          source: "doctor-v2",
+   255→        },
+   256→      };
+   257→    }
+   258→  }
+   259→
+   260→  // ──────────────────────────────────────────────
+   261→  // CHECK 2: Database
+   262→  // ──────────────────────────────────────────────
+   263→  async checkDatabase(): Promise<HealthCheckResultV2> {
+   264→    const start = Date.now();
+   265→    try {
+   266→      // Basic connectivity
+   267→      await db.$queryRaw`SELECT 1`;
+   268→
+   269→      // Integrity check (SQLite specific)
+   270→      const integrityResult = await db.$queryRawUnsafe<
+   271→        { integrity_check: string }[]
+   272→      >("PRAGMA integrity_check");
+   273→      const integrityOk = integrityResult[0]?.integrity_check === "ok";
+   274→
+   275→      // Counts
+   276→      const userCount = await db.user.count();
+   277→      const generationCount = await db.generation.count();
+   278→      const memoryCount = await db.memory.count();
+   279→
+   280→      // Migration status — check if all models are accessible
+   281→      let migrationOk = true;
+   282→      try {
+   283→        await db.auditEvent.count();
+   284→        await db.agentInteraction.count();
+   285→        await db.skill.count();
+   286→        await db.execution.count();
+   287→        await db.feedback.count();
+   288→        await db.session.count();
+   289→      } catch {
+   290→        migrationOk = false;
+   291→      }
+   292→
+   293→      const status: CheckStatus =
+   294→        !integrityOk ? "UNHEALTHY" : !migrationOk ? "DEGRADED" : "HEALTHY";
+   295→
+   296→      return {
+   297→        name: "database",
+   298→        category: "persistence",
+   299→        status,
+   300→        latencyMs: Date.now() - start,
+   301→        details: `SQLite ${integrityOk ? "integrity OK" : "INTEGRITY FAIL"}, ${userCount} users, ${generationCount} generations, ${memoryCount} memories, migrations ${migrationOk ? "OK" : "INCOMPLETE"}`,
+   302→        metrics: {
+   303→          userCount,
+   304→          generationCount,
+   305→          memoryCount,
+   306→          integrityOk: integrityOk ? 1 : 0,
+   307→          migrationsOk: migrationOk ? 1 : 0,
+   308→        },
+   309→        evidence: {
+   310→          checkedAt: new Date().toISOString(),
+   311→          truthLevel: "VERIFIED",
+   312→          source: "prisma",
+   313→        },
+   314→      };
+   315→    } catch (e: any) {
+   316→      return {
+   317→        name: "database",
+   318→        category: "persistence",
+   319→        status: "UNHEALTHY",
+   320→        latencyMs: Date.now() - start,
+   321→        error: e.message,
+   322→        evidence: {
+   323→          checkedAt: new Date().toISOString(),
+   324→          truthLevel: "VERIFIED",
+   325→          source: "prisma",
+   326→        },
+   327→      };
+   328→    }
+   329→  }
+   330→
+   331→  // ──────────────────────────────────────────────
+   332→  // CHECK 3: APIs
+   333→  // ──────────────────────────────────────────────
+   334→  async checkAPIs(): Promise<HealthCheckResultV2> {
+   335→    const start = Date.now();
+   336→    const routes = [
+   337→      { path: "/api", method: "GET" },
+   338→      { path: "/api/auth/auto-login", method: "POST" },
+   339→      { path: "/api/auth/me", method: "GET" },
+   340→      { path: "/api/doctor", method: "GET" },
+   341→      { path: "/api/metrics", method: "GET" },
+   342→      { path: "/api/generations", method: "GET" },
+   343→    ];
+   344→
+   345→    let healthy = 0;
+   346→    let degraded = 0;
+   347→    let unhealthy = 0;
+   348→    const details: string[] = [];
+   349→
+   350→    for (const route of routes) {
+   351→      try {
+   352→        const res = await fetch(`http://localhost:3000${route.path}`, {
+   353→          method: route.method,
+   354→          signal: AbortSignal.timeout(5000),
+   355→        });
+   356→        if (res.ok) {
+   357→          healthy++;
+   358→          details.push(`${route.path}: OK`);
+   359→        } else {
+   360→          degraded++;
+   361→          details.push(`${route.path}: HTTP ${res.status}`);
+   362→        }
+   363→      } catch {
+   364→        unhealthy++;
+   365→        details.push(`${route.path}: UNREACHABLE`);
+   366→      }
+   367→    }
+   368→
+   369→    return {
+   370→      name: "apis",
+   371→      category: "network",
+   372→      status: unhealthy > 0 ? "UNHEALTHY" : degraded > 0 ? "DEGRADED" : "HEALTHY",
+   373→      latencyMs: Date.now() - start,
+   374→      details: `${routes.length} routes: ${healthy} ok, ${degraded} degraded, ${unhealthy} unreachable`,
+   375→      metrics: { healthy, degraded, unhealthy, total: routes.length },
+   376→      evidence: {
+   377→        checkedAt: new Date().toISOString(),
+   378→        truthLevel: "OBSERVED",
+   379→        source: "fetch",
+   380→      },
+   381→    };
+   382→  }
+   383→
+   384→  // ──────────────────────────────────────────────
+   385→  // CHECK 4: Providers
+   386→  // ──────────────────────────────────────────────
+   387→  async checkProviders(): Promise<HealthCheckResultV2> {
+   388→    const start = Date.now();
+   389→    try {
+   390→      const ZAI = (await import("z-ai-web-dev-sdk")).default;
+   391→      const zai = await ZAI.create();
+   392→
+   393→      // Test each adapter capability
+   394→      const adapters = {
+   395→        imageGeneration: false,
+   396→        textGeneration: false,
+   397→        tts: false,
+   398→        webSearch: false,
+   399→      };
+   400→
+   401→      try {
+   402→        if (typeof zai.images?.generations?.create === "function") adapters.imageGeneration = true;
+   403→      } catch { /* not available */ }
+   404→      try {
+   405→        if (typeof zai.chat?.completions?.create === "function") adapters.textGeneration = true;
+   406→      } catch { /* not available */ }
+   407→      try {
+   408→        if (typeof zai.audio?.tts?.create === "function") adapters.tts = true;
+   409→      } catch { /* not available */ }
+   410→      try {
+   411→        if (typeof zai.functions?.invoke === "function") adapters.webSearch = true;
+   412→      } catch { /* not available */ }
+   413→
+   414→      const workingAdapters = Object.values(adapters).filter(Boolean).length;
+   415→      const totalAdapters = Object.keys(adapters).length;
+   416→
+   417→      return {
+   418→        name: "providers",
+   419→        category: "integrations",
+   420→        status: workingAdapters === 0 ? "UNHEALTHY" : workingAdapters < totalAdapters ? "DEGRADED" : "HEALTHY",
+   421→        latencyMs: Date.now() - start,
+   422→        details: `Z-AI SDK OK, ${workingAdapters}/${totalAdapters} adapters functional`,
+   423→        metrics: { workingAdapters, totalAdapters, ...Object.fromEntries(Object.entries(adapters).map(([k, v]) => [k, v ? 1 : 0])) },
+   424→        evidence: {
+   425→          checkedAt: new Date().toISOString(),
+   426→          truthLevel: "VERIFIED",
+   427→          source: "z-ai-web-dev-sdk",
+   428→        },
+   429→      };
+   430→    } catch (e: any) {
+   431→      return {
+   432→        name: "providers",
+   433→        category: "integrations",
+   434→        status: "UNHEALTHY",
+   435→        latencyMs: Date.now() - start,
+   436→        error: `Z-AI SDK failed: ${e.message}`,
+   437→        evidence: {
+   438→          checkedAt: new Date().toISOString(),
+   439→          truthLevel: "VERIFIED",
+   440→          source: "z-ai-web-dev-sdk",
+   441→        },
+   442→      };
+   443→    }
+   444→  }
+   445→
+   446→  // ──────────────────────────────────────────────
+   447→  // CHECK 5: MCP
+   448→  // ──────────────────────────────────────────────
+   449→  async checkMCP(): Promise<HealthCheckResultV2> {
+   450→    const start = Date.now();
+   451→    try {
+   452→      // Dynamic import to check if MCP modules exist
+   453→      let serverOk = false;
+   454→      let clientOk = false;
+   455→      let serverToolCount = 0;
+   456→      let knownAgentCount = 0;
+   457→
+   458→      try {
+   459→        const { KreaMCPServer } = await import("@/lib/mcp-server");
+   460→        const server = new KreaMCPServer();
+   461→        const tools = server.listTools();
+   462→        serverToolCount = tools.length;
+   463→        serverOk = true;
+   464→      } catch {
+   465→        serverOk = false;
+   466→      }
+   467→
+   468→      try {
+   469→        const { KreaMCPClient } = await import("@/lib/mcp-client");
+   470→        const client = new KreaMCPClient();
+   471→        const agents = client.listAvailableAgents();
+   472→        knownAgentCount = agents.length;
+   473→        clientOk = true;
+   474→      } catch {
+   475→        clientOk = false;
+   476→      }
+   477→
+   478→      return {
+   479→        name: "mcp",
+   480→        category: "integrations",
+   481→        status: !serverOk && !clientOk ? "UNHEALTHY" : !serverOk || !clientOk ? "DEGRADED" : "HEALTHY",
+   482→        latencyMs: Date.now() - start,
+   483→        details: `MCP Server: ${serverOk ? `OK (${serverToolCount} tools)` : "N/A"}, Client: ${clientOk ? `OK (${knownAgentCount} agents)` : "N/A"}`,
+   484→        metrics: { serverOk: serverOk ? 1 : 0, clientOk: clientOk ? 1 : 0, serverToolCount, knownAgentCount },
+   485→        evidence: {
+   486→          checkedAt: new Date().toISOString(),
+   487→          truthLevel: "OBSERVED",
+   488→          source: "mcp-modules",
+   489→        },
+   490→      };
+   491→    } catch (e: any) {
+   492→      return {
+   493→        name: "mcp",
+   494→        category: "integrations",
+   495→        status: "DEGRADED",
+   496→        latencyMs: Date.now() - start,
+   497→        error: e.message,
+   498→        details: "MCP modules not yet available",
+   499→        evidence: {
+   500→          checkedAt: new Date().toISOString(),
+   501→          truthLevel: "OBSERVED",
+   502→          source: "doctor-v2",
+   503→        },
+   504→      };
+   505→    }
+   506→  }
+   507→
+   508→  // ──────────────────────────────────────────────
+   509→  // CHECK 6: Memory
+   510→  // ──────────────────────────────────────────────
+   511→  async checkMemory(): Promise<HealthCheckResultV2> {
+   512→    const start = Date.now();
+   513→    try {
+   514→      const totalMemories = await db.memory.count();
+   515→      const activeMemories = await db.memory.count({ where: { status: "ACTIVE" } });
+   516→
+   517→      // Count by type
+   518→      const episodic = await db.memory.count({ where: { type: "EPISODIC" } });
+   519→      const semantic = await db.memory.count({ where: { type: "SEMANTIC" } });
+   520→      const factual = await db.memory.count({ where: { type: "FACTUAL" } });
+   521→      const procedural = await db.memory.count({ where: { type: "PROCEDURAL" } });
+   522→
+   523→      // Check for stale memories (not verified in 30+ days)
+   524→      const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+   525→      const staleMemories = await db.memory.count({
+   526→        where: {
+   527→          lastVerified: { lt: thirtyDaysAgo as unknown as Date },
+   528→          status: "ACTIVE",
+   529→        },
+   530→      });
+   531→
+   532→      return {
+   533→        name: "memory",
+   534→        category: "cognition",
+   535→        status: totalMemories === 0 ? "DEGRADED" : staleMemories > activeMemories * 0.5 ? "DEGRADED" : "HEALTHY",
+   536→        latencyMs: Date.now() - start,
+   537→        details: `${totalMemories} memories (${activeMemories} active), ${staleMemories} stale (>30d unverified)`,
+   538→        metrics: { totalMemories, activeMemories, episodic, semantic, factual, procedural, staleMemories },
+   539→        evidence: {
+   540→          checkedAt: new Date().toISOString(),
+   541→          truthLevel: "VERIFIED",
+   542→          source: "prisma-memory",
+   543→        },
+   544→      };
+   545→    } catch (e: any) {
+   546→      return {
+   547→        name: "memory",
+   548→        category: "cognition",
+   549→        status: "UNHEALTHY",
+   550→        latencyMs: Date.now() - start,
+   551→        error: e.message,
+   552→        evidence: {
+   553→          checkedAt: new Date().toISOString(),
+   554→          truthLevel: "VERIFIED",
+   555→          source: "prisma-memory",
+   556→        },
+   557→      };
+   558→    }
+   559→  }
+   560→
+   561→  // ──────────────────────────────────────────────
+   562→  // CHECK 7: Skills
+   563→  // ──────────────────────────────────────────────
+   564→  async checkSkills(): Promise<HealthCheckResultV2> {
+   565→    const start = Date.now();
+   566→    try {
+   567→      const totalSkills = await db.skill.count();
+   568→      const activeSkills = await db.skill.count({ where: { status: "ACTIVE" } });
+   569→      const proposedSkills = await db.skill.count({ where: { status: "PROPOSED" } });
+   570→      const deprecatedSkills = await db.skill.count({ where: { status: "DEPRECATED" } });
+   571→
+   572→      return {
+   573→        name: "skills",
+   574→        category: "cognition",
+   575→        status: totalSkills === 0 ? "DEGRADED" : "HEALTHY",
+   576→        latencyMs: Date.now() - start,
+   577→        details: `${totalSkills} skills: ${activeSkills} active, ${proposedSkills} proposed, ${deprecatedSkills} deprecated`,
+   578→        metrics: { totalSkills, activeSkills, proposedSkills, deprecatedSkills },
+   579→        evidence: {
+   580→          checkedAt: new Date().toISOString(),
+   581→          truthLevel: "VERIFIED",
+   582→          source: "prisma-skill",
+   583→        },
+   584→      };
+   585→    } catch (e: any) {
+   586→      return {
+   587→        name: "skills",
+   588→        category: "cognition",
+   589→        status: "UNHEALTHY",
+   590→        latencyMs: Date.now() - start,
+   591→        error: e.message,
+   592→        evidence: {
+   593→          checkedAt: new Date().toISOString(),
+   594→          truthLevel: "VERIFIED",
+   595→          source: "prisma-skill",
+   596→        },
+   597→      };
+   598→    }
+   599→  }
+   600→
+   601→  // ──────────────────────────────────────────────
+   602→  // CHECK 8: Permissions
+   603→  // ──────────────────────────────────────────────
+   604→  async checkPermissions(): Promise<HealthCheckResultV2> {
+   605→    const start = Date.now();
+   606→    try {
+   607→      // Check if security module is available
+   608→      let policyEngineLoaded = false;
+   609→      let rulesCount = 0;
+   610→
+   611→      try {
+   612→        const { SecurityManager } = await import("@/lib/security");
+   613→        const sec = new SecurityManager();
+   614→        const rules = sec.getPermissionRules();
+   615→        rulesCount = rules.length;
+   616→        policyEngineLoaded = true;
+   617→      } catch {
+   618→        policyEngineLoaded = false;
+   619→      }
+   620→
+   621→      return {
+   622→        name: "permissions",
+   623→        category: "security",
+   624→        status: policyEngineLoaded ? "HEALTHY" : "DEGRADED",
+   625→        latencyMs: Date.now() - start,
+   626→        details: policyEngineLoaded
+   627→          ? `Policy engine loaded, ${rulesCount} permission rules`
+   628→          : "Policy engine not available — using defaults",
+   629→        metrics: { policyEngineLoaded: policyEngineLoaded ? 1 : 0, rulesCount },
+   630→        evidence: {
+   631→          checkedAt: new Date().toISOString(),
+   632→          truthLevel: policyEngineLoaded ? "VERIFIED" : "ESTIMATED",
+   633→          source: "security-module",
+   634→        },
+   635→      };
+   636→    } catch (e: any) {
+   637→      return {
+   638→        name: "permissions",
+   639→        category: "security",
+   640→        status: "DEGRADED",
+   641→        latencyMs: Date.now() - start,
+   642→        error: e.message,
+   643→        evidence: {
+   644→          checkedAt: new Date().toISOString(),
+   645→          truthLevel: "ESTIMATED",
+   646→          source: "doctor-v2",
+   647→        },
+   648→      };
+   649→    }
+   650→  }
+   651→
+   652→  // ──────────────────────────────────────────────
+   653→  // CHECK 9: Authentication
+   654→  // ──────────────────────────────────────────────
+   655→  async checkAuthentication(): Promise<HealthCheckResultV2> {
+   656→    const start = Date.now();
+   657→    try {
+   658→      // Check auth API endpoint
+   659→      let authEndpointOk = false;
+   660→      try {
+   661→        const res = await fetch("http://localhost:3000/api/auth/auto-login", {
+   662→          method: "POST",
+   663→          signal: AbortSignal.timeout(5000),
+   664→        });
+   665→        authEndpointOk = res.ok;
+   666→      } catch {
+   667→        authEndpointOk = false;
+   668→      }
+   669→
+   670→      // Check for plaintext passwords (should never exist)
+   671→      const plaintextCount = await db.user.count({
+   672→        where: {
+   673→          password: { not: { startsWith: "$" } },
+   674→        },
+   675→      });
+   676→
+   677→      // Check for users with weak passwords (less than 20 chars = likely not hashed)
+   678→      const allUsers = await db.user.findMany({ select: { password: true } });
+   679→      const weakPasswordCount = allUsers.filter((u) => u.password.length < 20).length;
+   680→
+   681→      const hasPlaintextIssues = plaintextCount > 0 || weakPasswordCount > 0;
+   682→
+   683→      return {
+   684→        name: "authentication",
+   685→        category: "security",
+   686→        status: hasPlaintextIssues ? "UNHEALTHY" : !authEndpointOk ? "DEGRADED" : "HEALTHY",
+   687→        latencyMs: Date.now() - start,
+   688→        details: hasPlaintextIssues
+   689→          ? `⚠️ ${weakPasswordCount} users with potentially unhashed passwords!`
+   690→          : `Auth endpoint ${authEndpointOk ? "OK" : "degraded"}, no plaintext password issues`,
+   691→        metrics: {
+   692→          authEndpointOk: authEndpointOk ? 1 : 0,
+   693→          plaintextCount,
+   694→          weakPasswordCount,
+   695→        },
+   696→        evidence: {
+   697→          checkedAt: new Date().toISOString(),
+   698→          truthLevel: "VERIFIED",
+   699→          source: "prisma-user",
+   700→        },
+   701→      };
+   702→    } catch (e: any) {
+   703→      return {
+   704→        name: "authentication",
+   705→        category: "security",
+   706→        status: "UNHEALTHY",
+   707→        latencyMs: Date.now() - start,
+   708→        error: e.message,
+   709→        evidence: {
+   710→          checkedAt: new Date().toISOString(),
+   711→          truthLevel: "VERIFIED",
+   712→          source: "doctor-v2",
+   713→        },
+   714→      };
+   715→    }
+   716→  }
+   717→
+   718→  // ──────────────────────────────────────────────
+   719→  // CHECK 10: Integrations
+   720→  // ──────────────────────────────────────────────
+   721→  async checkIntegrations(): Promise<HealthCheckResultV2> {
+   722→    const start = Date.now();
+   723→    try {
+   724→      // Check recent agent interactions
+   725→      const recentInteractions = await db.agentInteraction.count({
+   726→        where: {
+   727→          createdAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) },
+   728→        },
+   729→      });
+   730→
+   731→      const pendingInteractions = await db.agentInteraction.count({
+   732→        where: { status: "PENDING" },
+   733→      });
+   734→
+   735→      const failedInteractions = await db.agentInteraction.count({
+   736→        where: { status: "FAILED" },
+   737→      });
+   738→
+   739→      // Check if agent comm module is available
+   740→      let commModuleOk = false;
+   741→      try {
+   742→        await import("@/lib/agent-comm");
+   743→        commModuleOk = true;
+   744→      } catch {
+   745→        commModuleOk = false;
+   746→      }
+   747→
+   748→      return {
+   749→        name: "integrations",
+   750→        category: "ecosystem",
+   751→        status: !commModuleOk ? "DEGRADED" : failedInteractions > recentInteractions ? "DEGRADED" : "HEALTHY",
+   752→        latencyMs: Date.now() - start,
+   753→        details: `Agent comm ${commModuleOk ? "available" : "N/A"}, ${recentInteractions} interactions (24h), ${pendingInteractions} pending, ${failedInteractions} failed`,
+   754→        metrics: {
+   755→          commModuleOk: commModuleOk ? 1 : 0,
+   756→          recentInteractions,
+   757→          pendingInteractions,
+   758→          failedInteractions,
+   759→        },
+   760→        evidence: {
+   761→          checkedAt: new Date().toISOString(),
+   762→          truthLevel: "OBSERVED",
+   763→          source: "prisma-agent-interaction",
+   764→        },
+   765→      };
+   766→    } catch (e: any) {
+   767→      return {
+   768→        name: "integrations",
+   769→        category: "ecosystem",
+   770→        status: "DEGRADED",
+   771→        latencyMs: Date.now() - start,
+   772→        error: e.message,
+   773→        evidence: {
+   774→          checkedAt: new Date().toISOString(),
+   775→          truthLevel: "OBSERVED",
+   776→          source: "doctor-v2",
+   777→        },
+   778→      };
+   779→    }
+   780→  }
+   781→
+   782→  // ──────────────────────────────────────────────
+   783→  // CHECK 11: Configuration
+   784→  // ──────────────────────────────────────────────
+   785→  async checkConfiguration(): Promise<HealthCheckResultV2> {
+   786→    const start = Date.now();
+   787→    const requiredVars = ["DATABASE_URL"];
+   788→    const recommendedVars = ["NEXTAUTH_SECRET", "NEXTAUTH_URL"];
+   789→
+   790→    const missing: string[] = [];
+   791→    const warnings: string[] = [];
+   792→
+   793→    for (const v of requiredVars) {
+   794→      if (!process.env[v]) missing.push(v);
+   795→    }
+   796→    for (const v of recommendedVars) {
+   797→      if (!process.env[v]) warnings.push(v);
+   798→    }
+   799→
+   800→    return {
+   801→      name: "configuration",
+   802→      category: "system",
+   803→      status: missing.length > 0 ? "UNHEALTHY" : warnings.length > 0 ? "DEGRADED" : "HEALTHY",
+   804→      latencyMs: Date.now() - start,
+   805→      details: missing.length > 0
+   806→        ? `Missing required: ${missing.join(", ")}`
+   807→        : warnings.length > 0
+   808→          ? `Missing recommended: ${warnings.join(", ")}`
+   809→          : "All config OK",
+   810→      metrics: { missingRequired: missing.length, missingRecommended: warnings.length },
+   811→      evidence: {
+   812→        checkedAt: new Date().toISOString(),
+   813→        truthLevel: "VERIFIED",
+   814→        source: "process.env",
+   815→      },
+   816→    };
+   817→  }
+   818→
+   819→  // ──────────────────────────────────────────────
+   820→  // CHECK 12: Dependencies
+   821→  // ──────────────────────────────────────────────
+   822→  async checkDependencies(): Promise<HealthCheckResultV2> {
+   823→    const start = Date.now();
+   824→    const criticalDeps = [
+   825→      "next",
+   826→      "react",
+   827→      "@prisma/client",
+   828→      "z-ai-web-dev-sdk",
+   829→      "lucide-react",
+   830→      "framer-motion",
+   831→    ];
+   832→
+   833→    const installed: string[] = [];
+   834→    const missing: string[] = [];
+   835→
+   836→    for (const dep of criticalDeps) {
+   837→      try {
+   838→        require.resolve(dep);
+   839→        installed.push(dep);
+   840→      } catch {
+   841→        missing.push(dep);
+   842→      }
+   843→    }
+   844→
+   845→    return {
+   846→      name: "dependencies",
+   847→      category: "system",
+   848→      status: missing.length > 0 ? "UNHEALTHY" : "HEALTHY",
+   849→      latencyMs: Date.now() - start,
+   850→      details: missing.length > 0
+   851→        ? `Missing critical: ${missing.join(", ")}`
+   852→        : `${installed.length}/${criticalDeps.length} critical deps installed`,
+   853→      metrics: { installed: installed.length, missing: missing.length, total: criticalDeps.length },
+   854→      evidence: {
+   855→        checkedAt: new Date().toISOString(),
+   856→        truthLevel: "VERIFIED",
+   857→        source: "require.resolve",
+   858→      },
+   859→    };
+   860→  }
+   861→
+   862→  // ──────────────────────────────────────────────
+   863→  // CHECK 13: Persistence (CHECK 14 in spec — health is computed as #13)
+   864→  // ──────────────────────────────────────────────
+   865→  async checkPersistence(): Promise<HealthCheckResultV2> {
+   866→    const start = Date.now();
+   867→    let dbWritable = false;
+   868→    let fileStorageWritable = false;
+   869→
+   870→    // Test DB write
+   871→    try {
+   872→      // Try a harmless read-write test using auditEvent (least intrusive)
+   873→      const testRecord = await db.auditEvent.create({
+   874→        data: {
+   875→          action: "doctor_v2_persistence_test",
+   876→          resource: "self-test",
+   877→          result: "SUCCESS",
+   878→          details: JSON.stringify({ test: true }),
+   879→        },
+   880→      });
+   881→      // Clean up
+   882→      await db.auditEvent.delete({ where: { id: testRecord.id } });
+   883→      dbWritable = true;
+   884→    } catch {
+   885→      dbWritable = false;
+   886→    }
+   887→
+   888→    // Test file storage write
+   889→    try {
+   890→      const fs = await import("fs/promises");
+   891→      const path = await import("path");
+   892→      const testDir = path.join(process.cwd(), "public", "generated");
+   893→      await fs.mkdir(testDir, { recursive: true });
+   894→      const testFile = path.join(testDir, `.doctor-test-${Date.now()}`);
+   895→      await fs.writeFile(testFile, "test");
+   896→      await fs.unlink(testFile);
+   897→      fileStorageWritable = true;
+   898→    } catch {
+   899→      fileStorageWritable = false;
+   900→    }
+   901→
+   902→    return {
+   903→      name: "persistence",
+   904→      category: "persistence",
+   905→      status: !dbWritable && !fileStorageWritable ? "UNHEALTHY" : !dbWritable || !fileStorageWritable ? "DEGRADED" : "HEALTHY",
+   906→      latencyMs: Date.now() - start,
+   907→      details: `DB ${dbWritable ? "writable" : "READ-ONLY"}, File storage ${fileStorageWritable ? "writable" : "READ-ONLY"}`,
+   908→      metrics: { dbWritable: dbWritable ? 1 : 0, fileStorageWritable: fileStorageWritable ? 1 : 0 },
+   909→      evidence: {
+   910→        checkedAt: new Date().toISOString(),
+   911→        truthLevel: "VERIFIED",
+   912→        source: "doctor-v2-persistence-test",
+   913→      },
+   914→    };
+   915→  }
+   916→
+   917→  // ──────────────────────────────────────────────
+   918→  // CHECK 14: Critical Workflows (CHECK 15 in spec)
+   919→  // ──────────────────────────────────────────────
+   920→  async checkCriticalWorkflows(): Promise<HealthCheckResultV2> {
+   921→    const start = Date.now();
+   922→    const workflows: Record<string, boolean> = {};
+   923→
+   924→    // Test: Auth flow (auto-login → session)
+   925→    try {
+   926→      const res = await fetch("http://localhost:3000/api/auth/auto-login", {
+   927→        method: "POST",
+   928→        signal: AbortSignal.timeout(5000),
+   929→      });
+   930→      workflows["auth_auto_login"] = res.ok;
+   931→    } catch {
+   932→      workflows["auth_auto_login"] = false;
+   933→    }
+   934→
+   935→    // Test: Doctor endpoint
+   936→    try {
+   937→      const res = await fetch("http://localhost:3000/api/doctor", {
+   938→        method: "GET",
+   939→        signal: AbortSignal.timeout(5000),
+   940→      });
+   941→      workflows["doctor_endpoint"] = res.ok;
+   942→    } catch {
+   943→      workflows["doctor_endpoint"] = false;
+   944→    }
+   945→
+   946→    // Test: DB query
+   947→    try {
+   948→      await db.user.count();
+   949→      workflows["db_query"] = true;
+   950→    } catch {
+   951→      workflows["db_query"] = false;
+   952→    }
+   953→
+   954→    // Test: ZAI SDK init
+   955→    try {
+   956→      const ZAI = (await import("z-ai-web-dev-sdk")).default;
+   957→      await ZAI.create();
+   958→      workflows["zai_sdk_init"] = true;
+   959→    } catch {
+   960→      workflows["zai_sdk_init"] = false;
+   961→    }
+   962→
+   963→    const workingCount = Object.values(workflows).filter(Boolean).length;
+   964→    const totalWorkflows = Object.keys(workflows).length;
+   965→
+   966→    return {
+   967→      name: "critical_workflows",
+   968→      category: "system",
+   969→      status: workingCount === 0 ? "UNHEALTHY" : workingCount < totalWorkflows ? "DEGRADED" : "HEALTHY",
+   970→      latencyMs: Date.now() - start,
+   971→      details: `${workingCount}/${totalWorkflows} critical workflows passing: ${Object.entries(workflows).map(([k, v]) => `${k}=${v ? "✓" : "✗"}`).join(", ")}`,
+   972→      metrics: { workingCount, totalWorkflows, ...Object.fromEntries(Object.entries(workflows).map(([k, v]) => [k, v ? 1 : 0])) },
+   973→      evidence: {
+   974→        checkedAt: new Date().toISOString(),
+   975→        truthLevel: "OBSERVED",
+   976→        source: "doctor-v2-workflow-test",
+   977→      },
+   978→    };
+   979→  }
+   980→
+   981→  // ──────────────────────────────────────────────
+   982→  // Recommendations Engine
+   983→  // ──────────────────────────────────────────────
+   984→  private generateRecommendations(checks: HealthCheckResultV2[]): string[] {
+   985→    const recs: string[] = [];
+   986→
+   987→    for (const check of checks) {
+   988→      if (check.status === "HEALTHY") continue;
+   989→
+   990→      switch (check.name) {
+   991→        case "runtime":
+   992→          recs.push("Consider restarting the process — high memory usage detected");
+   993→          break;
+   994→        case "database":
+   995→          if (check.error) recs.push("Database unreachable — check DATABASE_URL and file permissions");
+   996→          recs.push("Run PRAGMA integrity_check on SQLite to verify database integrity");
+   997→          break;
+   998→        case "apis":
+   999→          recs.push("One or more API routes are not responding — check Next.js dev server logs");
+  1000→          break;
+  1001→        case "providers":
+  1002→          recs.push("Z-AI SDK initialization failed — verify API keys and network access");
+  1003→          break;
+  1004→        case "mcp":
+  1005→          recs.push("MCP modules not loaded — ensure mcp-server.ts and mcp-client.ts are available");
+  1006→          break;
+  1007→        case "memory":
+  1008→          recs.push("No memories stored yet — this is normal for a fresh install");
+  1009→          break;
+  1010→        case "skills":
+  1011→          recs.push("No skills registered — skill registry is empty");
+  1012→          break;
+  1013→        case "permissions":
+  1014→          recs.push("Security module not loaded — permission checks will use defaults");
+  1015→          break;
+  1016→        case "authentication":
+  1017→          if (check.metrics?.weakPasswordCount && Number(check.metrics.weakPasswordCount) > 0) {
+  1018→            recs.push("⚠️ CRITICAL: Users with unhashed passwords detected — hash all passwords immediately");
+  1019→          }
+  1020→          break;
+  1021→        case "integrations":
+  1022→          recs.push("Agent communication module not available — inter-agent delegation disabled");
+  1023→          break;
+  1024→        case "configuration":
+  1025→          recs.push("Missing environment variables — check .env file");
+  1026→          break;
+  1027→        case "dependencies":
+  1028→          recs.push("Missing critical dependencies — run bun install");
+  1029→          break;
+  1030→        case "persistence":
+  1031→          recs.push("Storage not writable — check file system permissions");
+  1032→          break;
+  1033→        case "critical_workflows":
+  1034→          recs.push("Critical workflows failing — review individual check results for details");
+  1035→          break;
+  1036→      }
+  1037→    }
+  1038→
+  1039→    if (recs.length === 0 && checks.some((c) => c.status === "DEGRADED")) {
+  1040→      recs.push("System is degraded but functional — monitor for further degradation");
+  1041→    }
+  1042→
+  1043→    return recs;
+  1044→  }
+  1045→
+  1046→  // ──────────────────────────────────────────────
+  1047→  // Safe Fixes (only when authorized)
+  1048→  // ──────────────────────────────────────────────
+  1049→  private async runSafeFixes(checks: HealthCheckResultV2[]): Promise<SafeFix[]> {
+  1050→    const fixes: SafeFix[] = [];
+  1051→    const executionId = crypto.randomUUID();
+  1052→
+  1053→    for (const check of checks) {
+  1054→      if (check.status === "HEALTHY") continue;
+  1055→
+  1056→      switch (check.name) {
+  1057→        case "persistence": {
+  1058→          // Try to create missing directories
+  1059→          try {
+  1060→            const fs = await import("fs/promises");
+  1061→            const path = await import("path");
+  1062→            const genDir = path.join(process.cwd(), "public", "generated");
+  1063→            const before = "Directory may not exist";
+  1064→            await fs.mkdir(genDir, { recursive: true });
+  1065→            fixes.push({
+  1066→              diagnosis: "public/generated/ directory may not exist",
+  1067→              action: "Created public/generated/ directory recursively",
+  1068→              before,
+  1069→              after: "Directory exists and is writable",
+  1070→              timestamp: new Date().toISOString(),
+  1071→              executionId,
+  1072→              result: "SUCCESS",
+  1073→            });
+  1074→          } catch (e: any) {
+  1075→            fixes.push({
+  1076→              diagnosis: "Cannot create public/generated/ directory",
+  1077→              action: "Attempted mkdir recursive",
+  1078→              before: "Directory missing",
+  1079→              after: "Still missing",
+  1080→              timestamp: new Date().toISOString(),
+  1081→              executionId,
+  1082→              result: "FAILED",
+  1083→            });
+  1084→          }
+  1085→          break;
+  1086→        }
+  1087→
+  1088→        case "configuration": {
+  1089→          // Set DATABASE_URL if missing
+  1090→          if (!process.env.DATABASE_URL) {
+  1091→            const before = "DATABASE_URL not set";
+  1092→            process.env.DATABASE_URL = `file:${process.cwd()}/db/custom.db`;
+  1093→            fixes.push({
+  1094→              diagnosis: "DATABASE_URL environment variable not set",
+  1095→              action: "Set DATABASE_URL to default SQLite path",
+  1096→              before,
+  1097→              after: process.env.DATABASE_URL,
+  1098→              timestamp: new Date().toISOString(),
+  1099→              executionId,
+  1100→              result: "SUCCESS",
+  1101→            });
+  1102→          }
+  1103→          break;
+  1104→        }
+  1105→
+  1106→        // For other checks, we only diagnose — no auto-fix
+  1107→        default: {
+  1108→          fixes.push({
+  1109→            diagnosis: check.error || check.details || `${check.name} is ${check.status}`,
+  1110→            action: "No auto-fix available — manual intervention required",
+  1111→            before: check.status,
+  1112→            after: check.status,
+  1113→            timestamp: new Date().toISOString(),
+  1114→            executionId,
+  1115→            result: "SKIPPED",
+  1116→          });
+  1117→          break;
+  1118→        }
+  1119→      }
+  1120→    }
+  1121→
+  1122→    return fixes;
+  1123→  }
+  1124→
+  1125→  /**
+  1126→   * Quick health check — returns just the overall status and score.
+  1127→   */
+  1128→  async quickCheck(): Promise<{ status: CheckStatus; score: number }> {
+  1129→    const report = await this.runFullCheck();
+  1130→    return { status: report.overallStatus, score: report.healthScore };
+  1131→  }
+  1132→
+  1133→  /**
+  1134→   * Compare with the original Doctor report.
+  1135→   */
+  1136→  async compareToV1(): Promise<{ v1: Awaited<ReturnType<KreaDoctor["runFullCheck"]>>; v2: DoctorReportV2 }> {
+  1137→    const v1Doctor = new KreaDoctor();
+  1138→    const [v1, v2] = await Promise.all([v1Doctor.runFullCheck(), this.runFullCheck()]);
+  1139→    return { v1, v2 };
+  1140→  }
+  1141→}
+  1142→

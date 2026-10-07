@@ -1,0 +1,1064 @@
+     1→"use client";
+     2→
+     3→import { useState, useEffect, useRef } from "react";
+     4→import { motion, useInView, AnimatePresence } from "framer-motion";
+     5→import {
+     6→  Play,
+     7→  Sparkles,
+     8→  Video,
+     9→  Image,
+    10→  BookOpen,
+    11→  Wand2,
+    12→  Zap,
+    13→  Clock,
+    14→  Target,
+    15→  TrendingUp,
+    16→  Users,
+    17→  Star,
+    18→  Check,
+    19→  ChevronDown,
+    20→  ArrowRight,
+    21→  Menu,
+    22→  X,
+    23→  Palette,
+    24→  FileText,
+    25→  Bot,
+    26→  BarChart3,
+    27→  MessageSquare,
+    28→  Shield,
+    29→  LayoutDashboard,
+    30→} from "lucide-react";
+    31→import {
+    32→  Accordion,
+    33→  AccordionContent,
+    34→  AccordionItem,
+    35→  AccordionTrigger,
+    36→} from "@/components/ui/accordion";
+    37→import AppShell from "@/components/app/AppShell";
+    38→import AuthPage from "@/components/app/AuthPage";
+    39→
+    40→/* ─────────── Animated Counter ─────────── */
+    41→function AnimatedCounter({
+    42→  target,
+    43→  suffix = "",
+    44→  prefix = "",
+    45→}: {
+    46→  target: number;
+    47→  suffix?: string;
+    48→  prefix?: string;
+    49→}) {
+    50→  const [count, setCount] = useState(0);
+    51→  const ref = useRef<HTMLSpanElement>(null);
+    52→  const isInView = useInView(ref, { once: true });
+    53→
+    54→  useEffect(() => {
+    55→    if (!isInView) return;
+    56→    let start = 0;
+    57→    const duration = 2000;
+    58→    const step = target / (duration / 16);
+    59→    const timer = setInterval(() => {
+    60→      start += step;
+    61→      if (start >= target) {
+    62→        setCount(target);
+    63→        clearInterval(timer);
+    64→      } else {
+    65→        setCount(Math.floor(start));
+    66→      }
+    67→    }, 16);
+    68→    return () => clearInterval(timer);
+    69→  }, [isInView, target]);
+    70→
+    71→  return (
+    72→    <span ref={ref}>
+    73→      {prefix}
+    74→      {count.toLocaleString("es-ES")}
+    75→      {suffix}
+    76→    </span>
+    77→  );
+    78→}
+    79→
+    80→/* ─────────── Fade In Section ─────────── */
+    81→function FadeInSection({
+    82→  children,
+    83→  className = "",
+    84→  delay = 0,
+    85→}: {
+    86→  children: React.ReactNode;
+    87→  className?: string;
+    88→  delay?: number;
+    89→}) {
+    90→  const ref = useRef<HTMLDivElement>(null);
+    91→  const isInView = useInView(ref, { once: true, margin: "-60px" });
+    92→
+    93→  return (
+    94→    <motion.div
+    95→      ref={ref}
+    96→      initial={{ opacity: 0, y: 40 }}
+    97→      animate={isInView ? { opacity: 1, y: 0 } : {}}
+    98→      transition={{ duration: 0.6, delay, ease: "easeOut" }}
+    99→      className={className}
+   100→    >
+   101→      {children}
+   102→    </motion.div>
+   103→  );
+   104→}
+   105→
+   106→/* ─────────── Nav ─────────── */
+   107→function Navbar({ onEnterApp }: { onEnterApp: () => void }) {
+   108→  const [scrolled, setScrolled] = useState(false);
+   109→  const [mobileOpen, setMobileOpen] = useState(false);
+   110→
+   111→  useEffect(() => {
+   112→    const onScroll = () => setScrolled(window.scrollY > 40);
+   113→    window.addEventListener("scroll", onScroll, { passive: true });
+   114→    return () => window.removeEventListener("scroll", onScroll);
+   115→  }, []);
+   116→
+   117→  const links = [
+   118→    { label: "Herramientas", href: "#herramientas" },
+   119→    { label: "Cómo funciona", href: "#como-funciona" },
+   120→    { label: "Beneficios", href: "#beneficios" },
+   121→    { label: "Planes", href: "#planes" },
+   122→    { label: "FAQ", href: "#faq" },
+   123→  ];
+   124→
+   125→  return (
+   126→    <nav
+   127→      className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${
+   128→        scrolled
+   129→          ? "backdrop-blur-xl bg-[rgba(15,22,41,0.6)] border-b border-white/[0.08] py-3 shadow-lg shadow-black/20"
+   130→          : "py-5 bg-transparent"
+   131→      }`}
+   132→    >
+   133→      <div className="max-w-6xl mx-auto px-4 flex items-center justify-between">
+   134→        <a href="#" className="flex items-center gap-3 group">
+   135→          <img
+   136→            src="/krea-logo.png"
+   137→            alt="Krea"
+   138→            className="h-9 w-9 rounded-lg object-contain transition-transform group-hover:scale-110"
+   139→          />
+   140→          <span className="text-lg font-bold tracking-tight">
+   141→            <span className="gradient-text">Krea</span>
+   142→          </span>
+   143→        </a>
+   144→
+   145→        {/* Desktop */}
+   146→        <div className="hidden md:flex items-center gap-8">
+   147→          {links.map((l) => (
+   148→            <a
+   149→              key={l.href}
+   150→              href={l.href}
+   151→              className="text-sm text-white/60 hover:text-white transition-colors duration-200"
+   152→            >
+   153→              {l.label}
+   154→            </a>
+   155→          ))}
+   156→          <button
+   157→            onClick={onEnterApp}
+   158→            className="px-5 py-2.5 rounded-xl bg-gradient-to-b from-[#3b82f6] to-[#1e40af] text-sm font-bold text-white shadow-[0_10px_24px_rgba(30,64,175,0.45)] hover:brightness-110 hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center gap-2"
+   159→          >
+   160→            <LayoutDashboard className="w-4 h-4" /> Dashboard
+   161→          </button>
+   162→          <a
+   163→            href="#planes"
+   164→            className="px-5 py-2.5 rounded-xl bg-white/5 border border-white/10 text-sm font-bold text-white/70 hover:text-white hover:bg-white/10 hover:scale-[1.02] active:scale-[0.98] transition-all"
+   165→          >
+   166→            Comenzar ahora
+   167→          </a>
+   168→        </div>
+   169→
+   170→        {/* Mobile toggle */}
+   171→        <button
+   172→          className="md:hidden text-white/80 hover:text-white"
+   173→          onClick={() => setMobileOpen(!mobileOpen)}
+   174→          aria-label="Toggle menu"
+   175→        >
+   176→          {mobileOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
+   177→        </button>
+   178→      </div>
+   179→
+   180→      {/* Mobile menu */}
+   181→      <AnimatePresence>
+   182→        {mobileOpen && (
+   183→          <motion.div
+   184→            initial={{ opacity: 0, height: 0 }}
+   185→            animate={{ opacity: 1, height: "auto" }}
+   186→            exit={{ opacity: 0, height: 0 }}
+   187→            className="md:hidden backdrop-blur-xl bg-[rgba(15,22,41,0.6)] border border-white/[0.08] mt-2 mx-4 rounded-2xl overflow-hidden"
+   188→          >
+   189→            <div className="flex flex-col p-4 gap-3">
+   190→              {links.map((l) => (
+   191→                <a
+   192→                  key={l.href}
+   193→                  href={l.href}
+   194→                  onClick={() => setMobileOpen(false)}
+   195→                  className="text-sm text-white/70 hover:text-white py-2 px-3 rounded-lg hover:bg-white/5 transition-all"
+   196→                >
+   197→                  {l.label}
+   198→                </a>
+   199→              ))}
+   200→              <button
+   201→                onClick={() => { setMobileOpen(false); onEnterApp(); }}
+   202→                className="flex items-center justify-center gap-2 w-full text-center px-5 py-3 rounded-xl bg-gradient-to-b from-[#3b82f6] to-[#1e40af] text-sm font-bold text-white"
+   203→              >
+   204→                <LayoutDashboard className="w-4 h-4" /> Ir al Dashboard
+   205→              </button>
+   206→              <a
+   207→                href="#planes"
+   208→                onClick={() => setMobileOpen(false)}
+   209→                className="w-full text-center px-5 py-3 rounded-xl bg-white/5 border border-white/10 text-sm font-bold text-white/70"
+   210→              >
+   211→                Comenzar ahora
+   212→              </a>
+   213→            </div>
+   214→          </motion.div>
+   215→        )}
+   216→      </AnimatePresence>
+   217→    </nav>
+   218→  );
+   219→}
+   220→
+   221→/* ─────────── Hero ─────────── */
+   222→function Hero({ onEnterApp }: { onEnterApp: () => void }) {
+   223→  return (
+   224→    <section className="relative min-h-screen flex flex-col items-center justify-center px-4 pt-24 pb-16 overflow-hidden">
+   225→      {/* Background gradients */}
+   226→      <div className="absolute inset-0 pointer-events-none">
+   227→        <div
+   228→          className="absolute top-0 left-1/4 w-[600px] h-[600px] rounded-full opacity-40"
+   229→          style={{
+   230→            background:
+   231→              "radial-gradient(circle, rgba(124, 58, 237, 0.35) 0%, transparent 70%)",
+   232→          }}
+   233→        />
+   234→        <div
+   235→          className="absolute bottom-0 right-1/4 w-[500px] h-[500px] rounded-full opacity-30"
+   236→          style={{
+   237→            background:
+   238→              "radial-gradient(circle, rgba(37, 99, 235, 0.3) 0%, transparent 70%)",
+   239→          }}
+   240→        />
+   241→        {/* Grid pattern */}
+   242→        <div
+   243→          className="absolute inset-0 opacity-[0.03]"
+   244→          style={{
+   245→            backgroundImage:
+   246→              "linear-gradient(rgba(255,255,255,0.1) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.1) 1px, transparent 1px)",
+   247→            backgroundSize: "60px 60px",
+   248→          }}
+   249→        />
+   250→      </div>
+   251→
+   252→      <div className="relative z-10 max-w-3xl mx-auto text-center flex flex-col items-center gap-6">
+   253→        {/* Badge */}
+   254→        <motion.div
+   255→          initial={{ opacity: 0, y: 20 }}
+   256→          animate={{ opacity: 1, y: 0 }}
+   257→          transition={{ duration: 0.5 }}
+   258→          className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full border border-white/10 bg-white/5 text-xs font-medium text-white/70"
+   259→        >
+   260→          <Sparkles className="w-3.5 h-3.5 text-[#7c3aed]" />
+   261→          Potenciado por Inteligencia Artificial
+   262→        </motion.div>
+   263→
+   264→        {/* Logo */}
+   265→        <motion.div
+   266→          initial={{ opacity: 0, scale: 0.8 }}
+   267→          animate={{ opacity: 1, scale: 1 }}
+   268→          transition={{ duration: 0.5, delay: 0.1 }}
+   269→          className="animate-float"
+   270→        >
+   271→          <img
+   272→            src="/krea-logo.png"
+   273→            alt="Krea Logo"
+   274→            className="h-20 w-20 md:h-24 md:w-24 object-contain"
+   275→          />
+   276→        </motion.div>
+   277→
+   278→        {/* Headline */}
+   279→        <motion.h1
+   280→          initial={{ opacity: 0, y: 20 }}
+   281→          animate={{ opacity: 1, y: 0 }}
+   282→          transition={{ duration: 0.6, delay: 0.2 }}
+   283→          className="text-3xl sm:text-4xl md:text-5xl font-extrabold leading-tight tracking-tight"
+   284→        >
+   285→          Tu fábrica de contenido
+   286→          <br />
+   287→          <span className="gradient-text">con Inteligencia Artificial</span>
+   288→        </motion.h1>
+   289→
+   290→        {/* Subtitle */}
+   291→        <motion.p
+   292→          initial={{ opacity: 0, y: 20 }}
+   293→          animate={{ opacity: 1, y: 0 }}
+   294→          transition={{ duration: 0.6, delay: 0.3 }}
+   295→          className="text-base sm:text-lg text-white/60 max-w-xl leading-relaxed"
+   296→        >
+   297→          Crea{" "}
+   298→          <span className="text-white font-semibold">Creativos Profesionales</span>{" "}
+   299→          en imágenes y videos con IA — incluso sin experiencia y sin saber nada
+   300→          de diseño o edición.
+   301→        </motion.p>
+   302→
+   303→        {/* Video placeholder */}
+   304→        <motion.div
+   305→          initial={{ opacity: 0, y: 20 }}
+   306→          animate={{ opacity: 1, y: 0 }}
+   307→          transition={{ duration: 0.6, delay: 0.4 }}
+   308→          className="w-full max-w-xl aspect-video rounded-2xl overflow-hidden border border-white/10 bg-black/40 relative group cursor-pointer"
+   309→        >
+   310→          <div className="absolute inset-0 bg-gradient-to-br from-[#7c3aed]/20 to-[#2563eb]/20" />
+   311→          <div className="absolute inset-0 flex items-center justify-center">
+   312→            <div className="w-16 h-16 rounded-full bg-white/10 backdrop-blur-sm border border-white/20 flex items-center justify-center group-hover:scale-110 group-hover:bg-white/20 transition-all duration-300">
+   313→              <Play className="w-7 h-7 text-white ml-1" fill="white" />
+   314→            </div>
+   315→          </div>
+   316→          <div className="absolute bottom-4 left-4 right-4 flex items-center gap-2 text-xs text-white/50">
+   317→            <Clock className="w-3.5 h-3.5" />
+   318→            Descubre cómo funciona en 2 minutos
+   319→          </div>
+   320→        </motion.div>
+   321→
+   322→        {/* Pain point */}
+   323→        <motion.div
+   324→          initial={{ opacity: 0, y: 20 }}
+   325→          animate={{ opacity: 1, y: 0 }}
+   326→          transition={{ duration: 0.6, delay: 0.5 }}
+   327→          className="text-center space-y-2 max-w-lg"
+   328→        >
+   329→          <p className="text-sm text-white/50">
+   330→            Basta de perder horas produciendo{" "}
+   331→            <span className="text-red-400 font-semibold">creativos amateurs</span>{" "}
+   332→            que nunca traen resultados.
+   333→          </p>
+   334→          <p className="text-base font-bold text-white">
+   335→            Krea hace todo el trabajo por ti.
+   336→          </p>
+   337→        </motion.div>
+   338→
+   339→        {/* CTA */}
+   340→        <motion.div
+   341→          initial={{ opacity: 0, y: 20 }}
+   342→          animate={{ opacity: 1, y: 0 }}
+   343→          transition={{ duration: 0.6, delay: 0.6 }}
+   344→          className="w-full max-w-md"
+   345→        >
+   346→          <button
+   347→            onClick={onEnterApp}
+   348→            className="animate-pulse-glow block w-full py-4 px-6 rounded-2xl bg-gradient-to-b from-[#3b82f6] to-[#1e40af] text-center font-extrabold text-base text-white border border-white/10 hover:brightness-110 hover:scale-[1.01] active:scale-[0.99] transition-all"
+   349→          >
+   350→            Ir al Dashboard
+   351→            <ArrowRight className="inline-block w-4 h-4 ml-2" />
+   352→          </button>
+   353→          <p className="mt-3 text-xs text-white/40 text-center">
+   354→            Sin tarjeta de crédito &bull; Acceso inmediato &bull; Resultados
+   355→            desde el día 1
+   356→          </p>
+   357→        </motion.div>
+   358→      </div>
+   359→    </section>
+   360→  );
+   361→}
+   362→
+   363→/* ─────────── Tools / Features ─────────── */
+   364→const tools = [
+   365→  {
+   366→    icon: Video,
+   367→    title: "Videos con IA",
+   368→    desc: "Genera videos profesionales con actores virtuales, voces naturales y efectos cinematográficos. Ideales para reels, ads y contenido viral.",
+   369→    color: "from-blue-500 to-blue-700",
+   370→  },
+   371→  {
+   372→    icon: Image,
+   373→    title: "Creativos e Imágenes",
+   374→    desc: "Crea imágenes de alta resolución para redes sociales, anuncios y campañas. Estilos ilimitados con prompts inteligentes en español.",
+   375→    color: "from-purple-500 to-purple-700",
+   376→  },
+   377→  {
+   378→    icon: BookOpen,
+   379→    title: "Ebooks y PDFs",
+   380→    desc: "Genera ebooks completos, guías y lead magnets profesionales en minutos. Ideal para captar leads y posicionar tu marca.",
+   381→    color: "from-emerald-500 to-emerald-700",
+   382→  },
+   383→  {
+   384→    icon: FileText,
+   385→    title: "Copywriting IA",
+   386→    desc: "Escribe textos que venden: titulares, descripciones, scripts de video, emails y contenido para blogs con IA especializada en conversión.",
+   387→    color: "from-orange-500 to-orange-700",
+   388→  },
+   389→  {
+   390→    icon: Bot,
+   391→    title: "Chatbots Inteligentes",
+   392→    desc: "Crea asistentes virtuales para atención al cliente, ventas y soporte. Se entrenan con tu información y responden 24/7.",
+   393→    color: "from-pink-500 to-pink-700",
+   394→  },
+   395→  {
+   396→    icon: BarChart3,
+   397→    title: "Estrategia de Contenido",
+   398→    desc: "Planifica calendarios editoriales, obtén ideas virales y optimiza tu estrategia de contenido con análisis de tendencias en tiempo real.",
+   399→    color: "from-cyan-500 to-cyan-700",
+   400→  },
+   401→];
+   402→
+   403→function ToolsSection() {
+   404→  return (
+   405→    <section id="herramientas" className="relative py-24 px-4">
+   406→      <div className="max-w-6xl mx-auto">
+   407→        <FadeInSection className="text-center mb-16">
+   408→          <span className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full border border-white/10 bg-white/5 text-xs font-medium text-white/70 mb-6">
+   409→            <Wand2 className="w-3.5 h-3.5 text-[#7c3aed]" />
+   410→            Herramientas de IA
+   411→          </span>
+   412→          <h2 className="text-3xl sm:text-4xl font-extrabold tracking-tight mb-4">
+   413→            Todo lo que necesitas para
+   414→            <br />
+   415→            <span className="gradient-text">crear contenido que vende</span>
+   416→          </h2>
+   417→          <p className="text-white/50 max-w-lg mx-auto leading-relaxed">
+   418→            Seis herramientas profesionales de inteligencia artificial diseñadas
+   419→            para que produzcas contenido de calidad sin experiencia previa.
+   420→          </p>
+   421→        </FadeInSection>
+   422→
+   423→        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+   424→          {tools.map((tool, i) => (
+   425→            <FadeInSection key={tool.title} delay={i * 0.1}>
+   426→              <div className="group relative h-full p-6 rounded-2xl bg-[#0f1629] border border-white/[0.06] hover:border-white/15 transition-all duration-300 hover:-translate-y-1">
+   427→                <div
+   428→                  className={`inline-flex items-center justify-center w-12 h-12 rounded-xl bg-gradient-to-br ${tool.color} mb-4`}
+   429→                >
+   430→                  <tool.icon className="w-6 h-6 text-white" />
+   431→                </div>
+   432→                <h3 className="text-lg font-bold mb-2">{tool.title}</h3>
+   433→                <p className="text-sm text-white/50 leading-relaxed">
+   434→                  {tool.desc}
+   435→                </p>
+   436→              </div>
+   437→            </FadeInSection>
+   438→          ))}
+   439→        </div>
+   440→      </div>
+   441→    </section>
+   442→  );
+   443→}
+   444→
+   445→/* ─────────── How it Works ─────────── */
+   446→const steps = [
+   447→  {
+   448→    num: "01",
+   449→    title: "Elige tu herramienta",
+   450→    desc: "Selecciona entre videos, imágenes, ebooks, copy, chatbots o estrategia. Cada herramienta está diseñada para un tipo de contenido específico.",
+   451→    icon: Palette,
+   452→  },
+   453→  {
+   454→    num: "02",
+   455→    title: "Describe lo que quieres",
+   456→    desc: "Escribe en español lo que necesitas. La IA entiende contexto, tono y objetivo. No necesitas ser experto en prompts ni en diseño.",
+   457→    icon: MessageSquare,
+   458→  },
+   459→  {
+   460→    num: "03",
+   461→    title: "La IA crea por ti",
+   462→    desc: "En segundos, Krea genera contenido profesional listo para usar. Puedes editarlo, refinarlo y exportarlo en los formatos que necesites.",
+   463→    icon: Zap,
+   464→  },
+   465→  {
+   466→    num: "04",
+   467→    title: "Publica y vende más",
+   468→    desc: "Sube tus creativos a redes, ads o tu web. Contenido profesional que engancha, convierte y posiciona tu marca por encima de la competencia.",
+   469→    icon: TrendingUp,
+   470→  },
+   471→];
+   472→
+   473→function HowItWorksSection() {
+   474→  return (
+   475→    <section id="como-funciona" className="relative py-24 px-4">
+   476→      {/* Accent line */}
+   477→      <div className="absolute top-0 left-1/2 -translate-x-1/2 w-1/2 h-px bg-gradient-to-r from-transparent via-white/10 to-transparent" />
+   478→
+   479→      <div className="max-w-5xl mx-auto">
+   480→        <FadeInSection className="text-center mb-16">
+   481→          <span className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full border border-white/10 bg-white/5 text-xs font-medium text-white/70 mb-6">
+   482→            <Clock className="w-3.5 h-3.5 text-[#7c3aed]" />
+   483→            En 4 simples pasos
+   484→          </span>
+   485→          <h2 className="text-3xl sm:text-4xl font-extrabold tracking-tight mb-4">
+   486→            Cómo funciona
+   487→            <span className="gradient-text"> Krea</span>
+   488→          </h2>
+   489→          <p className="text-white/50 max-w-lg mx-auto leading-relaxed">
+   490→            De la idea al contenido publicado en menos de 3 minutos. Así de
+   491→            simple es revolucionar tu producción de contenido.
+   492→          </p>
+   493→        </FadeInSection>
+   494→
+   495→        <div className="relative">
+   496→          {/* Vertical line connector (desktop) */}
+   497→          <div className="hidden lg:block absolute left-1/2 top-0 bottom-0 w-px bg-gradient-to-b from-[#2563eb]/40 via-[#7c3aed]/40 to-transparent" />
+   498→
+   499→          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 lg:gap-12">
+   500→            {steps.map((step, i) => (
+   501→              <FadeInSection
+   502→                key={step.num}
+   503→                delay={i * 0.15}
+   504→                className={i % 2 === 1 ? "lg:mt-20" : ""}
+   505→              >
+   506→                <div className="relative flex gap-5">
+   507→                  {/* Step number */}
+   508→                  <div className="flex-shrink-0 relative">
+   509→                    <div
+   510→                      className={`w-14 h-14 rounded-2xl flex items-center justify-center text-sm font-bold ${
+   511→                        i % 2 === 0
+   512→                          ? "bg-gradient-to-br from-[#3b82f6] to-[#1e40af]"
+   513→                          : "bg-gradient-to-br from-[#7c3aed] to-[#5b21b6]"
+   514→                      }`}
+   515→                    >
+   516→                      {step.num}
+   517→                    </div>
+   518→                    {i < steps.length - 1 && (
+   519→                      <div className="lg:hidden absolute top-14 left-1/2 -translate-x-1/2 w-px h-8 bg-white/10" />
+   520→                    )}
+   521→                  </div>
+   522→                  <div>
+   523→                    <h3 className="text-lg font-bold mb-1.5">{step.title}</h3>
+   524→                    <p className="text-sm text-white/50 leading-relaxed">
+   525→                      {step.desc}
+   526→                    </p>
+   527→                  </div>
+   528→                </div>
+   529→              </FadeInSection>
+   530→            ))}
+   531→          </div>
+   532→        </div>
+   533→      </div>
+   534→    </section>
+   535→  );
+   536→}
+   537→
+   538→/* ─────────── Benefits / Social Proof ─────────── */
+   539→const benefits = [
+   540→  {
+   541→    icon: Clock,
+   542→    title: "Ahorra 90% del tiempo",
+   543→    desc: "Lo que antes te tomaba horas ahora toma minutos. Automatiza la creación de contenido y enfócate en crecer tu negocio.",
+   544→  },
+   545→  {
+   546→    icon: Target,
+   547→    title: "Contenido que convierte",
+   548→    desc: "Cada pieza está optimizada para generar engagement y ventas. No más contenido decorativo sin impacto real en tus resultados.",
+   549→  },
+   550→  {
+   551→    icon: Zap,
+   552→    title: "Sin curva de aprendizaje",
+   553→    desc: "Interfaz intuitiva en español. Si sabes escribir lo que quieres, ya sabes usar Krea. Cero experiencia técnica requerida.",
+   554→  },
+   555→  {
+   556→    icon: Shield,
+   557→    title: "Calidad profesional",
+   558→    desc: "Resultados comparables a producciones de agencias que cobran miles de dólares. Tu contenido se verá siempre impecable.",
+   559→  },
+   560→];
+   561→
+   562→const stats = [
+   563→  { value: 15000, suffix: "+", label: "Usuarios activos" },
+   564→  { value: 500000, suffix: "+", label: "Contenidos creados" },
+   565→  { value: 98, suffix: "%", label: "Satisfacción" },
+   566→  { value: 3, suffix: " min", label: "Tiempo promedio" },
+   567→];
+   568→
+   569→function BenefitsSection() {
+   570→  return (
+   571→    <section id="beneficios" className="relative py-24 px-4">
+   572→      <div className="absolute top-0 left-1/2 -translate-x-1/2 w-1/2 h-px bg-gradient-to-r from-transparent via-white/10 to-transparent" />
+   573→
+   574→      <div className="max-w-6xl mx-auto">
+   575→        <FadeInSection className="text-center mb-16">
+   576→          <span className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full border border-white/10 bg-white/5 text-xs font-medium text-white/70 mb-6">
+   577→            <TrendingUp className="w-3.5 h-3.5 text-[#7c3aed]" />
+   578→            ¿Por qué Krea?
+   579→          </span>
+   580→          <h2 className="text-3xl sm:text-4xl font-extrabold tracking-tight mb-4">
+   581→            Deja de crear contenido
+   582→            <br />
+   583→            <span className="gradient-text">como un aficionado</span>
+   584→          </h2>
+   585→        </FadeInSection>
+   586→
+   587→        {/* Benefits grid */}
+   588→        <div className="grid grid-cols-1 sm:grid-cols-2 gap-5 mb-16">
+   589→          {benefits.map((b, i) => (
+   590→            <FadeInSection key={b.title} delay={i * 0.1}>
+   591→              <div className="flex gap-4 p-5 rounded-2xl bg-[#0f1629] border border-white/[0.06]">
+   592→                <div className="flex-shrink-0 w-11 h-11 rounded-xl bg-gradient-to-br from-[#2563eb]/20 to-[#7c3aed]/20 flex items-center justify-center">
+   593→                  <b.icon className="w-5 h-5 text-[#3b82f6]" />
+   594→                </div>
+   595→                <div>
+   596→                  <h3 className="font-bold mb-1">{b.title}</h3>
+   597→                  <p className="text-sm text-white/50 leading-relaxed">
+   598→                    {b.desc}
+   599→                  </p>
+   600→                </div>
+   601→              </div>
+   602→            </FadeInSection>
+   603→          ))}
+   604→        </div>
+   605→
+   606→        {/* Stats */}
+   607→        <FadeInSection>
+   608→          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+   609→            {stats.map((s) => (
+   610→              <div
+   611→                key={s.label}
+   612→                className="text-center p-6 rounded-2xl bg-[#0f1629] border border-white/[0.06]"
+   613→              >
+   614→                <div className="text-3xl sm:text-4xl font-extrabold gradient-text mb-1">
+   615→                  <AnimatedCounter target={s.value} suffix={s.suffix} />
+   616→                </div>
+   617→                <p className="text-xs text-white/50">{s.label}</p>
+   618→              </div>
+   619→            ))}
+   620→          </div>
+   621→        </FadeInSection>
+   622→
+   623→        {/* Testimonials */}
+   624→        <FadeInSection delay={0.2} className="mt-16">
+   625→          <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+   626→            {[
+   627→              {
+   628→                name: "María González",
+   629→                role: "Marketing Manager",
+   630→                text: "Krea transformó nuestra producción de contenido. Pasamos de crear 5 piezas al mes a más de 50, con mejor calidad.",
+   631→                avatar: "MG",
+   632→              },
+   633→              {
+   634→                name: "Carlos Méndez",
+   635→                role: "Emprendedor Digital",
+   636→                text: "Sin saber nada de diseño, ahora creo videos profesionales para mis ads. Mis costos de producción cayeron un 80%.",
+   637→                avatar: "CM",
+   638→              },
+   639→              {
+   640→                name: "Laura Patiño",
+   641→                role: "Creadora de Contenido",
+   642→                text: "La herramienta de ebooks me permitió lanzar 3 lead magnets en una semana. Mi lista de correo se triplicó en un mes.",
+   643→                avatar: "LP",
+   644→              },
+   645→            ].map((t) => (
+   646→              <div
+   647→                key={t.name}
+   648→                className="p-6 rounded-2xl bg-[#0f1629] border border-white/[0.06]"
+   649→              >
+   650→                <div className="flex gap-1 mb-4">
+   651→                  {[...Array(5)].map((_, j) => (
+   652→                    <Star
+   653→                      key={j}
+   654→                      className="w-4 h-4 text-yellow-400 fill-yellow-400"
+   655→                    />
+   656→                  ))}
+   657→                </div>
+   658→                <p className="text-sm text-white/60 leading-relaxed mb-4 italic">
+   659→                  &ldquo;{t.text}&rdquo;
+   660→                </p>
+   661→                <div className="flex items-center gap-3">
+   662→                  <div className="w-9 h-9 rounded-full bg-gradient-to-br from-[#3b82f6] to-[#7c3aed] flex items-center justify-center text-xs font-bold">
+   663→                    {t.avatar}
+   664→                  </div>
+   665→                  <div>
+   666→                    <p className="text-sm font-semibold">{t.name}</p>
+   667→                    <p className="text-xs text-white/40">{t.role}</p>
+   668→                  </div>
+   669→                </div>
+   670→              </div>
+   671→            ))}
+   672→          </div>
+   673→        </FadeInSection>
+   674→      </div>
+   675→    </section>
+   676→  );
+   677→}
+   678→
+   679→/* ─────────── Pricing ─────────── */
+   680→const plans = [
+   681→  {
+   682→    name: "Starter",
+   683→    price: "27",
+   684→    period: "/mes",
+   685→    desc: "Perfecto para comenzar a crear contenido con IA",
+   686→    features: [
+   687→      "50 imágenes por mes",
+   688→      "10 videos cortos (30s)",
+   689→      "5 ebooks / guías",
+   690→      "Copywriting básico",
+   691→      "Soporte por email",
+   692→    ],
+   693→    popular: false,
+   694→  },
+   695→  {
+   696→    name: "Profesional",
+   697→    price: "57",
+   698→    period: "/mes",
+   699→    desc: "Para creadores y emprendedores serios",
+   700→    features: [
+   701→      "500 imágenes por mes",
+   702→      "50 videos (hasta 2 min)",
+   703→      "Ebooks ilimitados",
+   704→      "Copywriting avanzado",
+   705→      "1 chatbot personalizado",
+   706→      "Calendario editorial IA",
+   707→      "Soporte prioritario",
+   708→    ],
+   709→    popular: true,
+   710→  },
+   711→  {
+   712→    name: "Agencia",
+   713→    price: "127",
+   714→    period: "/mes",
+   715→    desc: "Para equipos y agencias de marketing",
+   716→    features: [
+   717→      "Imagenes ilimitadas",
+   718→      "Videos ilimitados",
+   719→      "Todo lo de Profesional",
+   720→      "5 chatbots personalizados",
+   721→      "Estrategia de contenido IA",
+   722→      "API de acceso",
+   723→      "Cuenta gerente dedicado",
+   724→    ],
+   725→    popular: false,
+   726→  },
+   727→];
+   728→
+   729→function PricingSection() {
+   730→  return (
+   731→    <section id="planes" className="relative py-24 px-4">
+   732→      <div className="absolute top-0 left-1/2 -translate-x-1/2 w-1/2 h-px bg-gradient-to-r from-transparent via-white/10 to-transparent" />
+   733→
+   734→      <div className="max-w-5xl mx-auto">
+   735→        <FadeInSection className="text-center mb-16">
+   736→          <span className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full border border-white/10 bg-white/5 text-xs font-medium text-white/70 mb-6">
+   737→            <Sparkles className="w-3.5 h-3.5 text-[#7c3aed]" />
+   738→            Planes y precios
+   739→          </span>
+   740→          <h2 className="text-3xl sm:text-4xl font-extrabold tracking-tight mb-4">
+   741→            Elige el plan que impulse
+   742→            <br />
+   743→            <span className="gradient-text">tu producción de contenido</span>
+   744→          </h2>
+   745→          <p className="text-white/50 max-w-lg mx-auto leading-relaxed">
+   746→            Invierte en tu contenido. Todos los planes incluyen acceso
+   747→            inmediato y sin compromiso.
+   748→          </p>
+   749→        </FadeInSection>
+   750→
+   751→        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-start">
+   752→          {plans.map((plan, i) => (
+   753→            <FadeInSection key={plan.name} delay={i * 0.15}>
+   754→              <div
+   755→                className={`relative h-full p-6 rounded-2xl border transition-all duration-300 hover:-translate-y-1 ${
+   756→                  plan.popular
+   757→                    ? "bg-gradient-to-b from-[#0f1e3d] to-[#0a1128] border-[#2563eb]/50 glow-blue"
+   758→                    : "bg-[#0f1629] border-white/[0.06]"
+   759→                }`}
+   760→              >
+   761→                {plan.popular && (
+   762→                  <div className="absolute -top-3 left-1/2 -translate-x-1/2 px-4 py-1 rounded-full bg-gradient-to-r from-[#3b82f6] to-[#7c3aed] text-xs font-bold">
+   763→                    Más popular
+   764→                  </div>
+   765→                )}
+   766→
+   767→                <div className="mb-6">
+   768→                  <h3 className="text-lg font-bold mb-1">{plan.name}</h3>
+   769→                  <p className="text-xs text-white/40">{plan.desc}</p>
+   770→                </div>
+   771→
+   772→                <div className="mb-6">
+   773→                  <span className="text-4xl font-extrabold">
+   774→                    ${plan.price}
+   775→                  </span>
+   776→                  <span className="text-white/40 text-sm">{plan.period}</span>
+   777→                </div>
+   778→
+   779→                <ul className="space-y-3 mb-8">
+   780→                  {plan.features.map((f) => (
+   781→                    <li key={f} className="flex items-start gap-2.5 text-sm">
+   782→                      <Check className="w-4 h-4 text-[#3b82f6] flex-shrink-0 mt-0.5" />
+   783→                      <span className="text-white/60">{f}</span>
+   784→                    </li>
+   785→                  ))}
+   786→                </ul>
+   787→
+   788→                <button
+   789→                  className={`w-full py-3.5 rounded-xl font-bold text-sm transition-all hover:brightness-110 active:scale-[0.98] ${
+   790→                    plan.popular
+   791→                      ? "bg-gradient-to-b from-[#3b82f6] to-[#1e40af] text-white shadow-[0_10px_24px_rgba(30,64,175,0.45)]"
+   792→                      : "bg-white/5 text-white border border-white/10 hover:bg-white/10"
+   793→                  }`}
+   794→                >
+   795→                  Comenzar con {plan.name}
+   796→                </button>
+   797→              </div>
+   798→            </FadeInSection>
+   799→          ))}
+   800→        </div>
+   801→
+   802→        <FadeInSection delay={0.3} className="mt-10 text-center">
+   803→          <p className="text-xs text-white/30">
+   804→            <Shield className="inline w-3.5 h-3.5 mr-1 -mt-0.5" />
+   805→            Garantía de devolución de 7 días. Sin preguntas. Paga de forma
+   806→            segura con tarjeta o PayPal.
+   807→          </p>
+   808→        </FadeInSection>
+   809→      </div>
+   810→    </section>
+   811→  );
+   812→}
+   813→
+   814→/* ─────────── FAQ ─────────── */
+   815→const faqs = [
+   816→  {
+   817→    q: "¿Necesito experiencia en diseño o edición para usar Krea?",
+   818→    a: "No, absolutamente. Krea está diseñado para personas sin experiencia técnica. Solo necesitas escribir en español lo que quieres crear y la IA hace el resto. La interfaz es intuitiva y los resultados son profesionales desde el primer uso.",
+   819→  },
+   820→  {
+   821→    q: "¿Qué tipo de contenido puedo crear?",
+   822→    a: "Puedes crear videos con actores virtuales, imágenes de alta resolución para redes sociales, ebooks completos, textos publicitarios (copywriting), chatbots inteligentes y planes de estrategia de contenido. Todo en español y optimizado para convertir.",
+   823→  },
+   824→  {
+   825→    q: "¿Cuánto tiempo toma crear un contenido?",
+   826→    a: "La mayoría de los contenidos se generan en menos de 3 minutos. Una imagen toma entre 10 y 30 segundos, un video corto de 30 segundos se procesa en 2-3 minutos, y un ebook completo puede estar listo en menos de 5 minutos dependiendo de la extensión.",
+   827→  },
+   828→  {
+   829→    q: "¿Puedo cancelar mi suscripción en cualquier momento?",
+   830→    a: "Sí, puedes cancelar tu plan en cualquier momento sin penalizaciones. Además, ofrecemos una garantía de devolución de 7 días. Si no estás satisfecho, te devolvemos tu dinero sin hacer preguntas.",
+   831→  },
+   832→  {
+   833→    q: "¿Los contenidos generados son únicos?",
+   834→    a: "Sí, cada pieza de contenido generada es 100% única. La IA crea desde cero cada vez, por lo que nunca tendrás contenido duplicado. Los derechos de uso son tuyos y puedes usarlos comercialmente sin restricciones.",
+   835→  },
+   836→  {
+   837→    q: "¿Ofrecen soporte en español?",
+   838→    a: "Sí, todo nuestro equipo de soporte habla español. Ofrecemos asistencia por email, chat en vivo y una base de conocimientos con tutoriales en video. Los planes Profesional y Agencia incluyen soporte prioritario.",
+   839→  },
+   840→];
+   841→
+   842→function FAQSection() {
+   843→  return (
+   844→    <section id="faq" className="relative py-24 px-4">
+   845→      <div className="absolute top-0 left-1/2 -translate-x-1/2 w-1/2 h-px bg-gradient-to-r from-transparent via-white/10 to-transparent" />
+   846→
+   847→      <div className="max-w-2xl mx-auto">
+   848→        <FadeInSection className="text-center mb-12">
+   849→          <span className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full border border-white/10 bg-white/5 text-xs font-medium text-white/70 mb-6">
+   850→            <MessageSquare className="w-3.5 h-3.5 text-[#7c3aed]" />
+   851→            Preguntas frecuentes
+   852→          </span>
+   853→          <h2 className="text-3xl sm:text-4xl font-extrabold tracking-tight mb-4">
+   854→            ¿Tienes <span className="gradient-text">dudas</span>?
+   855→          </h2>
+   856→        </FadeInSection>
+   857→
+   858→        <FadeInSection delay={0.15}>
+   859→          <Accordion type="single" collapsible className="space-y-3">
+   860→            {faqs.map((faq, i) => (
+   861→              <AccordionItem
+   862→                key={i}
+   863→                value={`faq-${i}`}
+   864→                className="rounded-2xl border border-white/[0.06] bg-[#0f1629] px-6 data-[state=open]:border-white/15 transition-colors"
+   865→              >
+   866→                <AccordionTrigger className="text-left text-sm font-semibold hover:no-underline py-4">
+   867→                  {faq.q}
+   868→                </AccordionTrigger>
+   869→                <AccordionContent className="text-sm text-white/50 leading-relaxed pb-4">
+   870→                  {faq.a}
+   871→                </AccordionContent>
+   872→              </AccordionItem>
+   873→            ))}
+   874→          </Accordion>
+   875→        </FadeInSection>
+   876→      </div>
+   877→    </section>
+   878→  );
+   879→}
+   880→
+   881→/* ─────────── Final CTA ─────────── */
+   882→function FinalCTA() {
+   883→  return (
+   884→    <section className="relative py-24 px-4">
+   885→      <div className="absolute top-0 left-1/2 -translate-x-1/2 w-1/2 h-px bg-gradient-to-r from-transparent via-white/10 to-transparent" />
+   886→
+   887→      <div className="max-w-3xl mx-auto">
+   888→        <FadeInSection>
+   889→          <div className="relative rounded-3xl overflow-hidden p-8 sm:p-12 text-center">
+   890→            {/* Background */}
+   891→            <div className="absolute inset-0 bg-gradient-to-br from-[#1e40af]/30 via-[#0f1629] to-[#5b21b6]/30" />
+   892→            <div className="absolute inset-0 border border-white/10 rounded-3xl" />
+   893→
+   894→            <div className="relative z-10">
+   895→              <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full border border-white/10 bg-white/5 text-xs font-medium text-white/70 mb-6">
+   896→                <Users className="w-3.5 h-3.5 text-[#7c3aed]" />
+   897→                Más de 15,000 creadores confían en nosotros
+   898→              </div>
+   899→
+   900→              <h2 className="text-2xl sm:text-3xl md:text-4xl font-extrabold tracking-tight mb-4">
+   901→                Empieza a crear contenido
+   902→                <br />
+   903→                <span className="gradient-text">profesional hoy mismo</span>
+   904→              </h2>
+   905→
+   906→              <p className="text-white/50 max-w-md mx-auto mb-8 leading-relaxed">
+   907→                No más excusas. No más creados amateurs. Krea es tu
+   908→                fábrica de contenido con IA lista para trabajar por ti.
+   909→              </p>
+   910→
+   911→              <a
+   912→                href="#planes"
+   913→                className="animate-pulse-glow inline-block px-10 py-4 rounded-2xl bg-gradient-to-b from-[#3b82f6] to-[#1e40af] font-extrabold text-base text-white border border-white/10 hover:brightness-110 hover:scale-[1.01] active:scale-[0.99] transition-all"
+   914→              >
+   915→                Comenzar ahora &mdash; Desde $27/mes
+   916→              </a>
+   917→
+   918→              <p className="mt-4 text-xs text-white/30">
+   919→                Acceso inmediato &bull; Garantía 7 días &bull; Cancela cuando
+   920→                quieras
+   921→              </p>
+   922→            </div>
+   923→          </div>
+   924→        </FadeInSection>
+   925→      </div>
+   926→    </section>
+   927→  );
+   928→}
+   929→
+   930→/* ─────────── Footer ─────────── */
+   931→function Footer() {
+   932→  return (
+   933→    <footer className="border-t border-white/[0.06] py-10 px-4">
+   934→      <div className="max-w-6xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4">
+   935→        <div className="flex items-center gap-3">
+   936→          <img
+   937→            src="/krea-logo.png"
+   938→            alt="Krea"
+   939→            className="h-7 w-7 rounded-md object-contain"
+   940→          />
+   941→          <span className="text-sm text-white/40">
+   942→            © {new Date().getFullYear()} Krea. Todos los derechos
+   943→            reservados.
+   944→          </span>
+   945→        </div>
+   946→        <div className="flex items-center gap-6 text-xs text-white/30">
+   947→          <a href="#" className="hover:text-white/60 transition-colors">
+   948→            Términos de uso
+   949→          </a>
+   950→          <a href="#" className="hover:text-white/60 transition-colors">
+   951→            Política de privacidad
+   952→          </a>
+   953→          <a href="#" className="hover:text-white/60 transition-colors">
+   954→            Contacto
+   955→          </a>
+   956→        </div>
+   957→      </div>
+   958→    </footer>
+   959→  );
+   960→}
+   961→
+   962→/* ─────────── Landing Page ─────────── */
+   963→function LandingPage({ onEnterApp }: { onEnterApp: () => void }) {
+   964→  return (
+   965→    <main className="min-h-screen flex flex-col">
+   966→      <Navbar onEnterApp={onEnterApp} />
+   967→      <Hero onEnterApp={onEnterApp} />
+   968→      <ToolsSection />
+   969→      <HowItWorksSection />
+   970→      <BenefitsSection />
+   971→      <PricingSection />
+   972→      <FAQSection />
+   973→      <FinalCTA />
+   974→      <Footer />
+   975→    </main>
+   976→  );
+   977→}
+   978→
+   979→/* ════════════ Floating App Button ════════════ */
+   980→function FloatingAppButton({ onClick }: { onClick: () => void }) {
+   981→  return (
+   982→    <button
+   983→      onClick={onClick}
+   984→      className="fixed bottom-6 right-6 z-50 px-5 py-3 rounded-2xl bg-gradient-to-b from-[#3b82f6] to-[#1e40af] text-white font-bold text-sm shadow-[0_10px_24px_rgba(30,64,175,0.5)] hover:brightness-110 hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center gap-2"
+   985→    >
+   986→      <Sparkles className="w-4 h-4" />
+   987→      Acceder a la App
+   988→    </button>
+   989→  );
+   990→}
+   991→
+   992→/* ════════════ Root Router ════════════ */
+   993→import ErrorBoundary from "@/components/ErrorBoundary";
+   994→
+   995→type View = "landing" | "auth" | "app";
+   996→
+   997→/* Fallback demo user saved to localStorage when auto-login API fails */
+   998→function saveFallbackUser() {
+   999→  const fallback = { id: "demo-fallback", name: "Usuario Demo", email: "demo@krea.ai", credits: 50, plan: "starter" };
+  1000→  try { localStorage.setItem("p360_token", fallback.id); } catch {}
+  1001→  try { localStorage.setItem("p360_user", JSON.stringify(fallback)); } catch {}
+  1002→  return fallback;
+  1003→}
+  1004→
+  1005→export default function Home() {
+  1006→  const [view, setView] = useState<View>(() => {
+  1007→    // Try to read from localStorage synchronously on init — go straight to app if token exists
+  1008→    try {
+  1009→      if (typeof window !== "undefined" && localStorage.getItem("p360_token")) {
+  1010→        return "app";
+  1011→      }
+  1012→    } catch {}
+  1013→    return "landing";
+  1014→  });
+  1015→  const [key, setKey] = useState(0);
+  1016→
+  1017→  async function onEnterApp() {
+  1018→    try {
+  1019→      const res = await fetch("/api/auth/auto-login", { method: "POST" });
+  1020→      if (res.ok) {
+  1021→        const data = await res.json();
+  1022→        try { localStorage.setItem("p360_token", data.id); } catch {}
+  1023→        try { localStorage.setItem("p360_user", JSON.stringify(data)); } catch {}
+  1024→      } else {
+  1025→        saveFallbackUser();
+  1026→      }
+  1027→    } catch {
+  1028→      saveFallbackUser();
+  1029→    }
+  1030→    setView("app");
+  1031→    setKey(k => k + 1);
+  1032→  }
+  1033→
+  1034→  // Auto-login on first visit (no token in localStorage)
+  1035→  useEffect(() => {
+  1036→    if (view === "landing") {
+  1037→      onEnterApp();
+  1038→    }
+  1039→  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  1040→
+  1041→  if (view === "app") {
+  1042→    return (
+  1043→      <ErrorBoundary>
+  1044→        <AppShell key={key} onLogout={() => { setView("auth"); setKey(k => k + 1); }} />
+  1045→      </ErrorBoundary>
+  1046→    );
+  1047→  }
+  1048→
+  1049→  if (view === "auth") {
+  1050→    return (
+  1051→      <ErrorBoundary>
+  1052→        <AuthPage onLogin={() => { setView("app"); setKey(k => k + 1); }} />
+  1053→      </ErrorBoundary>
+  1054→    );
+  1055→  }
+  1056→
+  1057→  // Landing view (briefly shown before auto-login completes)
+  1058→  return (
+  1059→    <ErrorBoundary>
+  1060→      <LandingPage onEnterApp={onEnterApp} />
+  1061→      <FloatingAppButton onClick={onEnterApp} />
+  1062→    </ErrorBoundary>
+  1063→  );
+  1064→}
