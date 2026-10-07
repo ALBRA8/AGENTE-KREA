@@ -5,11 +5,13 @@ import PromptChat from "./PromptChat";
 import SettingsPage from "./SettingsPage";
 import SupportPage from "./SupportPage";
 import MetricsTracker from "./MetricsTracker";
+import AdnDashboard from "./AdnDashboard";
 import {
   Image, FileText, Mic, BookOpen, Subtitles, LayoutDashboard,
   Library as LibraryIcon, LogOut, Menu, X, Coins, Sparkles, ChevronRight, Loader2,
   Copy, MessageSquare, Video, Wand2, Download, Trash2, Clock,
   RefreshCw, Volume2, Type, Settings, HelpCircle, Headphones, BarChart3,
+  Dna, Shield,
 } from "lucide-react";
 
 /* ════════════ Types ════════════ */
@@ -42,6 +44,7 @@ const NAV_SECTIONS: { title: string | null; items: NavItem[] }[] = [
   ]},
   { title: "INTELIGENCIA", items: [
     { id: "metrics", label: "360 Metrics", icon: BarChart3, badge: "NUEVO" },
+    { id: "adn", label: "ADN del Agente", icon: Dna, badge: "ADN" },
   ]},
   { title: "GESTIÓN", items: [
     { id: "library", label: "Biblioteca de Proyectos", icon: LibraryIcon },
@@ -656,6 +659,7 @@ export default function AppPage({ onLogout, user: initialUser }: AppShellProps) 
       case "library": return <Library user={user} />;
       case "settings": return <SettingsPage user={user} />;
       case "support": return <SupportPage />;
+      case "adn": return <AdnDashboard user={user} />;
       default: return <Dashboard user={user} generations={generations} onNav={setPage} />;
     }
   };
