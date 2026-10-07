@@ -214,3 +214,30 @@ Stage Summary:
 - dev.sh uses `set -e` which exits on ANY error, marking sandbox as inactive
 - The system uses BUN not NPM - all npm-specific config was irrelevant
 - page.tsx already handles landing+auth+app views on the / route - no /dashboard needed
+---
+Task ID: 1
+Agent: Super Z (main)
+Task: Implementar ADN GENERAL DEL AGENTE V1.0 para AGENTE-KREA
+
+Work Log:
+- Audited entire KREA codebase: 691-line AppShell, 14 API routes, 3 Prisma models, 7 doctor checks, 47 shadcn components
+- Cataloged capabilities: image gen (IMPLEMENTED), text gen (IMPLEMENTED), voice gen (IMPLEMENTED), ebook gen (IMPLEMENTED), prompt gen (IMPLEMENTED), metrics (IMPLEMENTED), settings (PARTIAL), support (MOCKED)
+- Identified missing/broken: /api/generate/prompt (now exists), password hashing (plaintext), provider adapters (defined but unused)
+- Created 11 contract files in src/contracts/: identity.ts, mission.ts, capability.ts, tool.ts, evidence.ts, execution.ts, autonomy.ts, policy.ts, event.ts, agent-comm.ts, mcp.ts
+- Created 10 lib modules in src/lib/: memory.ts (MemoryDV), skills.ts (SkillManager), feedback.ts, execution.ts (ExecutionTracer), observability.ts, doctor-v2.ts (15 checks), security.ts, mcp-server.ts, mcp-client.ts, agent-comm.ts
+- Extended Prisma schema: +6 models (Memory, Skill, Execution, Feedback, AgentInteraction, AuditEvent, Session) + User relations
+- Created 14 ADN API routes under /api/adn/: identity, mission, capabilities, tools, doctor, memory, skills, execution, feedback, observability, mcp, agent-comm, events, security/audit
+- Built AdnDashboard.tsx component with 10 tab sections
+- Integrated ADN Dashboard into AppShell sidebar (INTELIGENCIA section, Dna icon)
+- Verified: prisma generate ✅, prisma db push ✅, next build ✅, all 29 API routes compiling
+- Pushed to GitHub: https://github.com/ALBRA8/AGENTE-KREA
+
+Stage Summary:
+- KREA now has complete ADN GENERAL DEL AGENTE V1.0 architecture
+- All 34 sections of the ADN specification implemented as TypeScript contracts
+- 7 new Prisma models for persistence (MemoryDV, Skills, Execution, Feedback, AgentInteraction, AuditEvent, Session)
+- 14 new API routes exposing ADN capabilities
+- Doctor V2 with 15 real health checks
+- Security module with PBKDF2 hashing, prompt injection detection, SSRF protection, rate limiting
+- MCP Server (7 tools) + MCP Client (6 ecosystem agents)
+- Build passes, pushed to GitHub
