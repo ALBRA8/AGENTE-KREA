@@ -24,6 +24,7 @@ model User {
   feedbacks       Feedback[]
   auditEvents     AuditEvent[]
   sessions        Session[]
+  dossiers        ProductDossier[]
 }
 
 model CampaignEntry {
@@ -194,4 +195,55 @@ model Session {
   createdAt DateTime @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// Master Product Dossier
+model ProductDossier {
+  id              String   @id @default(cuid())
+  agentId         String   @default("krea")
+  userId          String?
+  title           String
+  description     String
+  domain          String?
+  status          String   @default("IDEA")
+  // IDEA|RESEARCHING|VALIDATING|APPROVED|ARCHITECTING|SPECIFIED|BUILDING|QA|READY|LAUNCHED|ITERATING|PAUSED|KILLED|ARCHIVED
+  opportunity     String?  // JSON — opportunity data
+  evidence        String?  // JSON — collected evidence
+  fitResult       String?  // JSON — product fit evaluation
+  decision        String?  // JSON — product decision
+  architecture    String?  // JSON — product architecture
+  specification   String?  // JSON — product specification
+  handoffs        String?  // JSON — handoff contracts
+  productionData  String?  // JSON — production status and artifacts
+  qaResults       String?  // JSON — QA results
+  feedback        String?  // JSON — product feedback
+  learnings       String?  // JSON — learnings
+  economics       String?  // JSON — economic data
+  version         Int      @default(1)
+  changes         String?  // JSON — version change history
+  format          String?  // ebook|app|saas|template|guide|hybrid
+  priority        String   @default("MEDIUM") // LOW|MEDIUM|HIGH|CRITICAL
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  user         User?              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  opportunities ProductOpportunity[]
+}
+
+// Product Opportunity (incoming signals from CHISMOSO, LEADS, etc.)
+model ProductOpportunity {
+  id              String   @id @default(cuid())
+  agentId         String   @default("krea")
+  sourceAgent     String?  // which agent detected this (CHISMOSO, LEADS, etc.)
+  domain          String
+  problem         String
+  audience        String?
+  evidence        String?  // JSON
+  confidence      Float    @default(0.5)
+  status          String   @default("DETECTED") // DETECTED|ANALYZING|ANALYZED|DISMISSED|APPROVED
+  dossierId       String?  // link to dossier if one was created
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  dossier ProductDossier? @relation(fields: [dossierId], references: [id], onDelete: SetNull)
 }

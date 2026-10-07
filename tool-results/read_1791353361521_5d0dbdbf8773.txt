@@ -1,0 +1,695 @@
+     1→"use client";
+     2→
+     3→import { useState, useEffect, createContext, useContext } from "react";
+     4→import PromptChat from "./PromptChat";
+     5→import SettingsPage from "./SettingsPage";
+     6→import SupportPage from "./SupportPage";
+     7→import MetricsTracker from "./MetricsTracker";
+     8→import AdnDashboard from "./AdnDashboard";
+     9→import {
+    10→  Image, FileText, Mic, BookOpen, Subtitles, LayoutDashboard,
+    11→  Library as LibraryIcon, LogOut, Menu, X, Coins, Sparkles, ChevronRight, Loader2,
+    12→  Copy, MessageSquare, Video, Wand2, Download, Trash2, Clock,
+    13→  RefreshCw, Volume2, Type, Settings, HelpCircle, Headphones, BarChart3,
+    14→  Dna, Shield,
+    15→} from "lucide-react";
+    16→
+    17→/* ════════════ Types ════════════ */
+    18→interface User {
+    19→  id: string; name: string; email: string; credits: number; plan: string;
+    20→}
+    21→interface Generation {
+    22→  id: string; type: string; title: string; prompt: string; result: string;
+    23→  credits: number; createdAt: string;
+    24→}
+    25→
+    26→/* ════════════ Auth Context ════════════ */
+    27→const AuthCtx = createContext<{ user: User | null; logout: () => void; refreshUser: () => void }>({ user: null, logout: () => {}, refreshUser: () => {} });
+    28→export const useAuth = () => useContext(AuthCtx);
+    29→
+    30→/* ════════════ Sidebar ════════════ */
+    31→interface NavItem { id: string; label: string; icon: React.ComponentType<{className?: string}>; cost?: number; badge?: string; section?: string; }
+    32→const NAV_SECTIONS: { title: string | null; items: NavItem[] }[] = [
+    33→  { title: null, items: [{ id: "dashboard", label: "Panel de control", icon: LayoutDashboard }] },
+    34→  { title: "PRODUCCIÓN", items: [
+    35→    { id: "prompts", label: "Generador de Prompts IA", icon: Wand2, cost: 2, badge: "🔥" },
+    36→    { id: "images", label: "Generador de Imágenes", icon: Image, cost: 3 },
+    37→    { id: "copy", label: "Copywriting", icon: Copy, cost: 2 },
+    38→    { id: "social", label: "Contenido Redes", icon: MessageSquare, cost: 2 },
+    39→    { id: "script", label: "Scripts de Video", icon: Video, cost: 2 },
+    40→    { id: "email", label: "Email Marketing", icon: FileText, cost: 2 },
+    41→    { id: "voice", label: "Voz IA Pro", icon: Mic, cost: 3 },
+    42→    { id: "ebook", label: "Generador de eBooks", icon: BookOpen, cost: 8 },
+    43→    { id: "subtitle", label: "Subtítulos", icon: Subtitles, cost: 2 },
+    44→  ]},
+    45→  { title: "INTELIGENCIA", items: [
+    46→    { id: "metrics", label: "360 Metrics", icon: BarChart3, badge: "NUEVO" },
+    47→    { id: "adn", label: "ADN del Agente", icon: Dna, badge: "ADN" },
+    48→  ]},
+    49→  { title: "GESTIÓN", items: [
+    50→    { id: "library", label: "Biblioteca de Proyectos", icon: LibraryIcon },
+    51→    { id: "settings", label: "Configuración", icon: Settings },
+    52→    { id: "support", label: "Soporte", icon: Headphones },
+    53→  ]},
+    54→];
+    55→const FLAT_NAV = NAV_SECTIONS.flatMap(s => s.items);
+    56→
+    57→function Sidebar({ active, onNav, open, onClose, user }: {
+    58→  active: string; onNav: (id: string) => void; open: boolean; onClose: () => void; user: User | null;
+    59→}) {
+    60→  return (
+    61→    <>
+    62→      {open && <div className="fixed inset-0 bg-black/50 z-40 lg:hidden" onClick={onClose} />}
+    63→      <aside className={`fixed top-0 left-0 h-full z-50 w-64 bg-[#0a0f1e] border-r border-white/[0.06] flex flex-col transition-transform duration-300 ${open ? "translate-x-0" : "-translate-x-full"} lg:translate-x-0 lg:static lg:z-auto`}>
+    64→        {/* Logo */}
+    65→        <div className="flex items-center gap-3 px-5 py-5 border-b border-white/[0.06]">
+    66→          <img src="/krea-logo.png" alt="" className="h-8 w-8 rounded-lg object-contain" />
+    67→          <span className="text-sm font-bold"><span className="gradient-text">Krea</span></span>
+    68→          <button onClick={onClose} className="ml-auto lg:hidden text-white/50"><X className="w-5 h-5" /></button>
+    69→        </div>
+    70→
+    71→        {/* Credits */}
+    72→        {user && (
+    73→          <div className="mx-4 mt-4 p-3 rounded-xl bg-gradient-to-r from-[#2563eb]/10 to-[#7c3aed]/10 border border-white/[0.06]">
+    74→            <div className="flex items-center gap-2 text-xs text-white/50 mb-1">
+    75→              <Coins className="w-3.5 h-3.5 text-yellow-400" /> Créditos disponibles
+    76→            </div>
+    77→            <p className="text-xl font-extrabold">{user.credits} <span className="text-xs font-normal text-white/40">créditos</span></p>
+    78→          </div>
+    79→        )}
+    80→
+    81→        {/* Nav */}
+    82→        <nav className="flex-1 overflow-y-auto px-3 py-4 space-y-1">
+    83→          {NAV_SECTIONS.map((section) => (
+    84→            <div key={section.title || "main"}>
+    85→              {section.title && (
+    86→                <div className="flex items-center gap-2 px-3 pt-4 pb-1.5">
+    87→                  <span className="text-[9px] font-bold text-white/20 uppercase tracking-widest">{section.title}</span>
+    88→                </div>
+    89→              )}
+    90→              <div className="space-y-0.5">
+    91→                {section.items.map((item) => (
+    92→                  <button
+    93→                    key={item.id}
+    94→                    onClick={() => { onNav(item.id); onClose(); }}
+    95→                    className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-[13px] transition-all ${
+    96→                      active === item.id
+    97→                        ? "bg-gradient-to-r from-[#3b82f6]/20 to-[#7c3aed]/10 text-white border border-[#3b82f6]/20"
+    98→                        : "text-white/50 hover:text-white/80 hover:bg-white/5"
+    99→                    }`}
+   100→                  >
+   101→                    <item.icon className="w-4 h-4 flex-shrink-0" />
+   102→                    <span className="flex-1 text-left truncate">{item.label}</span>
+   103→                    {item.badge && <span className="text-xs">{item.badge}</span>}
+   104→                    {item.cost && <span className="text-[10px] text-white/20">-{item.cost}</span>}
+   105→                  </button>
+   106→                ))}
+   107→              </div>
+   108→            </div>
+   109→          ))}
+   110→        </nav>
+   111→
+   112→        {/* User */}
+   113→        {user && (
+   114→          <div className="border-t border-white/[0.06] p-4">
+   115→            <div className="flex items-center gap-3">
+   116→              <div className="w-9 h-9 rounded-full bg-gradient-to-br from-[#3b82f6] to-[#7c3aed] flex items-center justify-center text-xs font-bold">
+   117→                {user.name.split(" ").map(n => n[0]).join("").toUpperCase().substring(0, 2)}
+   118→              </div>
+   119→              <div className="flex-1 min-w-0">
+   120→                <p className="text-sm font-semibold truncate">{user.name}</p>
+   121→                <p className="text-[10px] text-white/40 truncate">{user.email}</p>
+   122→              </div>
+   123→            </div>
+   124→          </div>
+   125→        )}
+   126→      </aside>
+   127→    </>
+   128→  );
+   129→}
+   130→
+   131→/* ════════════ Dashboard ════════════ */
+   132→function Dashboard({ user, generations, onNav }: { user: User; generations: Generation[]; onNav: (id: string) => void }) {
+   133→  const quickTools = [
+   134→    { id: "prompts", label: "Generador de Prompts IA", desc: "Elige lo que quieres crear ahora — te lo entrego listo para usar.", icon: Wand2, badge: "🔥" },
+   135→    { id: "metrics", label: "360 Metrics", desc: "Seguimiento de campana con ROAS, beneficio y ventas en tiempo real.", icon: BarChart3, badge: "NUEVO" },
+   136→    { id: "images", label: "Generador de Imágenes", desc: "Crea imágenes profesionales con inteligencia artificial.", icon: Image },
+   137→    { id: "ebook", label: "Generador de eBooks IA Pro", desc: "eBooks completos y profesionales con IA.", icon: BookOpen },
+   138→    { id: "library", label: "Biblioteca de Proyectos", desc: "Historial de todas tus creaciones.", icon: LibraryIcon },
+   139→  ];
+   140→
+   141→  return (
+   142→    <div>
+   143→      <div className="mb-8">
+   144→        <h1 className="text-2xl font-extrabold mb-1">¡Bienvenido de nuevo, <span className="gradient-text">{user.name.split(" ")[0]}</span>! 👋</h1>
+   145→        <p className="text-sm text-white/50">Crea contenido increíble 10 veces más rápido con inteligencia artificial</p>
+   146→      </div>
+   147→
+   148→      {/* Quick Tools */}
+   149→      <h2 className="text-base font-bold mb-3 flex items-center gap-2">Herramientas Rápidas ⚡</h2>
+   150→      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-8">
+   151→        {quickTools.map((t) => (
+   152→          <button key={t.id} onClick={() => onNav(t.id)} className="p-4 rounded-2xl bg-[#0f1629] border border-white/[0.06] hover:border-[#3b82f6]/20 hover:bg-[#3b82f6]/5 transition-all text-left group">
+   153→            <div className="flex items-center justify-between mb-2">
+   154→              <t.icon className="w-5 h-5 text-[#3b82f6]" />
+   155→              {t.badge && <span className="text-sm">{t.badge}</span>}
+   156→              <ChevronRight className="w-4 h-4 text-white/20 group-hover:text-white/50 group-hover:translate-x-1 transition-all" />
+   157→            </div>
+   158→            <p className="text-sm font-semibold mb-0.5">{t.label}</p>
+   159→            <p className="text-[11px] text-white/30 leading-relaxed">{t.desc}</p>
+   160→          </button>
+   161→        ))}
+   162→      </div>
+   163→
+   164→      {/* Stats */}
+   165→      <h2 className="text-base font-bold mb-3">Tu Actividad</h2>
+   166→      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-8">
+   167→        {[
+   168→          { label: "Imágenes", value: generations.filter(g => g.type === "image").length, icon: Image, color: "from-blue-500 to-blue-700", suffix: "creadas" },
+   169→          { label: "Textos", value: generations.filter(g => g.type === "text" || g.type === "prompt").length, icon: FileText, color: "from-purple-500 to-purple-700", suffix: "creados" },
+   170→          { label: "Voces", value: generations.filter(g => g.type === "voice").length, icon: Mic, color: "from-emerald-500 to-emerald-700", suffix: "creadas" },
+   171→          { label: "eBooks", value: generations.filter(g => g.type === "ebook").length, icon: BookOpen, color: "from-orange-500 to-orange-700", suffix: "creados" },
+   172→        ].map((s) => (
+   173→          <div key={s.label} className="p-4 rounded-2xl bg-[#0f1629] border border-white/[0.06]">
+   174→            <div className={`inline-flex items-center justify-center w-10 h-10 rounded-xl bg-gradient-to-br ${s.color} mb-3`}>
+   175→              <s.icon className="w-5 h-5 text-white" />
+   176→            </div>
+   177→            <p className="text-2xl font-extrabold">{s.value}</p>
+   178→            <p className="text-xs text-white/40">{s.label} {s.suffix}</p>
+   179→          </div>
+   180→        ))}
+   181→      </div>
+   182→
+   183→      {/* Recent */}
+   184→      {generations.length > 0 && (
+   185→        <div>
+   186→          <h2 className="text-base font-bold mb-3">Creaciones recientes</h2>
+   187→          <div className="space-y-2">
+   188→            {generations.slice(0, 5).map((g) => (
+   189→              <div key={g.id} className="flex items-center gap-3 p-3 rounded-xl bg-[#0f1629] border border-white/[0.06]">
+   190→                <div className="w-8 h-8 rounded-lg bg-white/5 flex items-center justify-center">
+   191→                  {g.type === "image" ? <Image className="w-4 h-4 text-blue-400" /> : g.type === "voice" ? <Mic className="w-4 h-4 text-emerald-400" /> : g.type === "ebook" ? <BookOpen className="w-4 h-4 text-orange-400" /> : g.type === "prompt" ? <Wand2 className="w-4 h-4 text-purple-400" /> : <FileText className="w-4 h-4 text-purple-400" />}
+   192→                </div>
+   193→                <div className="flex-1 min-w-0">
+   194→                  <p className="text-sm font-medium truncate">{g.title}</p>
+   195→                  <p className="text-[10px] text-white/30">{new Date(g.createdAt).toLocaleDateString("es-ES")}</p>
+   196→                </div>
+   197→                <span className="text-[10px] text-white/30">-{g.credits} <Coins className="inline w-3 h-3" /></span>
+   198→              </div>
+   199→            ))}
+   200→          </div>
+   201→        </div>
+   202→      )}
+   203→    </div>
+   204→  );
+   205→}
+   206→
+   207→/* ════════════ Image Generator ════════════ */
+   208→function ImageGenerator({ user, onUpdateCredits }: { user: User; onUpdateCredits: (c: number) => void }) {
+   209→  const [prompt, setPrompt] = useState("");
+   210→  const [style, setStyle] = useState("fotográfico, alta calidad");
+   211→  const [loading, setLoading] = useState(false);
+   212→  const [result, setResult] = useState<string | null>(null);
+   213→  const [error, setError] = useState("");
+   214→
+   215→  const generate = async () => {
+   216→    setLoading(true); setError(""); setResult(null);
+   217→    try {
+   218→      const res = await fetch("/api/generate/image", {
+   219→        method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${user.id}` },
+   220→        body: JSON.stringify({ prompt, style }),
+   221→      });
+   222→      const data = await res.json();
+   223→      if (!res.ok) { setError(data.error); return; }
+   224→      setResult(data.imageUrl); onUpdateCredits(data.credits);
+   225→    } catch { setError("Error de conexión"); }
+   226→    finally { setLoading(false); }
+   227→  };
+   228→
+   229→  const styles = ["fotográfico, alta calidad", "ilustración digital", "estilo minimalista", "3D render", "arte conceptual", "diseño publicitario"];
+   230→
+   231→  return (
+   232→    <div>
+   233→      <div className="mb-6">
+   234→        <h1 className="text-2xl font-extrabold mb-1">Generador de <span className="gradient-text">Imágenes</span></h1>
+   235→        <p className="text-sm text-white/50">Crea imágenes profesionales con IA. Costo: <span className="text-yellow-400 font-semibold">3 créditos</span></p>
+   236→      </div>
+   237→
+   238→      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+   239→        <div className="space-y-4">
+   240→          <div>
+   241→            <label className="text-xs text-white/50 mb-1.5 block">Describe la imagen que quieres crear</label>
+   242→            <textarea value={prompt} onChange={(e) => setPrompt(e.target.value)} rows={4} className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm placeholder:text-white/30 focus:outline-none focus:border-[#3b82f6] transition-colors resize-none" placeholder="Ej: Un producto de skincare sobre fondo oscuro con luz neón azul, fotografía publicitaria profesional" />
+   243→          </div>
+   244→          <div>
+   245→            <label className="text-xs text-white/50 mb-1.5 block">Estilo visual</label>
+   246→            <div className="flex flex-wrap gap-2">
+   247→              {styles.map((s) => (
+   248→                <button key={s} onClick={() => setStyle(s)} className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${style === s ? "bg-[#3b82f6] text-white" : "bg-white/5 text-white/50 hover:bg-white/10"}`}>{s}</button>
+   249→              ))}
+   250→            </div>
+   251→          </div>
+   252→          <button onClick={generate} disabled={loading || !prompt} className="w-full py-3.5 rounded-xl bg-gradient-to-b from-[#3b82f6] to-[#1e40af] text-white font-bold text-sm shadow-[0_10px_24px_rgba(30,64,175,0.45)] hover:brightness-110 active:scale-[0.98] transition-all disabled:opacity-50 flex items-center justify-center gap-2">
+   253→            {loading ? <><Loader2 className="w-4 h-4 animate-spin" /> Generando imagen...</> : <><Sparkles className="w-4 h-4" /> Generar imagen (-3 créditos)</>}
+   254→          </button>
+   255→          {error && <p className="text-red-400 text-xs text-center">{error}</p>}
+   256→        </div>
+   257→
+   258→        <div>
+   259→          {result ? (
+   260→            <div className="rounded-2xl overflow-hidden border border-white/[0.06] bg-[#0f1629]">
+   261→              <img src={result} alt="Generated" className="w-full" />
+   262→              <div className="p-3 flex items-center justify-between">
+   263→                <span className="text-xs text-white/40">Imagen generada con IA</span>
+   264→                <a href={result} download className="text-xs text-[#3b82f6] flex items-center gap-1 hover:underline"><Download className="w-3 h-3" /> Descargar</a>
+   265→              </div>
+   266→            </div>
+   267→          ) : (
+   268→            <div className="aspect-square rounded-2xl border border-dashed border-white/10 flex items-center justify-center bg-white/[0.02]">
+   269→              <div className="text-center text-white/20">
+   270→                <Image className="w-12 h-12 mx-auto mb-3 opacity-50" />
+   271→                <p className="text-sm">Tu imagen aparecerá aquí</p>
+   272→              </div>
+   273→            </div>
+   274→          )}
+   275→        </div>
+   276→      </div>
+   277→    </div>
+   278→  );
+   279→}
+   280→
+   281→/* ════════════ Text Generator ════════════ */
+   282→function TextGenerator({ type, user, onUpdateCredits }: { type: string; user: User; onUpdateCredits: (c: number) => void }) {
+   283→  const configs: Record<string, { title: string; desc: string; placeholder: string; label: string }> = {
+   284→    copy: { title: "Copywriting", desc: "Textos persuasivos que venden", placeholder: "Ej: Escribe un headline para una campaña de lanzamiento de un curso de marketing digital para emprendedores", label: "Copy / Publicidad" },
+   285→    social: { title: "Contenido Redes", desc: "Posts virales para Instagram, TikTok, etc.", placeholder: "Ej: Crea 5 ideas de posts para Instagram sobre fitness para mujeres de 30-40 años", label: "Tipo de contenido" },
+   286→    script: { title: "Scripts de Video", desc: "Guiones para YouTube, TikTok, Reels", placeholder: "Ej: Escribe un script de 60 segundos para un reel que promocione una app de productividad", label: "Detalles del video" },
+   287→    email: { title: "Email Marketing", desc: "Emails que abren y convierten", placeholder: "Ej: Escribe una secuencia de 3 emails de bienvenida para nuevos suscriptores de un newsletter de negocios", label: "Objetivo del email" },
+   288→  };
+   289→  const cfg = configs[type] || configs.copy;
+   290→  const [prompt, setPrompt] = useState("");
+   291→  const [loading, setLoading] = useState(false);
+   292→  const [result, setResult] = useState("");
+   293→  const [error, setError] = useState("");
+   294→
+   295→  const generate = async () => {
+   296→    setLoading(true); setError(""); setResult("");
+   297→    try {
+   298→      const res = await fetch("/api/generate/text", {
+   299→        method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${user.id}` },
+   300→        body: JSON.stringify({ prompt, type }),
+   301→      });
+   302→      const data = await res.json();
+   303→      if (!res.ok) { setError(data.error); return; }
+   304→      setResult(data.text); onUpdateCredits(data.credits);
+   305→    } catch { setError("Error de conexión"); }
+   306→    finally { setLoading(false); }
+   307→  };
+   308→
+   309→  const copyToClipboard = () => { navigator.clipboard.writeText(result); };
+   310→
+   311→  return (
+   312→    <div>
+   313→      <div className="mb-6">
+   314→        <h1 className="text-2xl font-extrabold mb-1"><span className="gradient-text">{cfg.title}</span></h1>
+   315→        <p className="text-sm text-white/50">{cfg.desc}. Costo: <span className="text-yellow-400 font-semibold">2 créditos</span></p>
+   316→      </div>
+   317→      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+   318→        <div className="space-y-4">
+   319→          <div>
+   320→            <label className="text-xs text-white/50 mb-1.5 block">{cfg.label}</label>
+   321→            <textarea value={prompt} onChange={(e) => setPrompt(e.target.value)} rows={6} className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm placeholder:text-white/30 focus:outline-none focus:border-[#3b82f6] transition-colors resize-none" placeholder={cfg.placeholder} />
+   322→          </div>
+   323→          <button onClick={generate} disabled={loading || !prompt} className="w-full py-3.5 rounded-xl bg-gradient-to-b from-[#3b82f6] to-[#1e40af] text-white font-bold text-sm shadow-[0_10px_24px_rgba(30,64,175,0.45)] hover:brightness-110 active:scale-[0.98] transition-all disabled:opacity-50 flex items-center justify-center gap-2">
+   324→            {loading ? <><Loader2 className="w-4 h-4 animate-spin" /> Generando...</> : <><Sparkles className="w-4 h-4" /> Generar texto (-2 créditos)</>}
+   325→          </button>
+   326→          {error && <p className="text-red-400 text-xs">{error}</p>}
+   327→        </div>
+   328→        <div>
+   329→          {result ? (
+   330→            <div className="rounded-2xl border border-white/[0.06] bg-[#0f1629] h-full flex flex-col">
+   331→              <div className="flex items-center justify-between p-3 border-b border-white/[0.06]">
+   332→                <span className="text-xs text-white/40">Resultado</span>
+   333→                <button onClick={copyToClipboard} className="text-xs text-[#3b82f6] flex items-center gap-1 hover:underline"><Copy className="w-3 h-3" /> Copiar</button>
+   334→              </div>
+   335→              <pre className="flex-1 p-4 text-sm text-white/80 whitespace-pre-wrap overflow-y-auto max-h-[500px] font-[inherit]">{result}</pre>
+   336→            </div>
+   337→          ) : (
+   338→            <div className="h-full min-h-[300px] rounded-2xl border border-dashed border-white/10 flex items-center justify-center bg-white/[0.02]">
+   339→              <div className="text-center text-white/20"><FileText className="w-12 h-12 mx-auto mb-3 opacity-50" /><p className="text-sm">Tu texto aparecerá aquí</p></div>
+   340→            </div>
+   341→          )}
+   342→        </div>
+   343→      </div>
+   344→    </div>
+   345→  );
+   346→}
+   347→
+   348→/* ════════════ Voice Generator ════════════ */
+   349→function VoiceGenerator({ user, onUpdateCredits }: { user: User; onUpdateCredits: (c: number) => void }) {
+   350→  const [text, setText] = useState("");
+   351→  const [voice, setVoice] = useState("tongtong");
+   352→  const [loading, setLoading] = useState(false);
+   353→  const [result, setResult] = useState("");
+   354→  const [error, setError] = useState("");
+   355→  const voices = [
+   356→    { id: "tongtong", label: "Tongtong", desc: "Femenino claro" },
+   357→    { id: "xiaoyi", label: "Xiaoyi", desc: "Femenino suave" },
+   358→    { id: "zhiyan", label: "Zhiyan", desc: "Masculino joven" },
+   359→    { id: "zhichu", label: "Zhichu", desc: "Masculino narrador" },
+   360→  ];
+   361→
+   362→  const generate = async () => {
+   363→    setLoading(true); setError(""); setResult("");
+   364→    try {
+   365→      const res = await fetch("/api/generate/voice", {
+   366→        method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${user.id}` },
+   367→        body: JSON.stringify({ text, voice }),
+   368→      });
+   369→      const data = await res.json();
+   370→      if (!res.ok) { setError(data.error); return; }
+   371→      setResult(data.audioUrl); onUpdateCredits(data.credits);
+   372→    } catch { setError("Error de conexión"); }
+   373→    finally { setLoading(false); }
+   374→  };
+   375→
+   376→  return (
+   377→    <div>
+   378→      <div className="mb-6">
+   379→        <h1 className="text-2xl font-extrabold mb-1">Generador de <span className="gradient-text">Voz IA</span></h1>
+   380→        <p className="text-sm text-white/50">Narración profesional con inteligencia artificial. Costo: <span className="text-yellow-400 font-semibold">3 créditos</span></p>
+   381→      </div>
+   382→      <div className="max-w-2xl space-y-4">
+   383→        <div>
+   384→          <label className="text-xs text-white/50 mb-1.5 block">Texto para narrar</label>
+   385→          <textarea value={text} onChange={(e) => setText(e.target.value)} rows={5} className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm placeholder:text-white/30 focus:outline-none focus:border-[#3b82f6] transition-colors resize-none" placeholder="Escribe el texto que quieres convertir a voz profesional..." />
+   386→        </div>
+   387→        <div>
+   388→          <label className="text-xs text-white/50 mb-1.5 block">Voz</label>
+   389→          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+   390→            {voices.map((v) => (
+   391→              <button key={v.id} onClick={() => setVoice(v.id)} className={`p-3 rounded-xl text-left transition-all border ${voice === v.id ? "bg-[#3b82f6]/10 border-[#3b82f6]/30 text-white" : "bg-white/5 border-white/[0.06] text-white/50 hover:bg-white/10"}`}>
+   392→                <p className="text-sm font-semibold">{v.label}</p>
+   393→                <p className="text-[10px] text-white/30">{v.desc}</p>
+   394→              </button>
+   395→            ))}
+   396→          </div>
+   397→        </div>
+   398→        <button onClick={generate} disabled={loading || !text} className="w-full py-3.5 rounded-xl bg-gradient-to-b from-[#3b82f6] to-[#1e40af] text-white font-bold text-sm shadow-[0_10px_24px_rgba(30,64,175,0.45)] hover:brightness-110 active:scale-[0.98] transition-all disabled:opacity-50 flex items-center justify-center gap-2">
+   399→          {loading ? <><Loader2 className="w-4 h-4 animate-spin" /> Generando voz...</> : <><Volume2 className="w-4 h-4" /> Generar voz (-3 créditos)</>}
+   400→        </button>
+   401→        {error && <p className="text-red-400 text-xs">{error}</p>}
+   402→        {result && (
+   403→          <div className="p-4 rounded-2xl border border-white/[0.06] bg-[#0f1629]">
+   404→            <div className="flex items-center justify-between mb-3">
+   405→              <span className="text-xs text-white/40">Audio generado</span>
+   406→              <a href={result} download className="text-xs text-[#3b82f6] flex items-center gap-1 hover:underline"><Download className="w-3 h-3" /> Descargar MP3</a>
+   407→            </div>
+   408→            <audio controls src={result} className="w-full" />
+   409→          </div>
+   410→        )}
+   411→      </div>
+   412→    </div>
+   413→  );
+   414→}
+   415→
+   416→/* ════════════ eBook Generator ════════════ */
+   417→function EbookGenerator({ user, onUpdateCredits }: { user: User; onUpdateCredits: (c: number) => void }) {
+   418→  const [topic, setTopic] = useState("");
+   419→  const [chapters, setChapters] = useState("5");
+   420→  const [audience, setAudience] = useState("emprendedores digitales");
+   421→  const [loading, setLoading] = useState(false);
+   422→  const [result, setResult] = useState("");
+   423→  const [error, setError] = useState("");
+   424→
+   425→  const generate = async () => {
+   426→    setLoading(true); setError(""); setResult("");
+   427→    try {
+   428→      const res = await fetch("/api/generate/ebook", {
+   429→        method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${user.id}` },
+   430→        body: JSON.stringify({ topic, chapters: parseInt(chapters), targetAudience: audience }),
+   431→      });
+   432→      const data = await res.json();
+   433→      if (!res.ok) { setError(data.error); return; }
+   434→      setResult(data.content); onUpdateCredits(data.credits);
+   435→    } catch { setError("Error de conexión"); }
+   436→    finally { setLoading(false); }
+   437→  };
+   438→
+   439→  return (
+   440→    <div>
+   441→      <div className="mb-6">
+   442→        <h1 className="text-2xl font-extrabold mb-1">Generador de <span className="gradient-text">eBooks</span></h1>
+   443→        <p className="text-sm text-white/50">Crea libros electrónicos completos con IA. Costo: <span className="text-yellow-400 font-semibold">8 créditos</span></p>
+   444→      </div>
+   445→      <div className="max-w-3xl space-y-4">
+   446→        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+   447→          <div>
+   448→            <label className="text-xs text-white/50 mb-1.5 block">Tema del eBook</label>
+   449→            <input type="text" value={topic} onChange={(e) => setTopic(e.target.value)} className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm placeholder:text-white/30 focus:outline-none focus:border-[#3b82f6]" placeholder="Ej: Marketing digital para principiantes" />
+   450→          </div>
+   451→          <div className="grid grid-cols-2 gap-3">
+   452→            <div>
+   453→              <label className="text-xs text-white/50 mb-1.5 block">Capítulos</label>
+   454→              <select value={chapters} onChange={(e) => setChapters(e.target.value)} className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm focus:outline-none focus:border-[#3b82f6]">
+   455→                {["3", "5", "7", "10"].map(n => <option key={n} value={n} className="bg-[#0a0f1e]">{n} capítulos</option>)}
+   456→              </select>
+   457→            </div>
+   458→            <div>
+   459→              <label className="text-xs text-white/50 mb-1.5 block">Audiencia</label>
+   460→              <select value={audience} onChange={(e) => setAudience(e.target.value)} className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm focus:outline-none focus:border-[#3b82f6]">
+   461→                {["emprendedores digitales", "profesionales de marketing", "pequeños negocios", "creadores de contenido", "general"].map(a => <option key={a} value={a} className="bg-[#0a0f1e]">{a}</option>)}
+   462→              </select>
+   463→            </div>
+   464→          </div>
+   465→        </div>
+   466→        <button onClick={generate} disabled={loading || !topic} className="w-full py-3.5 rounded-xl bg-gradient-to-b from-[#3b82f6] to-[#1e40af] text-white font-bold text-sm shadow-[0_10px_24px_rgba(30,64,175,0.45)] hover:brightness-110 active:scale-[0.98] transition-all disabled:opacity-50 flex items-center justify-center gap-2">
+   467→          {loading ? <><Loader2 className="w-4 h-4 animate-spin" /> Generando eBook (puede tardar 30-60s)...</> : <><BookOpen className="w-4 h-4" /> Generar eBook (-8 créditos)</>}
+   468→        </button>
+   469→        {error && <p className="text-red-400 text-xs">{error}</p>}
+   470→        {result && (
+   471→          <div className="rounded-2xl border border-white/[0.06] bg-[#0f1629]">
+   472→            <div className="flex items-center justify-between p-3 border-b border-white/[0.06]">
+   473→              <span className="text-xs text-white/40">eBook generado</span>
+   474→              <button onClick={() => navigator.clipboard.writeText(result)} className="text-xs text-[#3b82f6] flex items-center gap-1 hover:underline"><Copy className="w-3 h-3" /> Copiar todo</button>
+   475→            </div>
+   476→            <div className="p-4 max-h-[600px] overflow-y-auto prose prose-invert prose-sm text-white/80">
+   477→              <pre className="whitespace-pre-wrap font-[inherit] text-sm leading-relaxed">{result}</pre>
+   478→            </div>
+   479→          </div>
+   480→        )}
+   481→      </div>
+   482→    </div>
+   483→  );
+   484→}
+   485→
+   486→/* ════════════ Subtitle Generator ════════════ */
+   487→function SubtitleGenerator({ user, onUpdateCredits }: { user: User; onUpdateCredits: (c: number) => void }) {
+   488→  const [url, setUrl] = useState("");
+   489→  const [loading, setLoading] = useState(false);
+   490→  const [result, setResult] = useState("");
+   491→  const [error, setError] = useState("");
+   492→
+   493→  const generate = async () => {
+   494→    setLoading(true); setError(""); setResult("");
+   495→    try {
+   496→      const res = await fetch("/api/generate/subtitle", {
+   497→        method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${user.id}` },
+   498→        body: JSON.stringify({ videoUrl: url || undefined }),
+   499→      });
+   500→      const data = await res.json();
+   501→      if (!res.ok) { setError(data.error); return; }
+   502→      setResult(data.srt); onUpdateCredits(data.credits);
+   503→    } catch { setError("Error de conexión"); }
+   504→    finally { setLoading(false); }
+   505→  };
+   506→
+   507→  return (
+   508→    <div>
+   509→      <div className="mb-6">
+   510→        <h1 className="text-2xl font-extrabold mb-1">Generador de <span className="gradient-text">Subtítulos</span></h1>
+   511→        <p className="text-sm text-white/50">Crea subtítulos SRT profesionales. Costo: <span className="text-yellow-400 font-semibold">2 créditos</span></p>
+   512→      </div>
+   513→      <div className="max-w-2xl space-y-4">
+   514→        <div>
+   515→          <label className="text-xs text-white/50 mb-1.5 block">URL del video (opcional — si lo dejas vacío se genera un template)</label>
+   516→          <input type="url" value={url} onChange={(e) => setUrl(e.target.value)} className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm placeholder:text-white/30 focus:outline-none focus:border-[#3b82f6]" placeholder="https://youtube.com/watch?v=..." />
+   517→        </div>
+   518→        <button onClick={generate} disabled={loading} className="w-full py-3.5 rounded-xl bg-gradient-to-b from-[#3b82f6] to-[#1e40af] text-white font-bold text-sm shadow-[0_10px_24px_rgba(30,64,175,0.45)] hover:brightness-110 active:scale-[0.98] transition-all disabled:opacity-50 flex items-center justify-center gap-2">
+   519→          {loading ? <><Loader2 className="w-4 h-4 animate-spin" /> Generando...</> : <><Subtitles className="w-4 h-4" /> Generar subtítulos (-2 créditos)</>}
+   520→        </button>
+   521→        {error && <p className="text-red-400 text-xs">{error}</p>}
+   522→        {result && (
+   523→          <div className="rounded-2xl border border-white/[0.06] bg-[#0f1629]">
+   524→            <div className="flex items-center justify-between p-3 border-b border-white/[0.06]">
+   525→              <span className="text-xs text-white/40">Subtítulos SRT</span>
+   526→              <button onClick={() => navigator.clipboard.writeText(result)} className="text-xs text-[#3b82f6] flex items-center gap-1 hover:underline"><Copy className="w-3 h-3" /> Copiar SRT</button>
+   527→            </div>
+   528→            <pre className="p-4 text-xs text-white/70 whitespace-pre-wrap max-h-[400px] overflow-y-auto">{result}</pre>
+   529→          </div>
+   530→        )}
+   531→      </div>
+   532→    </div>
+   533→  );
+   534→}
+   535→
+   536→/* ════════════ Library ════════════ */
+   537→function Library({ user }: { user: User }) {
+   538→  const [gens, setGens] = useState<Generation[]>([]);
+   539→  const [filter, setFilter] = useState("all");
+   540→  const [loading, setLoading] = useState(true);
+   541→
+   542→  const load = async () => {
+   543→    setLoading(true);
+   544→    try {
+   545→      const params = filter === "all" ? "" : `?type=${filter}`;
+   546→      const res = await fetch(`/api/generations${params}`, { headers: { Authorization: `Bearer ${user.id}` } });
+   547→      if (res.ok) setGens(await res.json());
+   548→    } catch { /* ignore */ }
+   549→    setLoading(false);
+   550→  };
+   551→
+   552→  useEffect(() => { load(); }, [filter]);
+   553→
+   554→  const typeFilters = [
+   555→    { id: "all", label: "Todos" },
+   556→    { id: "image", label: "Imágenes" },
+   557→    { id: "text", label: "Textos" },
+   558→    { id: "voice", label: "Voces" },
+   559→    { id: "ebook", label: "eBooks" },
+   560→    { id: "subtitle", label: "Subtítulos" },
+   561→  ];
+   562→
+   563→  return (
+   564→    <div>
+   565→      <div className="mb-6">
+   566→        <h1 className="text-2xl font-extrabold mb-1">Mi <span className="gradient-text">Biblioteca</span></h1>
+   567→        <p className="text-sm text-white/50">Historial de todas tus creaciones</p>
+   568→      </div>
+   569→      <div className="flex gap-2 mb-6 overflow-x-auto pb-2">
+   570→        {typeFilters.map((f) => (
+   571→          <button key={f.id} onClick={() => setFilter(f.id)} className={`px-4 py-2 rounded-lg text-xs font-medium whitespace-nowrap transition-all ${filter === f.id ? "bg-[#3b82f6] text-white" : "bg-white/5 text-white/50 hover:bg-white/10"}`}>{f.label}</button>
+   572→        ))}
+   573→      </div>
+   574→      {loading ? (
+   575→        <div className="flex items-center justify-center py-20 text-white/30"><Loader2 className="w-6 h-6 animate-spin mr-2" /> Cargando...</div>
+   576→      ) : gens.length === 0 ? (
+   577→        <div className="text-center py-20 text-white/20"><LibraryIcon className="w-12 h-12 mx-auto mb-3 opacity-50" /><p className="text-sm">No hay creaciones todavía</p></div>
+   578→      ) : (
+   579→        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+   580→          {gens.map((g) => (
+   581→            <div key={g.id} className="rounded-2xl border border-white/[0.06] bg-[#0f1629] overflow-hidden">
+   582→              {g.type === "image" && g.result.startsWith("/") ? (
+   583→                <img src={g.result} alt="" className="w-full aspect-square object-cover" />
+   584→              ) : g.type === "voice" && g.result.startsWith("/") ? (
+   585→                <div className="p-4 bg-white/[0.02]"><audio controls src={g.result} className="w-full" /></div>
+   586→              ) : (
+   587→                <div className="p-4 max-h-40 overflow-y-auto"><pre className="text-xs text-white/50 whitespace-pre-wrap">{g.result.substring(0, 500)}</pre></div>
+   588→              )}
+   589→              <div className="p-3 border-t border-white/[0.06]">
+   590→                <p className="text-sm font-medium truncate">{g.title}</p>
+   591→                <div className="flex items-center justify-between mt-1">
+   592→                  <p className="text-[10px] text-white/30 flex items-center gap-1"><Clock className="w-3 h-3" /> {new Date(g.createdAt).toLocaleDateString("es-ES")}</p>
+   593→                  <span className="text-[10px] text-white/30">-{g.credits} <Coins className="inline w-3 h-3" /></span>
+   594→                </div>
+   595→              </div>
+   596→            </div>
+   597→          ))}
+   598→        </div>
+   599→      )}
+   600→    </div>
+   601→  );
+   602→}
+   603→
+   604→/* ════════════ Main App ════════════ */
+   605→interface AppShellProps { onLogout: () => void; user?: User | null }
+   606→
+   607→const FALLBACK_USER: User = { id: "demo-fallback", name: "Usuario Demo", email: "demo@krea.ai", credits: 50, plan: "starter" };
+   608→
+   609→export default function AppPage({ onLogout, user: initialUser }: AppShellProps) {
+   610→  const [user, setUser] = useState<User>(() => {
+   611→    if (initialUser) return initialUser;
+   612→    try {
+   613→      const saved = localStorage.getItem("p360_user");
+   614→      if (saved) {
+   615→        const parsed = JSON.parse(saved);
+   616→        if (parsed && parsed.id) return parsed;
+   617→      }
+   618→    } catch {}
+   619→    // Always ensure a user exists — save fallback to localStorage
+   620→    localStorage.setItem("p360_token", FALLBACK_USER.id);
+   621→    localStorage.setItem("p360_user", JSON.stringify(FALLBACK_USER));
+   622→    return FALLBACK_USER;
+   623→  });
+   624→  const [page, setPage] = useState("dashboard");
+   625→  const [sidebarOpen, setSidebarOpen] = useState(false);
+   626→  const [generations, setGenerations] = useState<Generation[]>([]);
+   627→
+   628→  useEffect(() => {
+   629→    const token = localStorage.getItem("p360_token");
+   630→    if (token) {
+   631→      fetch("/api/generations?limit=10", { headers: { Authorization: `Bearer ${token}` } })
+   632→        .then(r => r.ok ? r.json() : [])
+   633→        .then(setGenerations)
+   634→        .catch(() => {});
+   635→    }
+   636→  }, []);
+   637→
+   638→  const logout = () => { localStorage.removeItem("p360_token"); localStorage.removeItem("p360_user"); onLogout(); };
+   639→  const refreshUser = async () => {
+   640→    const token = localStorage.getItem("p360_token");
+   641→    if (!token) return;
+   642→    try {
+   643→      const res = await fetch("/api/auth/me", { headers: { Authorization: `Bearer ${token}` } });
+   644→      if (res.ok) setUser(await res.json());
+   645→    } catch {}
+   646→  };
+   647→  const onUpdateCredits = (c: number) => { setUser(prev => ({ ...prev, credits: c })); };
+   648→
+   649→  const renderPage = () => {
+   650→    switch (page) {
+   651→      case "dashboard": return <Dashboard user={user} generations={generations} onNav={setPage} />;
+   652→      case "prompts": return <PromptChat user={user} onUpdateCredits={onUpdateCredits} />;
+   653→      case "images": return <ImageGenerator user={user} onUpdateCredits={onUpdateCredits} />;
+   654→      case "copy": case "social": case "script": case "email": return <TextGenerator type={page} user={user} onUpdateCredits={onUpdateCredits} />;
+   655→      case "voice": return <VoiceGenerator user={user} onUpdateCredits={onUpdateCredits} />;
+   656→      case "ebook": return <EbookGenerator user={user} onUpdateCredits={onUpdateCredits} />;
+   657→      case "subtitle": return <SubtitleGenerator user={user} onUpdateCredits={onUpdateCredits} />;
+   658→      case "metrics": return <MetricsTracker userId={user.id} />;
+   659→      case "library": return <Library user={user} />;
+   660→      case "settings": return <SettingsPage user={user} />;
+   661→      case "support": return <SupportPage />;
+   662→      case "adn": return <AdnDashboard user={user} />;
+   663→      default: return <Dashboard user={user} generations={generations} onNav={setPage} />;
+   664→    }
+   665→  };
+   666→
+   667→  return (
+   668→    <AuthCtx.Provider value={{ user, logout, refreshUser }}>
+   669→      <div className="min-h-screen bg-[#080c16] flex">
+   670→        <Sidebar active={page} onNav={setPage} open={sidebarOpen} onClose={() => setSidebarOpen(false)} user={user} />
+   671→        <div className="flex-1 flex flex-col min-h-screen">
+   672→          {/* Top bar */}
+   673→          <header className="sticky top-0 z-30 flex items-center gap-4 px-4 sm:px-6 py-3 border-b border-white/[0.06] backdrop-blur-xl bg-[#080c16]/80">
+   674→            <button onClick={() => setSidebarOpen(true)} className="lg:hidden text-white/50 hover:text-white">
+   675→              <Menu className="w-5 h-5" />
+   676→            </button>
+   677→            <div className="flex-1" />
+   678→            <div className="flex items-center gap-3">
+   679→              <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-yellow-400/10 text-yellow-400 text-xs font-bold">
+   680→                <Coins className="w-3.5 h-3.5" /> {user.credits}
+   681→              </div>
+   682→              <button onClick={logout} className="p-2 rounded-lg hover:bg-white/5 text-white/40 hover:text-white/70 transition-colors" title="Cerrar sesión">
+   683→                <LogOut className="w-4 h-4" />
+   684→              </button>
+   685→            </div>
+   686→          </header>
+   687→          {/* Content */}
+   688→          <main className="flex-1 p-4 sm:p-6 lg:p-8 overflow-y-auto">
+   689→            {renderPage()}
+   690→          </main>
+   691→        </div>
+   692→      </div>
+   693→    </AuthCtx.Provider>
+   694→  );
+   695→}
