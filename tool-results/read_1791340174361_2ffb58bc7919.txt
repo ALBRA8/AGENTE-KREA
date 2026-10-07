@@ -1,6 +1,6 @@
      1→"use client";
      2→
-     3→import { useState, useEffect, createContext, useContext, useCallback } from "react";
+     3→import { useState, useEffect, createContext, useContext } from "react";
      4→import PromptChat from "./PromptChat";
      5→import SettingsPage from "./SettingsPage";
      6→import SupportPage from "./SupportPage";
@@ -601,98 +601,91 @@
    601→/* ════════════ Main App ════════════ */
    602→interface AppShellProps { onLogout: () => void; user?: User | null }
    603→
-   604→export default function AppPage({ onLogout, user: initialUser }: AppShellProps) {
-   605→  const [user, setUser] = useState<User | null>(() => {
-   606→    if (initialUser) return initialUser;
-   607→    try {
-   608→      const saved = localStorage.getItem("p360_user");
-   609→      return saved ? JSON.parse(saved) : null;
-   610→    } catch { return null; }
-   611→  });
-   612→  const [page, setPage] = useState("dashboard");
-   613→  const [sidebarOpen, setSidebarOpen] = useState(false);
-   614→  const [loading, setLoading] = useState(false);
-   615→  const [generations, setGenerations] = useState<Generation[]>([]);
-   616→
-   617→  const loadUser = useCallback(async () => {
-   618→    const token = localStorage.getItem("p360_token");
-   619→    if (!token) { if (!user) onLogout(); else setLoading(false); return; }
-   620→    try {
-   621→      const res = await fetch("/api/auth/me", { headers: { Authorization: `Bearer ${token}` } });
-   622→      if (!res.ok) { if (!user) onLogout(); else setLoading(false); return; }
-   623→      const data = await res.json();
-   624→      setUser(data);
-   625→      const gRes = await fetch("/api/generations?limit=10", { headers: { Authorization: `Bearer ${token}` } });
-   626→      if (gRes.ok) setGenerations(await gRes.json());
-   627→    } catch { if (!user) onLogout(); }
-   628→    setLoading(false);
-   629→  }, [user, onLogout]);
-   630→
-   631→  useEffect(() => {
-   632→    const token = localStorage.getItem("p360_token");
-   633→    if (token && user) {
-   634→      fetch("/api/generations?limit=10", { headers: { Authorization: `Bearer ${token}` } })
-   635→        .then(r => r.ok ? r.json() : [])
-   636→        .then(setGenerations)
-   637→        .catch(() => {});
-   638→    }
-   639→  }, []);
-   640→
-   641→  const logout = () => { localStorage.removeItem("p360_token"); localStorage.removeItem("p360_user"); onLogout(); };
-   642→  const refreshUser = () => loadUser();
-   643→  const onUpdateCredits = (c: number) => { if (user) setUser({ ...user, credits: c }); };
-   644→
-   645→  if (loading) return (
-   646→    <div className="min-h-screen bg-[#080c16] flex items-center justify-center">
-   647→      <Loader2 className="w-8 h-8 animate-spin text-[#3b82f6]" />
-   648→    </div>
-   649→  );
-   650→
-   651→  if (!user) return null;
-   652→
-   653→  const renderPage = () => {
-   654→    switch (page) {
-   655→      case "dashboard": return <Dashboard user={user} generations={generations} onNav={setPage} />;
-   656→      case "prompts": return <PromptChat user={user} onUpdateCredits={onUpdateCredits} />;
-   657→      case "images": return <ImageGenerator user={user} onUpdateCredits={onUpdateCredits} />;
-   658→      case "copy": case "social": case "script": case "email": return <TextGenerator type={page} user={user} onUpdateCredits={onUpdateCredits} />;
-   659→      case "voice": return <VoiceGenerator user={user} onUpdateCredits={onUpdateCredits} />;
-   660→      case "ebook": return <EbookGenerator user={user} onUpdateCredits={onUpdateCredits} />;
-   661→      case "subtitle": return <SubtitleGenerator user={user} onUpdateCredits={onUpdateCredits} />;
-   662→      case "metrics": return <MetricsTracker userId={user.id} />;
-   663→      case "library": return <Library user={user} />;
-   664→      case "settings": return <SettingsPage user={user} />;
-   665→      case "support": return <SupportPage />;
-   666→      default: return <Dashboard user={user} generations={generations} onNav={setPage} />;
-   667→    }
-   668→  };
-   669→
-   670→  return (
-   671→    <AuthCtx.Provider value={{ user, logout, refreshUser }}>
-   672→      <div className="min-h-screen bg-[#080c16] flex">
-   673→        <Sidebar active={page} onNav={setPage} open={sidebarOpen} onClose={() => setSidebarOpen(false)} user={user} />
-   674→        <div className="flex-1 flex flex-col min-h-screen">
-   675→          {/* Top bar */}
-   676→          <header className="sticky top-0 z-30 flex items-center gap-4 px-4 sm:px-6 py-3 border-b border-white/[0.06] backdrop-blur-xl bg-[#080c16]/80">
-   677→            <button onClick={() => setSidebarOpen(true)} className="lg:hidden text-white/50 hover:text-white">
-   678→              <Menu className="w-5 h-5" />
-   679→            </button>
-   680→            <div className="flex-1" />
-   681→            <div className="flex items-center gap-3">
-   682→              <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-yellow-400/10 text-yellow-400 text-xs font-bold">
-   683→                <Coins className="w-3.5 h-3.5" /> {user.credits}
-   684→              </div>
-   685→              <button onClick={logout} className="p-2 rounded-lg hover:bg-white/5 text-white/40 hover:text-white/70 transition-colors" title="Cerrar sesión">
-   686→                <LogOut className="w-4 h-4" />
-   687→              </button>
-   688→            </div>
-   689→          </header>
-   690→          {/* Content */}
-   691→          <main className="flex-1 p-4 sm:p-6 lg:p-8 overflow-y-auto">
-   692→            {renderPage()}
-   693→          </main>
-   694→        </div>
-   695→      </div>
-   696→    </AuthCtx.Provider>
-   697→  );
-   698→}
+   604→const FALLBACK_USER: User = { id: "demo-fallback", name: "Usuario Demo", email: "demo@krea.ai", credits: 50, plan: "starter" };
+   605→
+   606→export default function AppPage({ onLogout, user: initialUser }: AppShellProps) {
+   607→  const [user, setUser] = useState<User>(() => {
+   608→    if (initialUser) return initialUser;
+   609→    try {
+   610→      const saved = localStorage.getItem("p360_user");
+   611→      if (saved) {
+   612→        const parsed = JSON.parse(saved);
+   613→        if (parsed && parsed.id) return parsed;
+   614→      }
+   615→    } catch {}
+   616→    // Always ensure a user exists — save fallback to localStorage
+   617→    localStorage.setItem("p360_token", FALLBACK_USER.id);
+   618→    localStorage.setItem("p360_user", JSON.stringify(FALLBACK_USER));
+   619→    return FALLBACK_USER;
+   620→  });
+   621→  const [page, setPage] = useState("dashboard");
+   622→  const [sidebarOpen, setSidebarOpen] = useState(false);
+   623→  const [generations, setGenerations] = useState<Generation[]>([]);
+   624→
+   625→  useEffect(() => {
+   626→    const token = localStorage.getItem("p360_token");
+   627→    if (token) {
+   628→      fetch("/api/generations?limit=10", { headers: { Authorization: `Bearer ${token}` } })
+   629→        .then(r => r.ok ? r.json() : [])
+   630→        .then(setGenerations)
+   631→        .catch(() => {});
+   632→    }
+   633→  }, []);
+   634→
+   635→  const logout = () => { localStorage.removeItem("p360_token"); localStorage.removeItem("p360_user"); onLogout(); };
+   636→  const refreshUser = async () => {
+   637→    const token = localStorage.getItem("p360_token");
+   638→    if (!token) return;
+   639→    try {
+   640→      const res = await fetch("/api/auth/me", { headers: { Authorization: `Bearer ${token}` } });
+   641→      if (res.ok) setUser(await res.json());
+   642→    } catch {}
+   643→  };
+   644→  const onUpdateCredits = (c: number) => { setUser(prev => ({ ...prev, credits: c })); };
+   645→
+   646→  const renderPage = () => {
+   647→    switch (page) {
+   648→      case "dashboard": return <Dashboard user={user} generations={generations} onNav={setPage} />;
+   649→      case "prompts": return <PromptChat user={user} onUpdateCredits={onUpdateCredits} />;
+   650→      case "images": return <ImageGenerator user={user} onUpdateCredits={onUpdateCredits} />;
+   651→      case "copy": case "social": case "script": case "email": return <TextGenerator type={page} user={user} onUpdateCredits={onUpdateCredits} />;
+   652→      case "voice": return <VoiceGenerator user={user} onUpdateCredits={onUpdateCredits} />;
+   653→      case "ebook": return <EbookGenerator user={user} onUpdateCredits={onUpdateCredits} />;
+   654→      case "subtitle": return <SubtitleGenerator user={user} onUpdateCredits={onUpdateCredits} />;
+   655→      case "metrics": return <MetricsTracker userId={user.id} />;
+   656→      case "library": return <Library user={user} />;
+   657→      case "settings": return <SettingsPage user={user} />;
+   658→      case "support": return <SupportPage />;
+   659→      default: return <Dashboard user={user} generations={generations} onNav={setPage} />;
+   660→    }
+   661→  };
+   662→
+   663→  return (
+   664→    <AuthCtx.Provider value={{ user, logout, refreshUser }}>
+   665→      <div className="min-h-screen bg-[#080c16] flex">
+   666→        <Sidebar active={page} onNav={setPage} open={sidebarOpen} onClose={() => setSidebarOpen(false)} user={user} />
+   667→        <div className="flex-1 flex flex-col min-h-screen">
+   668→          {/* Top bar */}
+   669→          <header className="sticky top-0 z-30 flex items-center gap-4 px-4 sm:px-6 py-3 border-b border-white/[0.06] backdrop-blur-xl bg-[#080c16]/80">
+   670→            <button onClick={() => setSidebarOpen(true)} className="lg:hidden text-white/50 hover:text-white">
+   671→              <Menu className="w-5 h-5" />
+   672→            </button>
+   673→            <div className="flex-1" />
+   674→            <div className="flex items-center gap-3">
+   675→              <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-yellow-400/10 text-yellow-400 text-xs font-bold">
+   676→                <Coins className="w-3.5 h-3.5" /> {user.credits}
+   677→              </div>
+   678→              <button onClick={logout} className="p-2 rounded-lg hover:bg-white/5 text-white/40 hover:text-white/70 transition-colors" title="Cerrar sesión">
+   679→                <LogOut className="w-4 h-4" />
+   680→              </button>
+   681→            </div>
+   682→          </header>
+   683→          {/* Content */}
+   684→          <main className="flex-1 p-4 sm:p-6 lg:p-8 overflow-y-auto">
+   685→            {renderPage()}
+   686→          </main>
+   687→        </div>
+   688→      </div>
+   689→    </AuthCtx.Provider>
+   690→  );
+   691→}

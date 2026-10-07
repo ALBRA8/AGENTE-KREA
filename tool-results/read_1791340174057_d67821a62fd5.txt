@@ -990,42 +990,75 @@
    990→}
    991→
    992→/* ════════════ Root Router ════════════ */
-   993→type View = "landing" | "auth" | "app";
+   993→import ErrorBoundary from "@/components/ErrorBoundary";
    994→
-   995→export default function Home() {
-   996→  const [view, setView] = useState<View>("landing");
-   997→  const [key, setKey] = useState(0);
-   998→
-   999→  async function onEnterApp() {
-  1000→    try {
-  1001→      const res = await fetch("/api/auth/auto-login", { method: "POST" });
-  1002→      if (res.ok) {
-  1003→        const data = await res.json();
-  1004→        localStorage.setItem("p360_token", data.id);
-  1005→        localStorage.setItem("p360_user", JSON.stringify(data));
-  1006→      }
-  1007→    } catch {}
-  1008→    setView("app");
-  1009→    setKey(k => k + 1);
-  1010→  }
-  1011→
-  1012→  useEffect(() => {
-  1013→    const token = localStorage.getItem("p360_token");
-  1014→    if (token) setView("app");
-  1015→  }, []);
+   995→type View = "landing" | "auth" | "app";
+   996→
+   997→/* Fallback demo user saved to localStorage when auto-login API fails */
+   998→function saveFallbackUser() {
+   999→  const fallback = { id: "demo-fallback", name: "Usuario Demo", email: "demo@krea.ai", credits: 50, plan: "starter" };
+  1000→  try { localStorage.setItem("p360_token", fallback.id); } catch {}
+  1001→  try { localStorage.setItem("p360_user", JSON.stringify(fallback)); } catch {}
+  1002→  return fallback;
+  1003→}
+  1004→
+  1005→export default function Home() {
+  1006→  const [view, setView] = useState<View>(() => {
+  1007→    // Try to read from localStorage synchronously on init — go straight to app if token exists
+  1008→    try {
+  1009→      if (typeof window !== "undefined" && localStorage.getItem("p360_token")) {
+  1010→        return "app";
+  1011→      }
+  1012→    } catch {}
+  1013→    return "landing";
+  1014→  });
+  1015→  const [key, setKey] = useState(0);
   1016→
-  1017→  if (view === "app") {
-  1018→    return <AppShell key={key} onLogout={() => { setView("auth"); setKey(k => k + 1); }} />;
-  1019→  }
-  1020→
-  1021→  if (view === "auth") {
-  1022→    return <AuthPage onLogin={() => { setView("app"); setKey(k => k + 1); }} />;
-  1023→  }
-  1024→
-  1025→  return (
-  1026→    <>
-  1027→      <LandingPage onEnterApp={onEnterApp} />
-  1028→      <FloatingAppButton onClick={onEnterApp} />
-  1029→    </>
-  1030→  );
-  1031→}
+  1017→  async function onEnterApp() {
+  1018→    try {
+  1019→      const res = await fetch("/api/auth/auto-login", { method: "POST" });
+  1020→      if (res.ok) {
+  1021→        const data = await res.json();
+  1022→        try { localStorage.setItem("p360_token", data.id); } catch {}
+  1023→        try { localStorage.setItem("p360_user", JSON.stringify(data)); } catch {}
+  1024→      } else {
+  1025→        saveFallbackUser();
+  1026→      }
+  1027→    } catch {
+  1028→      saveFallbackUser();
+  1029→    }
+  1030→    setView("app");
+  1031→    setKey(k => k + 1);
+  1032→  }
+  1033→
+  1034→  // Auto-login on first visit (no token in localStorage)
+  1035→  useEffect(() => {
+  1036→    if (view === "landing") {
+  1037→      onEnterApp();
+  1038→    }
+  1039→  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  1040→
+  1041→  if (view === "app") {
+  1042→    return (
+  1043→      <ErrorBoundary>
+  1044→        <AppShell key={key} onLogout={() => { setView("auth"); setKey(k => k + 1); }} />
+  1045→      </ErrorBoundary>
+  1046→    );
+  1047→  }
+  1048→
+  1049→  if (view === "auth") {
+  1050→    return (
+  1051→      <ErrorBoundary>
+  1052→        <AuthPage onLogin={() => { setView("app"); setKey(k => k + 1); }} />
+  1053→      </ErrorBoundary>
+  1054→    );
+  1055→  }
+  1056→
+  1057→  // Landing view (briefly shown before auto-login completes)
+  1058→  return (
+  1059→    <ErrorBoundary>
+  1060→      <LandingPage onEnterApp={onEnterApp} />
+  1061→      <FloatingAppButton onClick={onEnterApp} />
+  1062→    </ErrorBoundary>
+  1063→  );
+  1064→}
