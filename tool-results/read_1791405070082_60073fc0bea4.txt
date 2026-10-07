@@ -1,0 +1,830 @@
+     1→/**
+     2→ * Commercial Readiness — KREA V2.1
+     3→ *
+     4→ * Commercial Readiness scoring with honest evidence.
+     5→ * Evaluates a product across 8 dimensions to determine its readiness
+     6→ * state for commercial sale.
+     7→ *
+     8→ * Readiness States:
+     9→ *   NOT_READY            → Product is incomplete, major work needed
+    10→ *   REQUIRES_REPAIR      → Product exists but has significant issues
+    11→ *   READY_FOR_VALIDATION → Product is complete enough for review/testing
+    12→ *   READY_FOR_SALE       → Product meets all critical requirements
+    13→ *   LAUNCHED             → Product is actively being sold (explicit only)
+    14→ *   ITERATING            → Product is under active revision
+    15→ *
+    16→ * CRITICAL RULES:
+    17→ *   - Never inflate readiness scores
+    18→ *   - If data is missing, score LOW and add warnings
+    19→ *   - All evidence tags must be honest
+    20→ *   - State transitions must follow the valid flow
+    21→ *   - LAUNCHED can only be set explicitly (never inferred)
+    22→ */
+    23→
+    24→import { randomUUID } from "crypto";
+    25→import type { EvidenceTag } from "@/lib/product-fit";
+    26→import type { ProductQAReport, CommercialProduct, Packaging } from "@/lib/product-qa";
+    27→
+    28→// ─── Types ────────────────────────────────────────────────────────────────────
+    29→
+    30→export type ReadinessState =
+    31→  | "NOT_READY"
+    32→  | "REQUIRES_REPAIR"
+    33→  | "READY_FOR_VALIDATION"
+    34→  | "READY_FOR_SALE"
+    35→  | "LAUNCHED"
+    36→  | "ITERATING";
+    37→
+    38→export interface CommercialReadiness {
+    39→  productId: string;
+    40→  version: string;
+    41→  state: ReadinessState;
+    42→  score: CommercialReadinessScore;
+    43→  requirements: ReadinessRequirement[];
+    44→  blockers: string[];
+    45→  evaluatedAt: Date;
+    46→}
+    47→
+    48→export interface CommercialReadinessScore {
+    49→  overall: number;
+    50→  productCompleteness: DimensionScore;
+    51→  contentCompleteness: DimensionScore;
+    52→  quality: DimensionScore;
+    53→  packaging: DimensionScore;
+    54→  delivery: DimensionScore;
+    55→  differentiation: DimensionScore;
+    56→  evidence: DimensionScore;
+    57→  commercialClarity: DimensionScore;
+    58→}
+    59→
+    60→export interface DimensionScore {
+    61→  score: number; // 0-1
+    62→  evidence: EvidenceTag;
+    63→  confidence: number; // 0-1
+    64→  warnings: string[];
+    65→}
+    66→
+    67→export interface ReadinessRequirement {
+    68→  dimension: string;
+    69→  requirement: string;
+    70→  met: boolean;
+    71→  evidence: EvidenceTag;
+    72→}
+    73→
+    74→// ─── Input Types ──────────────────────────────────────────────────────────────
+    75→
+    76→export interface ProductAssets {
+    77→  artifactCount: number;
+    78→  hasBlueprint: boolean;
+    79→  hasSpecification: boolean;
+    80→  hasEconomics: boolean;
+    81→  hasArchitecture: boolean;
+    82→}
+    83→
+    84→// ─── Valid State Transitions ─────────────────────────────────────────────────
+    85→
+    86→const VALID_TRANSITIONS: Array<[ReadinessState, ReadinessState]> = [
+    87→  // Forward progression
+    88→  ["NOT_READY", "REQUIRES_REPAIR"],
+    89→  ["REQUIRES_REPAIR", "READY_FOR_VALIDATION"],
+    90→  ["READY_FOR_VALIDATION", "READY_FOR_SALE"],
+    91→  ["READY_FOR_SALE", "LAUNCHED"],
+    92→  // Can skip forward in some cases
+    93→  ["NOT_READY", "READY_FOR_VALIDATION"],
+    94→  ["REQUIRES_REPAIR", "READY_FOR_SALE"],
+    95→  // Any state can go to ITERATING
+    96→  ["NOT_READY", "ITERATING"],
+    97→  ["REQUIRES_REPAIR", "ITERATING"],
+    98→  ["READY_FOR_VALIDATION", "ITERATING"],
+    99→  ["READY_FOR_SALE", "ITERATING"],
+   100→  ["LAUNCHED", "ITERATING"],
+   101→  // ITERATING goes back to READY_FOR_VALIDATION after revision
+   102→  ["ITERATING", "READY_FOR_VALIDATION"],
+   103→  // Can regress if issues found
+   104→  ["READY_FOR_VALIDATION", "REQUIRES_REPAIR"],
+   105→  ["READY_FOR_SALE", "REQUIRES_REPAIR"],
+   106→  ["READY_FOR_SALE", "READY_FOR_VALIDATION"],
+   107→  ["LAUNCHED", "READY_FOR_SALE"],
+   108→  // Self-transitions allowed (re-evaluation)
+   109→  ["NOT_READY", "NOT_READY"],
+   110→  ["REQUIRES_REPAIR", "REQUIRES_REPAIR"],
+   111→  ["READY_FOR_VALIDATION", "READY_FOR_VALIDATION"],
+   112→  ["READY_FOR_SALE", "READY_FOR_SALE"],
+   113→  ["LAUNCHED", "LAUNCHED"],
+   114→  ["ITERATING", "ITERATING"],
+   115→];
+   116→
+   117→function isValidTransition(from: ReadinessState, to: ReadinessState): boolean {
+   118→  return VALID_TRANSITIONS.some(([f, t]) => f === from && t === to);
+   119→}
+   120→
+   121→// ─── State Thresholds ─────────────────────────────────────────────────────────
+   122→
+   123→const STATE_THRESHOLDS = {
+   124→  NOT_READY: 0.3,
+   125→  REQUIRES_REPAIR: 0.5,
+   126→  READY_FOR_VALIDATION: 0.7,
+   127→} as const;
+   128→
+   129→// ─── Core Functions ───────────────────────────────────────────────────────────
+   130→
+   131→/**
+   132→ * Evaluate commercial readiness of a product.
+   133→ *
+   134→ * Scores each dimension with honest evidence:
+   135→ * - productCompleteness: blueprint requirements met
+   136→ * - contentCompleteness: from content QA results
+   137→ * - quality: from QA overall score
+   138→ * - packaging: packaging exists, core product defined, scope clear
+   139→ * - delivery: delivery method, format, access defined
+   140→ * - differentiation: value prop exists, differentiation stated
+   141→ * - evidence: proof requirements availability
+   142→ * - commercialClarity: customer, problem, price all defined
+   143→ *
+   144→ * Determines state based on overall score:
+   145→ * - overall < 0.3 → NOT_READY
+   146→ * - overall < 0.5 → REQUIRES_REPAIR
+   147→ * - overall < 0.7 → READY_FOR_VALIDATION
+   148→ * - overall >= 0.7 AND all critical requirements met → READY_FOR_SALE
+   149→ * - LAUNCHED: only if explicitly set
+   150→ * - ITERATING: if under active revision
+   151→ *
+   152→ * CRITICAL: Never inflate scores. Missing data → low score + warnings.
+   153→ */
+   154→export function evaluateReadiness(
+   155→  productId: string,
+   156→  version: string,
+   157→  qaReport: ProductQAReport,
+   158→  commercialProduct?: CommercialProduct,
+   159→  packaging?: Packaging,
+   160→  assets?: ProductAssets
+   161→): CommercialReadiness {
+   162→  const evaluatedAt = new Date();
+   163→  const requirements: ReadinessRequirement[] = [];
+   164→  const blockers: string[] = [];
+   165→
+   166→  // ── Dimension 1: Product Completeness ─────────────────────────────────────
+   167→  const productCompleteness = scoreProductCompleteness(assets, requirements);
+   168→
+   169→  // ── Dimension 2: Content Completeness ─────────────────────────────────────
+   170→  const contentCompleteness = scoreContentCompleteness(
+   171→    qaReport,
+   172→    requirements
+   173→  );
+   174→
+   175→  // ── Dimension 3: Quality ──────────────────────────────────────────────────
+   176→  const quality = scoreQuality(qaReport, requirements);
+   177→
+   178→  // ── Dimension 4: Packaging ────────────────────────────────────────────────
+   179→  const packagingScore = scorePackaging(
+   180→    commercialProduct,
+   181→    packaging,
+   182→    requirements
+   183→  );
+   184→
+   185→  // ── Dimension 5: Delivery ────────────────────────────────────────────────
+   186→  const delivery = scoreDelivery(packaging, requirements);
+   187→
+   188→  // ── Dimension 6: Differentiation ──────────────────────────────────────────
+   189→  const differentiation = scoreDifferentiation(
+   190→    commercialProduct,
+   191→    requirements
+   192→  );
+   193→
+   194→  // ── Dimension 7: Evidence ────────────────────────────────────────────────
+   195→  const evidenceScore = scoreEvidence(
+   196→    commercialProduct,
+   197→    qaReport,
+   198→    requirements
+   199→  );
+   200→
+   201→  // ── Dimension 8: Commercial Clarity ──────────────────────────────────────
+   202→  const commercialClarity = scoreCommercialClarity(
+   203→    commercialProduct,
+   204→    requirements
+   205→  );
+   206→
+   207→  // ── Overall Score (equal weights) ────────────────────────────────────────
+   208→  const dimensionScores = [
+   209→    productCompleteness.score,
+   210→    contentCompleteness.score,
+   211→    quality.score,
+   212→    packagingScore.score,
+   213→    delivery.score,
+   214→    differentiation.score,
+   215→    evidenceScore.score,
+   216→    commercialClarity.score,
+   217→  ];
+   218→  const overall =
+   219→    dimensionScores.reduce((sum, s) => sum + s, 0) / dimensionScores.length;
+   220→
+   221→  const score: CommercialReadinessScore = {
+   222→    overall: Math.round(overall * 1000) / 1000,
+   223→    productCompleteness,
+   224→    contentCompleteness,
+   225→    quality,
+   226→    packaging: packagingScore,
+   227→    delivery,
+   228→    differentiation,
+   229→    evidence: evidenceScore,
+   230→    commercialClarity,
+   231→  };
+   232→
+   233→  // ── Determine State ──────────────────────────────────────────────────────
+   234→  // Check for critical blockers
+   235→  const criticalRequirements = requirements.filter(
+   236→    (r) => !r.met && r.dimension === "critical"
+   237→  );
+   238→  for (const req of criticalRequirements) {
+   239→    blockers.push(req.requirement);
+   240→  }
+   241→
+   242→  let state: ReadinessState;
+   243→  if (overall < STATE_THRESHOLDS.NOT_READY) {
+   244→    state = "NOT_READY";
+   245→  } else if (overall < STATE_THRESHOLDS.REQUIRES_REPAIR) {
+   246→    state = "REQUIRES_REPAIR";
+   247→  } else if (overall < STATE_THRESHOLDS.READY_FOR_VALIDATION) {
+   248→    state = "READY_FOR_VALIDATION";
+   249→  } else {
+   250→    // overall >= 0.7
+   251→    if (criticalRequirements.length === 0) {
+   252→      state = "READY_FOR_SALE";
+   253→    } else {
+   254→      state = "READY_FOR_VALIDATION";
+   255→    }
+   256→  }
+   257→
+   258→  return {
+   259→    productId,
+   260→    version,
+   261→    state,
+   262→    score,
+   263→    requirements,
+   264→    blockers,
+   265→    evaluatedAt,
+   266→  };
+   267→}
+   268→
+   269→// ─── State Machine ───────────────────────────────────────────────────────────
+   270→
+   271→/**
+   272→ * Transition readiness to a new state.
+   273→ *
+   274→ * Only allows valid transitions:
+   275→ *   NOT_READY → REQUIRES_REPAIR → READY_FOR_VALIDATION → READY_FOR_SALE → LAUNCHED
+   276→ *   Any → ITERATING
+   277→ *   ITERATING → READY_FOR_VALIDATION (after revision)
+   278→ *
+   279→ * Throws if transition is invalid.
+   280→ */
+   281→export function transitionReadiness(
+   282→  current: CommercialReadiness,
+   283→  newState: ReadinessState
+   284→): CommercialReadiness {
+   285→  if (!isValidTransition(current.state, newState)) {
+   286→    throw new ReadinessTransitionError(
+   287→      `Cannot transition from ${current.state} to ${newState}`,
+   288→      current.state,
+   289→      newState
+   290→    );
+   291→  }
+   292→
+   293→  return {
+   294→    ...current,
+   295→    state: newState,
+   296→    evaluatedAt: new Date(),
+   297→  };
+   298→}
+   299→
+   300→// ─── Requirements for Next State ─────────────────────────────────────────────
+   301→
+   302→/**
+   303→ * Get the requirements needed to reach the next readiness state.
+   304→ */
+   305→export function getReadinessRequirements(
+   306→  state: ReadinessState
+   307→): ReadinessRequirement[] {
+   308→  switch (state) {
+   309→    case "NOT_READY":
+   310→      return [
+   311→        { dimension: "productCompleteness", requirement: "Product must have at least a blueprint and architecture", met: false, evidence: "NOT_VERIFIED" },
+   312→        { dimension: "contentCompleteness", requirement: "Core content sections must be defined", met: false, evidence: "NOT_VERIFIED" },
+   313→        { dimension: "quality", requirement: "Product must pass basic artifact QA", met: false, evidence: "NOT_VERIFIED" },
+   314→      ];
+   315→
+   316→    case "REQUIRES_REPAIR":
+   317→      return [
+   318→        { dimension: "quality", requirement: "All CRITICAL issues must be resolved", met: false, evidence: "NOT_VERIFIED" },
+   319→        { dimension: "contentCompleteness", requirement: "Required content sections must be complete", met: false, evidence: "NOT_VERIFIED" },
+   320→        { dimension: "commercialClarity", requirement: "Product must have defined pricing and target customer", met: false, evidence: "NOT_VERIFIED" },
+   321→      ];
+   322→
+   323→    case "READY_FOR_VALIDATION":
+   324→      return [
+   325→        { dimension: "quality", requirement: "Overall QA score must be >= 0.5", met: false, evidence: "NOT_VERIFIED" },
+   326→        { dimension: "packaging", requirement: "Product must be properly packaged with delivery format", met: false, evidence: "NOT_VERIFIED" },
+   327→        { dimension: "delivery", requirement: "Delivery method and access must be defined", met: false, evidence: "NOT_VERIFIED" },
+   328→        { dimension: "evidence", requirement: "At least one proof element must be available", met: false, evidence: "NOT_VERIFIED" },
+   329→      ];
+   330→
+   331→    case "READY_FOR_SALE":
+   332→      return [
+   333→        { dimension: "critical", requirement: "Overall readiness score must be >= 0.7", met: false, evidence: "NOT_VERIFIED" },
+   334→        { dimension: "critical", requirement: "No CRITICAL QA issues remain", met: false, evidence: "NOT_VERIFIED" },
+   335→        { dimension: "commercialClarity", requirement: "Customer, problem, and price are all clearly defined", met: false, evidence: "NOT_VERIFIED" },
+   336→        { dimension: "differentiation", requirement: "Value proposition and differentiation are stated", met: false, evidence: "NOT_VERIFIED" },
+   337→        { dimension: "evidence", requirement: "Sufficient proof elements are available for claims", met: false, evidence: "NOT_VERIFIED" },
+   338→      ];
+   339→
+   340→    case "LAUNCHED":
+   341→      return [
+   342→        { dimension: "critical", requirement: "Product must be in READY_FOR_SALE state", met: false, evidence: "NOT_VERIFIED" },
+   343→        { dimension: "delivery", requirement: "Delivery mechanism is operational", met: false, evidence: "NOT_VERIFIED" },
+   344→        { dimension: "evidence", requirement: "Launch is explicitly authorized", met: false, evidence: "NOT_VERIFIED" },
+   345→      ];
+   346→
+   347→    case "ITERATING":
+   348→      return [
+   349→        { dimension: "quality", requirement: "Revisions must be completed before returning to validation", met: false, evidence: "NOT_VERIFIED" },
+   350→      ];
+   351→
+   352→    default:
+   353→      return [];
+   354→  }
+   355→}
+   356→
+   357→// ─── Dimension Scoring Functions ──────────────────────────────────────────────
+   358→
+   359→function scoreProductCompleteness(
+   360→  assets: ProductAssets | undefined,
+   361→  requirements: ReadinessRequirement[]
+   362→): DimensionScore {
+   363→  const warnings: string[] = [];
+   364→
+   365→  if (!assets) {
+   366→    warnings.push("No product assets information available");
+   367→    requirements.push({
+   368→      dimension: "productCompleteness",
+   369→      requirement: "Product must have defined assets (blueprint, architecture, etc.)",
+   370→      met: false,
+   371→      evidence: "NOT_VERIFIED",
+   372→    });
+   373→    return {
+   374→      score: 0,
+   375→      evidence: "NOT_VERIFIED",
+   376→      confidence: 0,
+   377→      warnings,
+   378→    };
+   379→  }
+   380→
+   381→  const checks = [
+   382→    { label: "blueprint", met: assets.hasBlueprint, weight: 0.3 },
+   383→    { label: "specification", met: assets.hasSpecification, weight: 0.25 },
+   384→    { label: "architecture", met: assets.hasArchitecture, weight: 0.25 },
+   385→    { label: "economics", met: assets.hasEconomics, weight: 0.1 },
+   386→    { label: "artifacts", met: assets.artifactCount > 0, weight: 0.1 },
+   387→  ];
+   388→
+   389→  let score = 0;
+   390→  for (const check of checks) {
+   391→    score += check.met ? check.weight : 0;
+   392→    requirements.push({
+   393→      dimension: "productCompleteness",
+   394→      requirement: `Product must have ${check.label}`,
+   395→      met: check.met,
+   396→      evidence: check.met ? "VERIFIED" : "NOT_VERIFIED",
+   397→    });
+   398→    if (!check.met) {
+   399→      warnings.push(`Missing: ${check.label}`);
+   400→    }
+   401→  }
+   402→
+   403→  return {
+   404→    score: Math.round(score * 1000) / 1000,
+   405→    evidence: checks.some((c) => c.met) ? "VERIFIED" : "NOT_VERIFIED",
+   406→    confidence: checks.filter((c) => c.met).length / checks.length,
+   407→    warnings,
+   408→  };
+   409→}
+   410→
+   411→function scoreContentCompleteness(
+   412→  qaReport: ProductQAReport,
+   413→  requirements: ReadinessRequirement[]
+   414→): DimensionScore {
+   415→  const warnings: string[] = [];
+   416→  const score = qaReport.contentQA.score;
+   417→
+   418→  const met = score >= 0.7;
+   419→  requirements.push({
+   420→    dimension: "contentCompleteness",
+   421→    requirement: "Content QA score must be >= 0.7",
+   422→    met,
+   423→    evidence: "VERIFIED",
+   424→  });
+   425→
+   426→  if (!met) {
+   427→    warnings.push(
+   428→      `Content QA score is ${score.toFixed(3)}, needs 0.7 or higher`
+   429→    );
+   430→  }
+   431→
+   432→  // Add warnings from content QA issues
+   433→  for (const issue of qaReport.contentQA.issues) {
+   434→    if (issue.severity === "MAJOR" || issue.severity === "CRITICAL") {
+   435→      warnings.push(issue.description);
+   436→    }
+   437→  }
+   438→
+   439→  return {
+   440→    score,
+   441→    evidence: "VERIFIED",
+   442→    confidence: score > 0.5 ? 0.8 : 0.4,
+   443→    warnings,
+   444→  };
+   445→}
+   446→
+   447→function scoreQuality(
+   448→  qaReport: ProductQAReport,
+   449→  requirements: ReadinessRequirement[]
+   450→): DimensionScore {
+   451→  const warnings: string[] = [];
+   452→  const score = qaReport.overallScore;
+   453→
+   454→  const noCritical = qaReport.criticalIssues.length === 0;
+   455→  requirements.push({
+   456→    dimension: "quality",
+   457→    requirement: "No CRITICAL QA issues remain",
+   458→    met: noCritical,
+   459→    evidence: "VERIFIED",
+   460→  });
+   461→
+   462→  if (!noCritical) {
+   463→    warnings.push(
+   464→      `${qaReport.criticalIssues.length} critical issue(s) remain`
+   465→    );
+   466→  }
+   467→
+   468→  const scoreMet = score >= 0.5;
+   469→  requirements.push({
+   470→    dimension: "quality",
+   471→    requirement: "Overall QA score must be >= 0.5",
+   472→    met: scoreMet,
+   473→    evidence: "VERIFIED",
+   474→  });
+   475→
+   476→  if (!scoreMet) {
+   477→    warnings.push(
+   478→      `Overall QA score is ${score.toFixed(3)}, needs 0.5 or higher`
+   479→    );
+   480→  }
+   481→
+   482→  return {
+   483→    score,
+   484→    evidence: "VERIFIED",
+   485→    confidence: noCritical ? 0.9 : 0.5,
+   486→    warnings,
+   487→  };
+   488→}
+   489→
+   490→function scorePackaging(
+   491→  commercialProduct: CommercialProduct | undefined,
+   492→  packaging: Packaging | undefined,
+   493→  requirements: ReadinessRequirement[]
+   494→): DimensionScore {
+   495→  const warnings: string[] = [];
+   496→
+   497→  if (!commercialProduct && !packaging) {
+   498→    warnings.push("No commercial product or packaging information available");
+   499→    requirements.push({
+   500→      dimension: "packaging",
+   501→      requirement: "Product must have commercial definition and packaging",
+   502→      met: false,
+   503→      evidence: "NOT_VERIFIED",
+   504→    });
+   505→    return {
+   506→      score: 0,
+   507→      evidence: "NOT_VERIFIED",
+   508→      confidence: 0,
+   509→      warnings,
+   510→    };
+   511→  }
+   512→
+   513→  const checks: Array<{ label: string; met: boolean; weight: number }> = [];
+   514→
+   515→  // Core product defined
+   516→  const hasCommercialDef = !!commercialProduct;
+   517→  checks.push({
+   518→    label: "commercial definition",
+   519→    met: hasCommercialDef,
+   520→    weight: 0.4,
+   521→  });
+   522→  requirements.push({
+   523→    dimension: "packaging",
+   524→    requirement: "Product must have commercial definition",
+   525→    met: hasCommercialDef,
+   526→    evidence: hasCommercialDef ? "VERIFIED" : "NOT_VERIFIED",
+   527→  });
+   528→
+   529→  // Scope clear (has problem + value prop)
+   530→  const hasScope =
+   531→    !!commercialProduct?.hasProblemStatement &&
+   532→    !!commercialProduct?.hasValueProposition;
+   533→  checks.push({ label: "clear scope", met: hasScope, weight: 0.3 });
+   534→  requirements.push({
+   535→    dimension: "packaging",
+   536→    requirement: "Product scope must be clear (problem + value proposition)",
+   537→    met: hasScope,
+   538→    evidence: hasScope ? "VERIFIED" : "NOT_VERIFIED",
+   539→  });
+   540→
+   541→  // Delivery format defined
+   542→  const hasDeliveryFormat = !!packaging?.deliveryFormat;
+   543→  checks.push({
+   544→    label: "delivery format",
+   545→    met: hasDeliveryFormat,
+   546→    weight: 0.3,
+   547→  });
+   548→  requirements.push({
+   549→    dimension: "packaging",
+   550→    requirement: "Product must have a delivery format",
+   551→    met: hasDeliveryFormat,
+   552→    evidence: hasDeliveryFormat ? "VERIFIED" : "NOT_VERIFIED",
+   553→  });
+   554→
+   555→  let score = 0;
+   556→  for (const check of checks) {
+   557→    score += check.met ? check.weight : 0;
+   558→    if (!check.met) {
+   559→      warnings.push(`Missing: ${check.label}`);
+   560→    }
+   561→  }
+   562→
+   563→  return {
+   564→    score: Math.round(score * 1000) / 1000,
+   565→    evidence: checks.some((c) => c.met) ? "VERIFIED" : "NOT_VERIFIED",
+   566→    confidence: checks.filter((c) => c.met).length / checks.length,
+   567→    warnings,
+   568→  };
+   569→}
+   570→
+   571→function scoreDelivery(
+   572→  packaging: Packaging | undefined,
+   573→  requirements: ReadinessRequirement[]
+   574→): DimensionScore {
+   575→  const warnings: string[] = [];
+   576→
+   577→  if (!packaging) {
+   578→    warnings.push("No packaging/delivery information available");
+   579→    requirements.push({
+   580→      dimension: "delivery",
+   581→      requirement: "Product must have delivery information",
+   582→      met: false,
+   583→      evidence: "NOT_VERIFIED",
+   584→    });
+   585→    return {
+   586→      score: 0,
+   587→      evidence: "NOT_VERIFIED",
+   588→      confidence: 0,
+   589→      warnings,
+   590→    };
+   591→  }
+   592→
+   593→  const checks: Array<{ label: string; met: boolean; weight: number }> = [
+   594→    {
+   595→      label: "delivery method",
+   596→      met: !!packaging.deliveryFormat,
+   597→      weight: 0.35,
+   598→    },
+   599→    {
+   600→      label: "access method",
+   601→      met: !!packaging.accessMethod,
+   602→      weight: 0.35,
+   603→    },
+   604→    {
+   605→      label: "usage guide",
+   606→      met: !!packaging.usageGuide,
+   607→      weight: 0.15,
+   608→    },
+   609→    {
+   610→      label: "prerequisites",
+   611→      met: packaging.prerequisites.length > 0,
+   612→      weight: 0.15,
+   613→    },
+   614→  ];
+   615→
+   616→  let score = 0;
+   617→  for (const check of checks) {
+   618→    score += check.met ? check.weight : 0;
+   619→    requirements.push({
+   620→      dimension: "delivery",
+   621→      requirement: `Delivery must have ${check.label}`,
+   622→      met: check.met,
+   623→      evidence: check.met ? "VERIFIED" : "NOT_VERIFIED",
+   624→    });
+   625→    if (!check.met) {
+   626→      warnings.push(`Missing: ${check.label}`);
+   627→    }
+   628→  }
+   629→
+   630→  return {
+   631→    score: Math.round(score * 1000) / 1000,
+   632→    evidence: checks.some((c) => c.met) ? "VERIFIED" : "NOT_VERIFIED",
+   633→    confidence: checks.filter((c) => c.met).length / checks.length,
+   634→    warnings,
+   635→  };
+   636→}
+   637→
+   638→function scoreDifferentiation(
+   639→  commercialProduct: CommercialProduct | undefined,
+   640→  requirements: ReadinessRequirement[]
+   641→): DimensionScore {
+   642→  const warnings: string[] = [];
+   643→
+   644→  if (!commercialProduct) {
+   645→    warnings.push("No commercial product information available for differentiation scoring");
+   646→    requirements.push({
+   647→      dimension: "differentiation",
+   648→      requirement: "Product must have defined differentiation",
+   649→      met: false,
+   650→      evidence: "NOT_VERIFIED",
+   651→    });
+   652→    return {
+   653→      score: 0,
+   654→      evidence: "NOT_VERIFIED",
+   655→      confidence: 0,
+   656→      warnings,
+   657→    };
+   658→  }
+   659→
+   660→  const checks: Array<{ label: string; met: boolean; weight: number }> = [
+   661→    {
+   662→      label: "value proposition",
+   663→      met: commercialProduct.hasValueProposition,
+   664→      weight: 0.5,
+   665→    },
+   666→    {
+   667→      label: "differentiation",
+   668→      met: commercialProduct.hasDifferentiation,
+   669→      weight: 0.5,
+   670→    },
+   671→  ];
+   672→
+   673→  let score = 0;
+   674→  for (const check of checks) {
+   675→    score += check.met ? check.weight : 0;
+   676→    requirements.push({
+   677→      dimension: "differentiation",
+   678→      requirement: `Product must have ${check.label}`,
+   679→      met: check.met,
+   680→      evidence: check.met ? "VERIFIED" : "NOT_VERIFIED",
+   681→    });
+   682→    if (!check.met) {
+   683→      warnings.push(`Missing: ${check.label}`);
+   684→    }
+   685→  }
+   686→
+   687→  return {
+   688→    score: Math.round(score * 1000) / 1000,
+   689→    evidence: checks.some((c) => c.met) ? "VERIFIED" : "NOT_VERIFIED",
+   690→    confidence: checks.filter((c) => c.met).length / checks.length,
+   691→    warnings,
+   692→  };
+   693→}
+   694→
+   695→function scoreEvidence(
+   696→  commercialProduct: CommercialProduct | undefined,
+   697→  qaReport: ProductQAReport,
+   698→  requirements: ReadinessRequirement[]
+   699→): DimensionScore {
+   700→  const warnings: string[] = [];
+   701→
+   702→  // Check proof requirements availability
+   703→  const verifiedTestimonials =
+   704→    commercialProduct?.testimonials.filter((t) => t.verified).length || 0;
+   705→  const totalTestimonials =
+   706→    commercialProduct?.testimonials.length || 0;
+   707→
+   708→  // QA report itself is evidence
+   709→  const qaEvidence = qaReport.evidence === "VERIFIED" ? 0.3 : 0;
+   710→
+   711→  // Testimonials as evidence (only verified ones count)
+   712→  const testimonialScore =
+   713→    totalTestimonials > 0
+   714→      ? Math.min(0.3, (verifiedTestimonials / totalTestimonials) * 0.3)
+   715→      : 0;
+   716→
+   717→  // Product claims with evidence
+   718→  const claimScore =
+   719→    commercialProduct && commercialProduct.claims.length > 0 ? 0.2 : 0;
+   720→
+   721→  // QA overall provides some evidence
+   722→  const qaScoreEvidence = qaReport.overallScore > 0.5 ? 0.2 : 0;
+   723→
+   724→  const score = qaEvidence + testimonialScore + claimScore + qaScoreEvidence;
+   725→
+   726→  requirements.push({
+   727→    dimension: "evidence",
+   728→    requirement: "At least one proof element must be available",
+   729→    met: score > 0,
+   730→    evidence: score > 0 ? "VERIFIED" : "NOT_VERIFIED",
+   731→  });
+   732→
+   733→  if (verifiedTestimonials < totalTestimonials) {
+   734→    warnings.push(
+   735→      `${totalTestimonials - verifiedTestimonials} unverified testimonial(s) not counted as evidence`
+   736→    );
+   737→  }
+   738→
+   739→  if (score < 0.3) {
+   740→    warnings.push("Insufficient evidence for commercial claims");
+   741→  }
+   742→
+   743→  return {
+   744→    score: Math.round(score * 1000) / 1000,
+   745→    evidence: score > 0 ? "VERIFIED" : "NOT_VERIFIED",
+   746→    confidence: score > 0.3 ? 0.7 : 0.3,
+   747→    warnings,
+   748→  };
+   749→}
+   750→
+   751→function scoreCommercialClarity(
+   752→  commercialProduct: CommercialProduct | undefined,
+   753→  requirements: ReadinessRequirement[]
+   754→): DimensionScore {
+   755→  const warnings: string[] = [];
+   756→
+   757→  if (!commercialProduct) {
+   758→    warnings.push("No commercial product information available");
+   759→    requirements.push({
+   760→      dimension: "commercialClarity",
+   761→      requirement: "Product must have commercial clarity (customer, problem, price)",
+   762→      met: false,
+   763→      evidence: "NOT_VERIFIED",
+   764→    });
+   765→    return {
+   766→      score: 0,
+   767→      evidence: "NOT_VERIFIED",
+   768→      confidence: 0,
+   769→      warnings,
+   770→    };
+   771→  }
+   772→
+   773→  const checks: Array<{ label: string; met: boolean; weight: number }> = [
+   774→    {
+   775→      label: "target customer",
+   776→      met: commercialProduct.hasTargetCustomer,
+   777→      weight: 0.35,
+   778→    },
+   779→    {
+   780→      label: "problem statement",
+   781→      met: commercialProduct.hasProblemStatement,
+   782→      weight: 0.3,
+   783→    },
+   784→    {
+   785→      label: "pricing",
+   786→      met: commercialProduct.hasPricing,
+   787→      weight: 0.35,
+   788→    },
+   789→  ];
+   790→
+   791→  let score = 0;
+   792→  for (const check of checks) {
+   793→    score += check.met ? check.weight : 0;
+   794→    requirements.push({
+   795→      dimension: "commercialClarity",
+   796→      requirement: `Product must have ${check.label}`,
+   797→      met: check.met,
+   798→      evidence: check.met ? "VERIFIED" : "NOT_VERIFIED",
+   799→    });
+   800→    if (!check.met) {
+   801→      warnings.push(`Missing: ${check.label}`);
+   802→    }
+   803→  }
+   804→
+   805→  return {
+   806→    score: Math.round(score * 1000) / 1000,
+   807→    evidence: checks.some((c) => c.met) ? "VERIFIED" : "NOT_VERIFIED",
+   808→    confidence: checks.filter((c) => c.met).length / checks.length,
+   809→    warnings,
+   810→  };
+   811→}
+   812→
+   813→// ─── Error Class ──────────────────────────────────────────────────────────────
+   814→
+   815→export class ReadinessTransitionError extends Error {
+   816→  readonly fromState: ReadinessState;
+   817→  readonly toState: ReadinessState;
+   818→
+   819→  constructor(
+   820→    message: string,
+   821→    fromState: ReadinessState,
+   822→    toState: ReadinessState
+   823→  ) {
+   824→    super(message);
+   825→    this.name = "ReadinessTransitionError";
+   826→    this.fromState = fromState;
+   827→    this.toState = toState;
+   828→  }
+   829→}
+   830→

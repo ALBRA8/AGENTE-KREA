@@ -26,6 +26,13 @@ model User {
   sessions        Session[]
   opportunities     ProductOpportunity[]
   dossiers          ProductDossier[]
+  commercialProducts CommercialProduct[]
+  blueprints        ProductBlueprint[]
+  assets            ProductAsset[]
+  factoryExecutions FactoryExecution[]
+  versionRecords    ProductVersionRecord[]
+  launchPackages    LaunchPackage[]
+  commercialFeedbacks CommercialFeedback[]
 }
 
 model CampaignEntry {
@@ -242,6 +249,8 @@ model ProductDossier {
   user        User              @relation(fields: [userId], references: [id], onDelete: Cascade)
   opportunity ProductOpportunity? @relation(fields: [opportunityId], references: [id], onDelete: SetNull)
   handoff     Handoff?
+  commercialProduct CommercialProduct? // one-to-one via productId
+  blueprint        ProductBlueprint?   // one-to-one via productId
 }
 
 // Handoff — provider-neutral delivery contract
@@ -269,4 +278,190 @@ model Handoff {
   updatedAt       DateTime @updatedAt
 
   dossier ProductDossier @relation(fields: [dossierId], references: [id], onDelete: Cascade)
+}
+
+// Commercial Product Definition
+model CommercialProduct {
+  id              String   @id @default(cuid())
+  userId          String
+  productId       String   @unique
+  productVersion  String   @default("1.0.0")
+  productName     String
+  productType     String   // ebook | guide | manual | workbook | etc.
+  targetCustomer  String   // JSON
+  problem         String
+  jobToBeDone     String
+  desiredOutcome  String
+  valueProposition String
+  differentiation String
+  format          String
+  includedAssets  String   @default("[]") // JSON array
+  excludedScope   String   @default("[]") // JSON array
+  priceStrategy   String   // JSON
+  priceRange      String   // JSON
+  monetizationModel String
+  distributionStrategy String
+  positioning     String
+  keyBenefits     String   @default("[]") // JSON array
+  objections      String   @default("[]") // JSON array
+  proofRequirements String @default("[]") // JSON array
+  commercialReadiness String? // JSON
+  launchRequirements String @default("[]") // JSON array
+  assumptions     String   @default("[]") // JSON array
+  risks           String   @default("[]") // JSON array
+  evidence        String   @default("INFERRED")
+  provenance      String   @default("product_brain")
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  user    User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  dossier ProductDossier? @relation(fields: [productId], references: [id], onDelete: Cascade)
+}
+
+// Product Blueprint
+model ProductBlueprint {
+  id                  String   @id @default(cuid())
+  userId              String
+  blueprintId         String   @unique
+  productId           String   @unique
+  version             String   @default("1.0.0")
+  type                String
+  customer            String   // JSON
+  problem             String
+  jobToBeDone         String
+  desiredOutcome      String
+  valueProposition    String
+  format              String
+  structure           String   // JSON
+  contentRequirements String   @default("[]") // JSON array
+  designRequirements  String   @default("[]") // JSON array
+  assetRequirements   String   @default("[]") // JSON array
+  commercialRequirements String @default("[]") // JSON array
+  qualityRequirements String   @default("[]") // JSON array
+  deliveryRequirements String  @default("[]") // JSON array
+  successCriteria     String   @default("[]") // JSON array
+  assumptions         String   @default("[]") // JSON array
+  risks               String   @default("[]") // JSON array
+  evidence            String   @default("INFERRED")
+  provenance          String   @default("product_brain")
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  user    User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  dossier ProductDossier? @relation(fields: [productId], references: [id], onDelete: Cascade)
+}
+
+// Product Asset
+model ProductAsset {
+  id          String   @id @default(cuid())
+  userId      String
+  assetId     String   @unique
+  productId   String
+  version     String   @default("1.0.0")
+  type        String   // pdf | epub | image | cover | metadata | markdown | template | data
+  filename    String
+  mimeType    String
+  path        String
+  size        Int      @default(0)
+  checksum    String
+  source      String   // which factory
+  provider    String   // which provider
+  status      String   @default("ACTIVE") // ACTIVE | ARCHIVED | DELETED
+  evidence    String   @default("VERIFIED")
+  generatedAt DateTime @default(now())
+  createdAt   DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// Factory Execution
+model FactoryExecution {
+  id            String   @id @default(cuid())
+  userId        String
+  executionId   String   @unique
+  productId     String
+  factoryType   String
+  contract      String   // JSON FactoryContract
+  status        String   @default("CREATED") // CREATED|QUEUED|RUNNING|QA|PASSED|FAILED|REPAIRING|COMPLETED|CANCELLED
+  progress      String   @default("[]") // JSON StepProgress array
+  artifacts     String   @default("[]") // JSON ArtifactRef array
+  qaReport      String?  // JSON
+  error         String?
+  startedAt     DateTime?
+  completedAt   DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// Product Version
+model ProductVersionRecord {
+  id          String   @id @default(cuid())
+  userId      String
+  productId   String
+  version     String
+  blueprintId String?
+  dossierId   String?
+  executionId String?
+  assets      String   @default("[]") // JSON array of asset IDs
+  qaPassed    Boolean  @default(false)
+  changes     String   @default("")
+  feedback    String   @default("[]") // JSON array
+  parentId    String?  // previous version productId
+  status      String   @default("DRAFT") // DRAFT|PUBLISHED|ARCHIVED|SUPERSEDE
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([productId, version])
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// Launch Package
+model LaunchPackage {
+  id              String   @id @default(cuid())
+  userId          String
+  packageId       String   @unique
+  productId       String
+  version         String   @default("1.0.0")
+  product         String   // JSON
+  offer           String   // JSON
+  positioning     String
+  targetCustomer  String   // JSON
+  corePromise     String
+  benefits        String   @default("[]") // JSON
+  included        String   @default("[]") // JSON
+  bonuses         String   @default("[]") // JSON
+  price           String   // JSON
+  delivery        String   // JSON
+  faq             String   @default("[]") // JSON
+  objections      String   @default("[]") // JSON
+  cta             String
+  assets          String   @default("[]") // JSON
+  proofStatus     String   @default("[]") // JSON
+  disclaimers     String   @default("[]") // JSON
+  integrityCheck  String   @default("{}") // JSON
+  evidence        String   @default("INFERRED")
+  generatedAt     DateTime @default(now())
+  createdAt       DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// Commercial Feedback
+model CommercialFeedback {
+  id          String   @id @default(cuid())
+  userId      String
+  productId   String
+  version     String   @default("1.0.0")
+  feedbackType String  // POSITIVE | NEGATIVE | OBJECTION | FEATURE_REQUEST | CONTENT_GAP | USABILITY | PURCHASE_BARRIER
+  category    String   // PRODUCT | CONTENT | DESIGN | PRICE | POSITIONING | DELIVERY | MARKETING | OTHER
+  content     String
+  source      String   @default("user")
+  analyzed    Boolean  @default(false)
+  analysis    String?  // JSON
+  createdAt   DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }

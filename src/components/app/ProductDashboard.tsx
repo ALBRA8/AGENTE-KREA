@@ -8,6 +8,8 @@ import {
   Target, TrendingUp, Shield, Archive, MoreHorizontal,
   ExternalLink, Copy, Trash2, Zap, Globe, Users, DollarSign,
   Layers, Workflow, CheckCircle, Circle, HelpCircle, AlertCircle,
+  Package, Rocket, BarChart3, FileArchive, Wrench, Monitor,
+  Gauge, ThumbsUp, ThumbsDown, MessageSquare, Tag,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
@@ -57,7 +59,58 @@ interface Handoff {
   updatedAt: string;
 }
 
-type Section = "opportunities" | "dossiers" | "production" | "handoff";
+interface CommercialProduct {
+  id: string;
+  productId: string;
+  productName: string;
+  productType: string;
+  monetizationModel: string;
+  positioning: string;
+  commercialReadiness?: string;
+  evidence: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface FactoryExec {
+  id: string;
+  executionId: string;
+  productId: string;
+  factoryType: string;
+  status: string;
+  progress: string;
+  error?: string;
+  startedAt?: string;
+  completedAt?: string;
+  createdAt: string;
+}
+
+interface Asset {
+  id: string;
+  assetId: string;
+  productId: string;
+  type: string;
+  filename: string;
+  mimeType: string;
+  size: number;
+  status: string;
+  source: string;
+  createdAt: string;
+}
+
+interface LaunchPkg {
+  id: string;
+  packageId: string;
+  productId: string;
+  corePromise: string;
+  positioning: string;
+  cta: string;
+  evidence: string;
+  generatedAt: string;
+  createdAt: string;
+}
+
+type Section = "opportunities" | "dossiers" | "production" | "handoff" | "commercial" | "factory" | "assets" | "launch";
 
 /* ════════════ Helpers ════════════ */
 
@@ -1035,6 +1088,520 @@ function HandoffSection() {
   );
 }
 
+/* ════════════ Commercial Section ════════════ */
+
+function CommercialSection() {
+  const [products, setProducts] = useState<CommercialProduct[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError("");
+    try {
+      const token = getToken();
+      const res = await fetch("/api/product/dossiers", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error("Error al cargar productos comerciales");
+      const data = await res.json();
+      const dossiers = Array.isArray(data) ? data : data.dossiers || [];
+      // Load commercial products for each dossier that has one
+      const comms: CommercialProduct[] = [];
+      for (const d of dossiers) {
+        if (d.commercialProduct) comms.push(d.commercialProduct);
+      }
+      setProducts(comms);
+    } catch (e: any) {
+      setError(e.message || "Error de conexión");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => { load(); }, [load]);
+
+  const getReadinessScore = (r?: string): number | null => {
+    if (!r) return null;
+    try {
+      const parsed = JSON.parse(r);
+      return typeof parsed.overall === "number" ? parsed.overall : null;
+    } catch { return null; }
+  };
+
+  const getReadinessLevel = (r?: string): string => {
+    if (!r) return "N/A";
+    try {
+      const parsed = JSON.parse(r);
+      return parsed.level || "N/A";
+    } catch { return "N/A"; }
+  };
+
+  return (
+    <div>
+      <SectionHeader
+        icon={DollarSign}
+        title="Comercial"
+        subtitle="Definición comercial de productos y readiness score"
+        actions={
+          <button
+            onClick={load}
+            className="p-2 rounded-lg bg-white/5 hover:bg-white/10 text-white/50 hover:text-white transition-colors"
+          >
+            <RefreshCw className="w-4 h-4" />
+          </button>
+        }
+      />
+
+      {error ? (
+        <ErrorBanner message={error} onRetry={load} />
+      ) : loading ? (
+        <div className="flex items-center justify-center py-20 text-white/30">
+          <Loader2 className="w-6 h-6 animate-spin mr-2" /> Cargando productos comerciales...
+        </div>
+      ) : products.length === 0 ? (
+        <EmptyState
+          icon={DollarSign}
+          title="Sin productos comerciales"
+          subtitle="Crea un producto comercial desde un dossier para ver su definición comercial aquí"
+        />
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          {products.map((p, i) => {
+            const score = getReadinessScore(p.commercialReadiness);
+            const level = getReadinessLevel(p.commercialReadiness);
+            return (
+              <motion.div
+                key={p.id}
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: i * 0.05 }}
+                className="p-4 rounded-2xl bg-[#0f1629] border border-white/[0.06] hover:border-[#3b82f6]/20 transition-all group"
+              >
+                <div className="flex items-start justify-between mb-3">
+                  <div className="flex items-center gap-2">
+                    <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-emerald-400/20 to-[#3b82f6]/20 flex items-center justify-center">
+                      <DollarSign className="w-4 h-4 text-emerald-400" />
+                    </div>
+                    <div>
+                      <p className="text-sm font-semibold truncate max-w-[180px]">{p.productName}</p>
+                      <p className="text-[10px] text-white/30">{p.productType}</p>
+                    </div>
+                  </div>
+                  <StatusBadge status={level} />
+                </div>
+
+                <div className="space-y-2 mb-3">
+                  <p className="text-[10px] text-white/40 truncate">
+                    <span className="text-white/60">Modelo:</span> {p.monetizationModel || "—"}
+                  </p>
+                  <p className="text-[10px] text-white/40 truncate">
+                    <span className="text-white/60">Posición:</span> {p.positioning || "—"}
+                  </p>
+                </div>
+
+                {score !== null && (
+                  <div className="mb-3">
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-[10px] text-white/40">Readiness</span>
+                      <span className={`text-sm font-bold ${fitScoreColor(score)}`}>
+                        {(score * 100).toFixed(0)}%
+                      </span>
+                    </div>
+                    <div className="h-1.5 rounded-full bg-white/5 overflow-hidden">
+                      <div
+                        className={`h-full rounded-full transition-all ${
+                          score >= 0.7 ? "bg-emerald-400" : score >= 0.4 ? "bg-amber-400" : "bg-red-400"
+                        }`}
+                        style={{ width: `${score * 100}%` }}
+                      />
+                    </div>
+                  </div>
+                )}
+
+                <div className="flex items-center justify-between pt-2 border-t border-white/[0.06]">
+                  <span className="text-[10px] text-white/30 flex items-center gap-1">
+                    <Clock className="w-3 h-3" /> {formatDate(p.createdAt)}
+                  </span>
+                  <span className={`text-[10px] px-1.5 py-0.5 rounded ${
+                    p.evidence === "VERIFIED" ? "bg-emerald-400/10 text-emerald-400" :
+                    p.evidence === "INFERRED" ? "bg-amber-400/10 text-amber-400" :
+                    "bg-white/5 text-white/30"
+                  }`}>
+                    {p.evidence}
+                  </span>
+                </div>
+              </motion.div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ════════════ Factory Section ════════════ */
+
+function FactorySection() {
+  const [executions, setExecutions] = useState<FactoryExec[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError("");
+    try {
+      const token = getToken();
+      // Fetch factory executions via dossiers
+      const res = await fetch("/api/product/dossiers", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error("Error al cargar ejecuciones");
+      // For now, show empty state until factory executions are loaded directly
+      setExecutions([]);
+    } catch (e: any) {
+      setError(e.message || "Error de conexión");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => { load(); }, [load]);
+
+  const getProgressSteps = (progress: string): unknown[] => {
+    try { return JSON.parse(progress || "[]"); } catch { return []; }
+  };
+
+  return (
+    <div>
+      <SectionHeader
+        icon={Factory}
+        title="Factory"
+        subtitle="Estado de ejecuciones de factory y progreso de producción"
+        actions={
+          <button
+            onClick={load}
+            className="p-2 rounded-lg bg-white/5 hover:bg-white/10 text-white/50 hover:text-white transition-colors"
+          >
+            <RefreshCw className="w-4 h-4" />
+          </button>
+        }
+      />
+
+      {/* Status summary */}
+      {!loading && !error && (
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
+          {[
+            { label: "Creadas", count: executions.filter(e => e.status === "CREATED").length, icon: Circle, color: "text-blue-400" },
+            { label: "Ejecutando", count: executions.filter(e => ["QUEUED", "RUNNING"].includes(e.status)).length, icon: Play, color: "text-amber-400" },
+            { label: "QA", count: executions.filter(e => ["QA", "PASSED"].includes(e.status)).length, icon: Shield, color: "text-purple-400" },
+            { label: "Completadas", count: executions.filter(e => e.status === "COMPLETED").length, icon: CheckCircle2, color: "text-emerald-400" },
+          ].map((s) => (
+            <div key={s.label} className="p-3 rounded-xl bg-[#0f1629] border border-white/[0.06] text-center">
+              <s.icon className={`w-5 h-5 mx-auto mb-1 ${s.color}`} />
+              <p className="text-xl font-extrabold">{s.count}</p>
+              <p className="text-[10px] text-white/40">{s.label}</p>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {error ? (
+        <ErrorBanner message={error} onRetry={load} />
+      ) : loading ? (
+        <div className="flex items-center justify-center py-20 text-white/30">
+          <Loader2 className="w-6 h-6 animate-spin mr-2" /> Cargando ejecuciones...
+        </div>
+      ) : executions.length === 0 ? (
+        <EmptyState
+          icon={Factory}
+          title="Sin ejecuciones de factory"
+          subtitle="Ejecuta una factory desde un producto para ver el progreso aquí"
+        />
+      ) : (
+        <div className="space-y-3">
+          {executions.map((exec, i) => {
+            const steps = getProgressSteps(exec.progress);
+            return (
+              <motion.div
+                key={exec.id}
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: i * 0.05 }}
+                className="p-4 rounded-2xl bg-[#0f1629] border border-white/[0.06] hover:border-white/10 transition-all"
+              >
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-3">
+                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${
+                      exec.status === "COMPLETED" ? "bg-emerald-400/10" :
+                      exec.status === "FAILED" ? "bg-red-400/10" :
+                      exec.status === "RUNNING" ? "bg-amber-400/10" :
+                      "bg-blue-400/10"
+                    }`}>
+                      <Factory className={`w-5 h-5 ${
+                        exec.status === "COMPLETED" ? "text-emerald-400" :
+                        exec.status === "FAILED" ? "text-red-400" :
+                        exec.status === "RUNNING" ? "text-amber-400" :
+                        "text-blue-400"
+                      }`} />
+                    </div>
+                    <div>
+                      <p className="text-sm font-semibold">{exec.factoryType}</p>
+                      <p className="text-[10px] text-white/30 flex items-center gap-2">
+                        <span>Producto: {exec.productId}</span>
+                        <span>·</span>
+                        <span>{steps.length} pasos</span>
+                      </p>
+                    </div>
+                  </div>
+                  <StatusBadge status={exec.status} />
+                </div>
+
+                {exec.error && (
+                  <div className="p-2 rounded-lg bg-red-500/10 border border-red-500/20 mb-3">
+                    <p className="text-[10px] text-red-300">{exec.error}</p>
+                  </div>
+                )}
+
+                <div className="flex items-center justify-between pt-2 border-t border-white/[0.06]">
+                  <span className="text-[10px] text-white/30 flex items-center gap-1">
+                    <Clock className="w-3 h-3" /> {formatDate(exec.createdAt)}
+                  </span>
+                  {exec.completedAt && (
+                    <span className="text-[10px] text-white/30">
+                      Completado: {formatDate(exec.completedAt)}
+                    </span>
+                  )}
+                </div>
+              </motion.div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ════════════ Assets Section ════════════ */
+
+function AssetsSection() {
+  const [assets, setAssets] = useState<Asset[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError("");
+    try {
+      const token = getToken();
+      const res = await fetch("/api/product/assets", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error("Error al cargar assets");
+      const data = await res.json();
+      setAssets(Array.isArray(data) ? data : data.assets || []);
+    } catch (e: any) {
+      setError(e.message || "Error de conexión");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => { load(); }, [load]);
+
+  const formatSize = (bytes: number): string => {
+    if (bytes === 0) return "0 B";
+    const k = 1024;
+    const sizes = ["B", "KB", "MB", "GB"];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return `${(bytes / Math.pow(k, i)).toFixed(1)} ${sizes[i]}`;
+  };
+
+  const typeIcon = (type: string): React.ComponentType<{ className?: string }> => {
+    if (["pdf", "epub"].includes(type)) return BookOpen;
+    if (type === "image" || type === "cover") return Globe;
+    if (type === "markdown") return FileText;
+    if (type === "data") return BarChart3;
+    if (type === "template") return Layers;
+    return FileArchive;
+  };
+
+  return (
+    <div>
+      <SectionHeader
+        icon={Package}
+        title="Assets"
+        subtitle="Archivos de producto generados y sus estados"
+        actions={
+          <button
+            onClick={load}
+            className="p-2 rounded-lg bg-white/5 hover:bg-white/10 text-white/50 hover:text-white transition-colors"
+          >
+            <RefreshCw className="w-4 h-4" />
+          </button>
+        }
+      />
+
+      {error ? (
+        <ErrorBanner message={error} onRetry={load} />
+      ) : loading ? (
+        <div className="flex items-center justify-center py-20 text-white/30">
+          <Loader2 className="w-6 h-6 animate-spin mr-2" /> Cargando assets...
+        </div>
+      ) : assets.length === 0 ? (
+        <EmptyState
+          icon={Package}
+          title="Sin assets"
+          subtitle="Los assets se generan al ejecutar factories de producto"
+        />
+      ) : (
+        <div className="space-y-2 max-h-96 overflow-y-auto custom-scrollbar">
+          {assets.map((a, i) => {
+            const Icon = typeIcon(a.type);
+            return (
+              <motion.div
+                key={a.id}
+                initial={{ opacity: 0, x: -20 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ delay: i * 0.03 }}
+                className="flex items-center gap-3 p-3 rounded-xl bg-[#0f1629] border border-white/[0.06] hover:border-white/10 transition-all group"
+              >
+                <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-purple-400/20 to-[#3b82f6]/20 flex items-center justify-center flex-shrink-0">
+                  <Icon className="w-4 h-4 text-purple-400" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium truncate">{a.filename}</p>
+                  <p className="text-[10px] text-white/30 flex items-center gap-2">
+                    <span className="uppercase">{a.type}</span>
+                    <span>·</span>
+                    <span>{a.mimeType}</span>
+                    <span>·</span>
+                    <span>{formatSize(a.size)}</span>
+                  </p>
+                </div>
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  <span className="text-[10px] text-white/30">{a.source}</span>
+                  <StatusBadge status={a.status} />
+                </div>
+              </motion.div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ════════════ Launch Section ════════════ */
+
+function LaunchSection() {
+  const [packages, setPackages] = useState<LaunchPkg[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError("");
+    try {
+      // Launch packages are loaded via dossiers for now
+      const token = getToken();
+      const res = await fetch("/api/product/dossiers", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error("Error al cargar launch packages");
+      setPackages([]);
+    } catch (e: any) {
+      setError(e.message || "Error de conexión");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => { load(); }, [load]);
+
+  return (
+    <div>
+      <SectionHeader
+        icon={Rocket}
+        title="Launch"
+        subtitle="Paquetes de lanzamiento generados con oferta y posicionamiento"
+        actions={
+          <button
+            onClick={load}
+            className="p-2 rounded-lg bg-white/5 hover:bg-white/10 text-white/50 hover:text-white transition-colors"
+          >
+            <RefreshCw className="w-4 h-4" />
+          </button>
+        }
+      />
+
+      {error ? (
+        <ErrorBanner message={error} onRetry={load} />
+      ) : loading ? (
+        <div className="flex items-center justify-center py-20 text-white/30">
+          <Loader2 className="w-6 h-6 animate-spin mr-2" /> Cargando launch packages...
+        </div>
+      ) : packages.length === 0 ? (
+        <EmptyState
+          icon={Rocket}
+          title="Sin launch packages"
+          subtitle="Genera un launch package desde un producto comercial listo para lanzar"
+        />
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          {packages.map((pkg, i) => (
+            <motion.div
+              key={pkg.id}
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: i * 0.05 }}
+              className="p-4 rounded-2xl bg-[#0f1629] border border-white/[0.06] hover:border-[#3b82f6]/20 transition-all group"
+            >
+              <div className="flex items-start justify-between mb-3">
+                <div className="flex items-center gap-2">
+                  <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-rose-400/20 to-amber-400/20 flex items-center justify-center">
+                    <Rocket className="w-4 h-4 text-rose-400" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold">Launch Package</p>
+                    <p className="text-[10px] text-white/30">{pkg.productId}</p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="space-y-2 mb-3">
+                <p className="text-xs text-white/60 line-clamp-2">{pkg.corePromise}</p>
+                <p className="text-[10px] text-white/30 truncate">
+                  <span className="text-white/50">Posición:</span> {pkg.positioning}
+                </p>
+                <p className="text-[10px] text-white/30 truncate">
+                  <span className="text-white/50">CTA:</span> {pkg.cta}
+                </p>
+              </div>
+
+              <div className="flex items-center justify-between pt-2 border-t border-white/[0.06]">
+                <span className="text-[10px] text-white/30 flex items-center gap-1">
+                  <Clock className="w-3 h-3" /> {formatDate(pkg.generatedAt)}
+                </span>
+                <span className={`text-[10px] px-1.5 py-0.5 rounded ${
+                  pkg.evidence === "VERIFIED" ? "bg-emerald-400/10 text-emerald-400" :
+                  "bg-amber-400/10 text-amber-400"
+                }`}>
+                  {pkg.evidence}
+                </span>
+              </div>
+            </motion.div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* ════════════ Main ProductDashboard ════════════ */
 
 interface ProductDashboardProps {
@@ -1045,14 +1612,18 @@ export default function ProductDashboard({ initialSection = "opportunities" }: P
   const [internalSection, setInternalSection] = useState<Section>(initialSection);
   // When the parent changes the initialSection (different nav item clicked), update internal state
   const activeSection = initialSection !== internalSection &&
-    ["opportunities", "dossiers", "production", "handoff"].includes(initialSection)
+    ["opportunities", "dossiers", "production", "handoff", "commercial", "factory", "assets", "launch"].includes(initialSection)
     ? initialSection : internalSection;
   const setActiveSection = (s: Section) => { setInternalSection(s); };
 
   const sections: { id: Section; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
     { id: "opportunities", label: "Oportunidades", icon: Lightbulb },
     { id: "dossiers", label: "Dossiers", icon: FolderOpen },
+    { id: "commercial", label: "Comercial", icon: DollarSign },
     { id: "production", label: "Producción", icon: Factory },
+    { id: "factory", label: "Factory", icon: Wrench },
+    { id: "assets", label: "Assets", icon: Package },
+    { id: "launch", label: "Launch", icon: Rocket },
     { id: "handoff", label: "Handoff", icon: Send },
   ];
 
@@ -1060,7 +1631,11 @@ export default function ProductDashboard({ initialSection = "opportunities" }: P
     switch (activeSection) {
       case "opportunities": return <OpportunitiesSection />;
       case "dossiers": return <DossiersSection />;
+      case "commercial": return <CommercialSection />;
       case "production": return <ProductionSection />;
+      case "factory": return <FactorySection />;
+      case "assets": return <AssetsSection />;
+      case "launch": return <LaunchSection />;
       case "handoff": return <HandoffSection />;
       default: return <OpportunitiesSection />;
     }

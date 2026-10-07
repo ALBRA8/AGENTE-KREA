@@ -1,0 +1,1104 @@
+     1→     1→"use client";
+     2→     2→
+     3→     3→import { useState, useEffect, useCallback } from "react";
+     4→     4→import {
+     5→     5→  Lightbulb, FolderOpen, Factory, Send, ChevronRight, Loader2,
+     6→     6→  RefreshCw, Plus, Search, Eye, Play, CheckCircle2, AlertTriangle,
+     7→     7→  XCircle, Clock, ArrowRight, Sparkles, FileText, BookOpen,
+     8→     8→  Target, TrendingUp, Shield, Archive, MoreHorizontal,
+     9→     9→  ExternalLink, Copy, Trash2, Zap, Globe, Users, DollarSign,
+    10→    10→  Layers, Workflow, CheckCircle, Circle, HelpCircle, AlertCircle,
+    11→    11→} from "lucide-react";
+    12→    12→import { motion, AnimatePresence } from "framer-motion";
+    13→    13→
+    14→    14→/* ════════════ Types ════════════ */
+    15→    15→
+    16→    16→interface Opportunity {
+    17→    17→  id: string;
+    18→    18→  name: string;
+    19→    19→  productType: string;
+    20→    20→  targetAudience: string;
+    21→    21→  marketEvidence: string;
+    22→    22→  status: string;
+    23→    23→  fitScore?: number;
+    24→    24→  recommendation?: string;
+    25→    25→  createdAt: string;
+    26→    26→}
+    27→    27→
+    28→    28→interface Dossier {
+    29→    29→  id: string;
+    30→    30→  productName: string;
+    31→    31→  productType: string;
+    32→    32→  status: string;
+    33→    33→  fitScore?: number;
+    34→    34→  decision?: string;
+    35→    35→  createdAt: string;
+    36→    36→  updatedAt: string;
+    37→    37→}
+    38→    38→
+    39→    39→interface ProductionJob {
+    40→    40→  id: string;
+    41→    41→  dossierId: string;
+    42→    42→  productName: string;
+    43→    43→  productType: string;
+    44→    44→  status: string;
+    45→    45→  progress: number;
+    46→    46→  currentStep?: string;
+    47→    47→  createdAt: string;
+    48→    48→}
+    49→    49→
+    50→    50→interface Handoff {
+    51→    51→  id: string;
+    52→    52→  dossierId: string;
+    53→    53→  productName: string;
+    54→    54→  provider: string;
+    55→    55→  status: string;
+    56→    56→  createdAt: string;
+    57→    57→  updatedAt: string;
+    58→    58→}
+    59→    59→
+    60→    60→type Section = "opportunities" | "dossiers" | "production" | "handoff";
+    61→    61→
+    62→    62→/* ════════════ Helpers ════════════ */
+    63→    63→
+    64→    64→function getToken(): string {
+    65→    65→  if (typeof window !== "undefined") {
+    66→    66→    return localStorage.getItem("p360_token") || "";
+    67→    67→  }
+    68→    68→  return "";
+    69→    69→}
+    70→    70→
+    71→    71→function formatDate(d: string): string {
+    72→    72→  try {
+    73→    73→    return new Date(d).toLocaleDateString("es-ES", {
+    74→    74→      day: "2-digit",
+    75→    75→      month: "short",
+    76→    76→      year: "numeric",
+    77→    77→      hour: "2-digit",
+    78→    78→      minute: "2-digit",
+    79→    79→    });
+    80→    80→  } catch {
+    81→    81→    return d;
+    82→    82→  }
+    83→    83→}
+    84→    84→
+    85→    85→function statusColor(status: string): string {
+    86→    86→  const s = status.toUpperCase();
+    87→    87→  if (["COMPLETED", "GO", "PUBLISHED", "ACKNOWLEDGED"].includes(s)) return "text-emerald-400";
+    88→    88→  if (["FAILED", "NO_GO", "ARCHIVED"].includes(s)) return "text-red-400";
+    89→    89→  if (["RUNNING", "PRODUCING", "SENT", "CONDITIONAL_GO"].includes(s)) return "text-amber-400";
+    90→    90→  if (["PENDING", "CREATED", "IDEA", "READY"].includes(s)) return "text-blue-400";
+    91→    91→  return "text-white/50";
+    92→    92→}
+    93→    93→
+    94→    94→function statusBg(status: string): string {
+    95→    95→  const s = status.toUpperCase();
+    96→    96→  if (["COMPLETED", "GO", "PUBLISHED", "ACKNOWLEDGED"].includes(s)) return "bg-emerald-400/10 text-emerald-400 border-emerald-400/20";
+    97→    97→  if (["FAILED", "NO_GO", "ARCHIVED"].includes(s)) return "bg-red-400/10 text-red-400 border-red-400/20";
+    98→    98→  if (["RUNNING", "PRODUCING", "SENT", "CONDITIONAL_GO"].includes(s)) return "bg-amber-400/10 text-amber-400 border-amber-400/20";
+    99→    99→  if (["PENDING", "CREATED", "IDEA", "READY"].includes(s)) return "bg-blue-400/10 text-blue-400 border-blue-400/20";
+   100→   100→  return "bg-white/5 text-white/50 border-white/10";
+   101→   101→}
+   102→   102→
+   103→   103→function fitScoreColor(score: number): string {
+   104→   104→  if (score >= 0.7) return "text-emerald-400";
+   105→   105→  if (score >= 0.4) return "text-amber-400";
+   106→   106→  return "text-red-400";
+   107→   107→}
+   108→   108→
+   109→   109→/* ════════════ Shared UI ════════════ */
+   110→   110→
+   111→   111→function SectionHeader({ icon: Icon, title, subtitle, actions }: {
+   112→   112→  icon: React.ComponentType<{ className?: string }>;
+   113→   113→  title: string;
+   114→   114→  subtitle: string;
+   115→   115→  actions?: React.ReactNode;
+   116→   116→}) {
+   117→   117→  return (
+   118→   118→    <div className="mb-6 flex items-start justify-between gap-4">
+   119→   119→      <div>
+   120→   120→        <h1 className="text-2xl font-extrabold mb-1 flex items-center gap-2">
+   121→   121→          <Icon className="w-6 h-6 text-[#3b82f6]" />
+   122→   122→          <span className="gradient-text">{title}</span>
+   123→   123→        </h1>
+   124→   124→        <p className="text-sm text-white/50">{subtitle}</p>
+   125→   125→      </div>
+   126→   126→      {actions && <div className="flex items-center gap-2 flex-shrink-0">{actions}</div>}
+   127→   127→    </div>
+   128→   128→  );
+   129→   129→}
+   130→   130→
+   131→   131→function StatusBadge({ status }: { status: string }) {
+   132→   132→  return (
+   133→   133→    <span className={`inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold border ${statusBg(status)}`}>
+   134→   134→      {status}
+   135→   135→    </span>
+   136→   136→  );
+   137→   137→}
+   138→   138→
+   139→   139→function EmptyState({ icon: Icon, title, subtitle }: {
+   140→   140→  icon: React.ComponentType<{ className?: string }>;
+   141→   141→  title: string;
+   142→   142→  subtitle: string;
+   143→   143→}) {
+   144→   144→  return (
+   145→   145→    <div className="text-center py-16 text-white/20">
+   146→   146→      <Icon className="w-12 h-12 mx-auto mb-3 opacity-50" />
+   147→   147→      <p className="text-sm font-medium mb-1">{title}</p>
+   148→   148→      <p className="text-xs text-white/30">{subtitle}</p>
+   149→   149→    </div>
+   150→   150→  );
+   151→   151→}
+   152→   152→
+   153→   153→function ErrorBanner({ message, onRetry }: { message: string; onRetry?: () => void }) {
+   154→   154→  return (
+   155→   155→    <div className="p-4 rounded-xl bg-red-500/10 border border-red-500/20 flex items-center gap-3">
+   156→   156→      <AlertCircle className="w-5 h-5 text-red-400 flex-shrink-0" />
+   157→   157→      <p className="text-sm text-red-300 flex-1">{message}</p>
+   158→   158→      {onRetry && (
+   159→   159→        <button onClick={onRetry} className="text-xs text-red-300 hover:text-red-200 flex items-center gap-1">
+   160→   160→          <RefreshCw className="w-3 h-3" /> Reintentar
+   161→   161→        </button>
+   162→   162→      )}
+   163→   163→    </div>
+   164→   164→  );
+   165→   165→}
+   166→   166→
+   167→   167→/* ════════════ Opportunities Section ════════════ */
+   168→   168→
+   169→   169→function OpportunitiesSection() {
+   170→   170→  const [opportunities, setOpportunities] = useState<Opportunity[]>([]);
+   171→   171→  const [loading, setLoading] = useState(true);
+   172→   172→  const [error, setError] = useState("");
+   173→   173→  const [showForm, setShowForm] = useState(false);
+   174→   174→
+   175→   175→  // Form state
+   176→   176→  const [formName, setFormName] = useState("");
+   177→   177→  const [formType, setFormType] = useState("ebook");
+   178→   178→  const [formAudience, setFormAudience] = useState("");
+   179→   179→  const [formEvidence, setFormEvidence] = useState("");
+   180→   180→  const [submitting, setSubmitting] = useState(false);
+   181→   181→  const [formError, setFormError] = useState("");
+   182→   182→
+   183→   183→  const load = useCallback(async () => {
+   184→   184→    setLoading(true);
+   185→   185→    setError("");
+   186→   186→    try {
+   187→   187→      const token = getToken();
+   188→   188→      const res = await fetch("/api/product/opportunities", {
+   189→   189→        headers: { Authorization: `Bearer ${token}` },
+   190→   190→      });
+   191→   191→      if (!res.ok) throw new Error("Error al cargar oportunidades");
+   192→   192→      const data = await res.json();
+   193→   193→      setOpportunities(Array.isArray(data) ? data : data.opportunities || []);
+   194→   194→    } catch (e: any) {
+   195→   195→      setError(e.message || "Error de conexión");
+   196→   196→    } finally {
+   197→   197→      setLoading(false);
+   198→   198→    }
+   199→   199→  }, []);
+   200→   200→
+   201→   201→  // eslint-disable-next-line react-hooks/set-state-in-effect
+   202→   202→  useEffect(() => { load(); }, [load]);
+   203→   203→
+   204→   204→  const createOpportunity = async () => {
+   205→   205→    setSubmitting(true);
+   206→   206→    setFormError("");
+   207→   207→    try {
+   208→   208→      const token = getToken();
+   209→   209→      const res = await fetch("/api/product/opportunities", {
+   210→   210→        method: "POST",
+   211→   211→        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+   212→   212→        body: JSON.stringify({
+   213→   213→          name: formName,
+   214→   214→          productType: formType,
+   215→   215→          targetAudience: formAudience,
+   216→   216→          marketEvidence: formEvidence,
+   217→   217→        }),
+   218→   218→      });
+   219→   219→      if (!res.ok) {
+   220→   220→        const data = await res.json();
+   221→   221→        throw new Error(data.error || "Error al crear oportunidad");
+   222→   222→      }
+   223→   223→      setShowForm(false);
+   224→   224→      setFormName("");
+   225→   225→      setFormAudience("");
+   226→   226→      setFormEvidence("");
+   227→   227→      load();
+   228→   228→    } catch (e: any) {
+   229→   229→      setFormError(e.message);
+   230→   230→    } finally {
+   231→   231→      setSubmitting(false);
+   232→   232→    }
+   233→   233→  };
+   234→   234→
+   235→   235→  const productTypes = ["ebook", "software", "saas", "guide", "template", "kit"];
+   236→   236→
+   237→   237→  return (
+   238→   238→    <div>
+   239→   239→      <SectionHeader
+   240→   240→        icon={Lightbulb}
+   241→   241→        title="Oportunidades"
+   242→   242→        subtitle="Descubre y evalúa oportunidades de producto con Product Brain"
+   243→   243→        actions={
+   244→   244→          <button
+   245→   245→            onClick={() => setShowForm(!showForm)}
+   246→   246→            className="px-4 py-2 rounded-xl bg-gradient-to-b from-[#3b82f6] to-[#1e40af] text-white font-bold text-xs shadow-[0_10px_24px_rgba(30,64,175,0.45)] hover:brightness-110 active:scale-[0.98] transition-all flex items-center gap-1.5"
+   247→   247→          >
+   248→   248→            <Plus className="w-3.5 h-3.5" /> Nueva Oportunidad
+   249→   249→          </button>
+   250→   250→        }
+   251→   251→      />
+   252→   252→
+   253→   253→      {/* Create Form */}
+   254→   254→      <AnimatePresence>
+   255→   255→        {showForm && (
+   256→   256→          <motion.div
+   257→   257→            initial={{ opacity: 0, height: 0 }}
+   258→   258→            animate={{ opacity: 1, height: "auto" }}
+   259→   259→            exit={{ opacity: 0, height: 0 }}
+   260→   260→            className="overflow-hidden mb-6"
+   261→   261→          >
+   262→   262→            <div className="p-5 rounded-2xl bg-[#0f1629] border border-white/[0.06] space-y-4">
+   263→   263→              <h3 className="text-sm font-bold flex items-center gap-2">
+   264→   264→                <Sparkles className="w-4 h-4 text-[#3b82f6]" /> Crear Oportunidad
+   265→   265→              </h3>
+   266→   266→              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+   267→   267→                <div>
+   268→   268→                  <label className="text-xs text-white/50 mb-1.5 block">Nombre del producto</label>
+   269→   269→                  <input
+   270→   270→                    type="text"
+   271→   271→                    value={formName}
+   272→   272→                    onChange={(e) => setFormName(e.target.value)}
+   273→   273→                    className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm placeholder:text-white/30 focus:outline-none focus:border-[#3b82f6] transition-colors"
+   274→   274→                    placeholder="Ej: Guía de Marketing Digital 2025"
+   275→   275→                  />
+   276→   276→                </div>
+   277→   277→                <div>
+   278→   278→                  <label className="text-xs text-white/50 mb-1.5 block">Tipo de producto</label>
+   279→   279→                  <select
+   280→   280→                    value={formType}
+   281→   281→                    onChange={(e) => setFormType(e.target.value)}
+   282→   282→                    className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm focus:outline-none focus:border-[#3b82f6]"
+   283→   283→                  >
+   284→   284→                    {productTypes.map((t) => (
+   285→   285→                      <option key={t} value={t} className="bg-[#0a0f1e]">{t}</option>
+   286→   286→                    ))}
+   287→   287→                  </select>
+   288→   288→                </div>
+   289→   289→              </div>
+   290→   290→              <div>
+   291→   291→                <label className="text-xs text-white/50 mb-1.5 block">Audiencia objetivo</label>
+   292→   292→                <input
+   293→   293→                  type="text"
+   294→   294→                  value={formAudience}
+   295→   295→                  onChange={(e) => setFormAudience(e.target.value)}
+   296→   296→                  className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm placeholder:text-white/30 focus:outline-none focus:border-[#3b82f6] transition-colors"
+   297→   297→                  placeholder="Ej: Emprendedores digitales hispanohablantes"
+   298→   298→                />
+   299→   299→              </div>
+   300→   300→              <div>
+   301→   301→                <label className="text-xs text-white/50 mb-1.5 block">Evidencia de mercado</label>
+   302→   302→                <textarea
+   303→   303→                  value={formEvidence}
+   304→   304→                  onChange={(e) => setFormEvidence(e.target.value)}
+   305→   305→                  rows={3}
+   306→   306→                  className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm placeholder:text-white/30 focus:outline-none focus:border-[#3b82f6] transition-colors resize-none"
+   307→   307→                  placeholder="Describe la evidencia de mercado que sustenta esta oportunidad..."
+   308→   308→                />
+   309→   309→              </div>
+   310→   310→              <div className="flex items-center gap-3">
+   311→   311→                <button
+   312→   312→                  onClick={createOpportunity}
+   313→   313→                  disabled={submitting || !formName}
+   314→   314→                  className="px-6 py-2.5 rounded-xl bg-gradient-to-b from-[#3b82f6] to-[#1e40af] text-white font-bold text-xs shadow-[0_10px_24px_rgba(30,64,175,0.45)] hover:brightness-110 active:scale-[0.98] transition-all disabled:opacity-50 flex items-center gap-2"
+   315→   315→                >
+   316→   316→                  {submitting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Zap className="w-3.5 h-3.5" />}
+   317→   317→                  {submitting ? "Evaluando..." : "Evaluar Oportunidad"}
+   318→   318→                </button>
+   319→   319→                <button
+   320→   320→                  onClick={() => setShowForm(false)}
+   321→   321→                  className="px-4 py-2.5 rounded-xl bg-white/5 text-white/50 hover:text-white/80 text-xs transition-colors"
+   322→   322→                >
+   323→   323→                  Cancelar
+   324→   324→                </button>
+   325→   325→              </div>
+   326→   326→              {formError && <p className="text-red-400 text-xs">{formError}</p>}
+   327→   327→            </div>
+   328→   328→          </motion.div>
+   329→   329→        )}
+   330→   330→      </AnimatePresence>
+   331→   331→
+   332→   332→      {/* Content */}
+   333→   333→      {error ? (
+   334→   334→        <ErrorBanner message={error} onRetry={load} />
+   335→   335→      ) : loading ? (
+   336→   336→        <div className="flex items-center justify-center py-20 text-white/30">
+   337→   337→          <Loader2 className="w-6 h-6 animate-spin mr-2" /> Cargando oportunidades...
+   338→   338→        </div>
+   339→   339→      ) : opportunities.length === 0 ? (
+   340→   340→        <EmptyState
+   341→   341→          icon={Lightbulb}
+   342→   342→          title="Sin oportunidades aún"
+   343→   343→          subtitle="Crea tu primera oportunidad para empezar a evaluar ideas de producto"
+   344→   344→        />
+   345→   345→      ) : (
+   346→   346→        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+   347→   347→          {opportunities.map((opp, i) => (
+   348→   348→            <motion.div
+   349→   349→              key={opp.id}
+   350→   350→              initial={{ opacity: 0, y: 20 }}
+   351→   351→              animate={{ opacity: 1, y: 0 }}
+   352→   352→              transition={{ delay: i * 0.05 }}
+   353→   353→              className="p-4 rounded-2xl bg-[#0f1629] border border-white/[0.06] hover:border-[#3b82f6]/20 transition-all group"
+   354→   354→            >
+   355→   355→              <div className="flex items-start justify-between mb-3">
+   356→   356→                <div className="flex items-center gap-2">
+   357→   357→                  <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-[#3b82f6]/20 to-[#7c3aed]/20 flex items-center justify-center">
+   358→   358→                    <Lightbulb className="w-4 h-4 text-[#3b82f6]" />
+   359→   359→                  </div>
+   360→   360→                  <div>
+   361→   361→                    <p className="text-sm font-semibold truncate max-w-[180px]">{opp.name}</p>
+   362→   362→                    <p className="text-[10px] text-white/30">{opp.productType}</p>
+   363→   363→                  </div>
+   364→   364→                </div>
+   365→   365→                <StatusBadge status={opp.status} />
+   366→   366→              </div>
+   367→   367→
+   368→   368→              {opp.fitScore !== undefined && (
+   369→   369→                <div className="mb-3">
+   370→   370→                  <div className="flex items-center justify-between mb-1">
+   371→   371→                    <span className="text-[10px] text-white/40">Fit Score</span>
+   372→   372→                    <span className={`text-sm font-bold ${fitScoreColor(opp.fitScore)}`}>
+   373→   373→                      {(opp.fitScore * 100).toFixed(0)}%
+   374→   374→                    </span>
+   375→   375→                  </div>
+   376→   376→                  <div className="h-1.5 rounded-full bg-white/5 overflow-hidden">
+   377→   377→                    <div
+   378→   378→                      className={`h-full rounded-full transition-all ${
+   379→   379→                        opp.fitScore >= 0.7 ? "bg-emerald-400" : opp.fitScore >= 0.4 ? "bg-amber-400" : "bg-red-400"
+   380→   380→                      }`}
+   381→   381→                      style={{ width: `${opp.fitScore * 100}%` }}
+   382→   382→                    />
+   383→   383→                  </div>
+   384→   384→                </div>
+   385→   385→              )}
+   386→   386→
+   387→   387→              {opp.recommendation && (
+   388→   388→                <p className="text-[10px] text-white/30 mb-2 truncate">
+   389→   389→                  Recomendación: <span className="text-white/50">{opp.recommendation}</span>
+   390→   390→                </p>
+   391→   391→              )}
+   392→   392→
+   393→   393→              <div className="flex items-center justify-between pt-2 border-t border-white/[0.06]">
+   394→   394→                <span className="text-[10px] text-white/30 flex items-center gap-1">
+   395→   395→                  <Clock className="w-3 h-3" /> {formatDate(opp.createdAt)}
+   396→   396→                </span>
+   397→   397→                <ChevronRight className="w-3.5 h-3.5 text-white/20 group-hover:text-white/50 transition-colors" />
+   398→   398→              </div>
+   399→   399→            </motion.div>
+   400→   400→          ))}
+   401→   401→        </div>
+   402→   402→      )}
+   403→   403→    </div>
+   404→   404→  );
+   405→   405→}
+   406→   406→
+   407→   407→/* ════════════ Dossiers Section ════════════ */
+   408→   408→
+   409→   409→function DossiersSection() {
+   410→   410→  const [dossiers, setDossiers] = useState<Dossier[]>([]);
+   411→   411→  const [loading, setLoading] = useState(true);
+   412→   412→  const [error, setError] = useState("");
+   413→   413→  const [selectedId, setSelectedId] = useState<string | null>(null);
+   414→   414→  const [detail, setDetail] = useState<any>(null);
+   415→   415→  const [detailLoading, setDetailLoading] = useState(false);
+   416→   416→
+   417→   417→  const load = useCallback(async () => {
+   418→   418→    setLoading(true);
+   419→   419→    setError("");
+   420→   420→    try {
+   421→   421→      const token = getToken();
+   422→   422→      const res = await fetch("/api/product/dossiers", {
+   423→   423→        headers: { Authorization: `Bearer ${token}` },
+   424→   424→      });
+   425→   425→      if (!res.ok) throw new Error("Error al cargar dossiers");
+   426→   426→      const data = await res.json();
+   427→   427→      setDossiers(Array.isArray(data) ? data : data.dossiers || []);
+   428→   428→    } catch (e: any) {
+   429→   429→      setError(e.message || "Error de conexión");
+   430→   430→    } finally {
+   431→   431→      setLoading(false);
+   432→   432→    }
+   433→   433→  }, []);
+   434→   434→
+   435→   435→  // eslint-disable-next-line react-hooks/set-state-in-effect
+   436→   436→  useEffect(() => { load(); }, [load]);
+   437→   437→
+   438→   438→  const loadDetail = async (id: string) => {
+   439→   439→    setSelectedId(id);
+   440→   440→    setDetailLoading(true);
+   441→   441→    try {
+   442→   442→      const token = getToken();
+   443→   443→      const res = await fetch(`/api/product/dossiers/${id}`, {
+   444→   444→        headers: { Authorization: `Bearer ${token}` },
+   445→   445→      });
+   446→   446→      if (res.ok) setDetail(await res.json());
+   447→   447→    } catch {}
+   448→   448→    setDetailLoading(false);
+   449→   449→  };
+   450→   450→
+   451→   451→  const statusSteps = ["IDEA", "RESEARCH", "EVALUATE", "DECIDE", "ARCHITECT", "SPECIFY", "PRODUCE", "QA", "PUBLISH"];
+   452→   452→
+   453→   453→  const getStepIndex = (status: string) => {
+   454→   454→    const idx = statusSteps.indexOf(status.toUpperCase());
+   455→   455→    return idx >= 0 ? idx : 0;
+   456→   456→  };
+   457→   457→
+   458→   458→  return (
+   459→   459→    <div>
+   460→   460→      <SectionHeader
+   461→   461→        icon={FolderOpen}
+   462→   462→        title="Dossiers"
+   463→   463→        subtitle="Ciclo de vida completo de cada producto — de idea a publicación"
+   464→   464→        actions={
+   465→   465→          <button
+   466→   466→            onClick={load}
+   467→   467→            className="p-2 rounded-lg bg-white/5 hover:bg-white/10 text-white/50 hover:text-white transition-colors"
+   468→   468→          >
+   469→   469→            <RefreshCw className="w-4 h-4" />
+   470→   470→          </button>
+   471→   471→        }
+   472→   472→      />
+   473→   473→
+   474→   474→      {error ? (
+   475→   475→        <ErrorBanner message={error} onRetry={load} />
+   476→   476→      ) : loading ? (
+   477→   477→        <div className="flex items-center justify-center py-20 text-white/30">
+   478→   478→          <Loader2 className="w-6 h-6 animate-spin mr-2" /> Cargando dossiers...
+   479→   479→        </div>
+   480→   480→      ) : dossiers.length === 0 ? (
+   481→   481→        <EmptyState
+   482→   482→          icon={FolderOpen}
+   483→   483→          title="Sin dossiers"
+   484→   484→          subtitle="Los dossiers se crean automáticamente al evaluar oportunidades"
+   485→   485→        />
+   486→   486→      ) : (
+   487→   487→        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+   488→   488→          {/* Dossier List */}
+   489→   489→          <div className="lg:col-span-1 space-y-2 max-h-[700px] overflow-y-auto pr-1">
+   490→   490→            {dossiers.map((d, i) => (
+   491→   491→              <motion.button
+   492→   492→                key={d.id}
+   493→   493→                initial={{ opacity: 0, x: -20 }}
+   494→   494→                animate={{ opacity: 1, x: 0 }}
+   495→   495→                transition={{ delay: i * 0.03 }}
+   496→   496→                onClick={() => loadDetail(d.id)}
+   497→   497→                className={`w-full p-4 rounded-xl text-left transition-all ${
+   498→   498→                  selectedId === d.id
+   499→   499→                    ? "bg-[#3b82f6]/10 border border-[#3b82f6]/20"
+   500→   500→                    : "bg-[#0f1629] border border-white/[0.06] hover:border-white/10"
+   501→   501→                }`}
+   502→   502→              >
+   503→   503→                <div className="flex items-center justify-between mb-2">
+   504→   504→                  <p className="text-sm font-semibold truncate">{d.productName}</p>
+   505→   505→                  <StatusBadge status={d.status} />
+   506→   506→                </div>
+   507→   507→                <div className="flex items-center gap-3 text-[10px] text-white/30">
+   508→   508→                  <span>{d.productType}</span>
+   509→   509→                  {d.fitScore !== undefined && (
+   510→   510→                    <span className={fitScoreColor(d.fitScore)}>
+   511→   511→                      Fit: {(d.fitScore * 100).toFixed(0)}%
+   512→   512→                    </span>
+   513→   513→                  )}
+   514→   514→                  {d.decision && <span className="text-white/40">{d.decision}</span>}
+   515→   515→                </div>
+   516→   516→                {/* Pipeline progress */}
+   517→   517→                <div className="mt-3 flex items-center gap-1">
+   518→   518→                  {statusSteps.map((step, idx) => (
+   519→   519→                    <div
+   520→   520→                      key={step}
+   521→   521→                      className={`h-1 flex-1 rounded-full ${
+   522→   522→                        idx <= getStepIndex(d.status)
+   523→   523→                          ? "bg-[#3b82f6]"
+   524→   524→                          : "bg-white/5"
+   525→   525→                      }`}
+   526→   526→                      title={step}
+   527→   527→                    />
+   528→   528→                  ))}
+   529→   529→                </div>
+   530→   530→                <p className="text-[10px] text-white/20 mt-1.5">
+   531→   531→                  {formatDate(d.updatedAt)}
+   532→   532→                </p>
+   533→   533→              </motion.button>
+   534→   534→            ))}
+   535→   535→          </div>
+   536→   536→
+   537→   537→          {/* Detail View */}
+   538→   538→          <div className="lg:col-span-2">
+   539→   539→            {selectedId ? (
+   540→   540→              detailLoading ? (
+   541→   541→                <div className="flex items-center justify-center py-20 text-white/30">
+   542→   542→                  <Loader2 className="w-5 h-5 animate-spin mr-2" /> Cargando detalle...
+   543→   543→                </div>
+   544→   544→              ) : detail ? (
+   545→   545→                <motion.div
+   546→   546→                  initial={{ opacity: 0 }}
+   547→   547→                  animate={{ opacity: 1 }}
+   548→   548→                  className="p-5 rounded-2xl bg-[#0f1629] border border-white/[0.06] space-y-5"
+   549→   549→                >
+   550→   550→                  <div className="flex items-start justify-between">
+   551→   551→                    <div>
+   552→   552→                      <h3 className="text-lg font-bold">{detail.productName || detail.name}</h3>
+   553→   553→                      <p className="text-xs text-white/40 mt-1">
+   554→   554→                        {detail.productType} · {detail.status} · Creado {formatDate(detail.createdAt)}
+   555→   555→                      </p>
+   556→   556→                    </div>
+   557→   557→                    <StatusBadge status={detail.status} />
+   558→   558→                  </div>
+   559→   559→
+   560→   560→                  {/* Pipeline visualization */}
+   561→   561→                  <div>
+   562→   562→                    <h4 className="text-xs font-bold text-white/60 mb-2 uppercase tracking-wider">Pipeline</h4>
+   563→   563→                    <div className="flex items-center gap-1 overflow-x-auto pb-2">
+   564→   564→                      {statusSteps.map((step, idx) => {
+   565→   565→                        const currentIdx = getStepIndex(detail.status);
+   566→   566→                        const isActive = idx === currentIdx;
+   567→   567→                        const isDone = idx < currentIdx;
+   568→   568→                        return (
+   569→   569→                          <div key={step} className="flex items-center gap-1 flex-shrink-0">
+   570→   570→                            <div className={`flex items-center gap-1 px-2 py-1 rounded-md text-[9px] font-bold ${
+   571→   571→                              isDone ? "bg-emerald-400/10 text-emerald-400" :
+   572→   572→                              isActive ? "bg-[#3b82f6]/10 text-[#3b82f6]" :
+   573→   573→                              "bg-white/5 text-white/20"
+   574→   574→                            }`}>
+   575→   575→                              {isDone ? <CheckCircle2 className="w-3 h-3" /> : isActive ? <Play className="w-3 h-3" /> : <Circle className="w-3 h-3" />}
+   576→   576→                              {step}
+   577→   577→                            </div>
+   578→   578→                            {idx < statusSteps.length - 1 && (
+   579→   579→                              <ArrowRight className="w-3 h-3 text-white/10" />
+   580→   580→                            )}
+   581→   581→                          </div>
+   582→   582→                        );
+   583→   583→                      })}
+   584→   584→                    </div>
+   585→   585→                  </div>
+   586→   586→
+   587→   587→                  {/* Key data sections */}
+   588→   588→                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+   589→   589→                    {detail.fitScore && (
+   590→   590→                      <div className="p-3 rounded-xl bg-white/[0.02] border border-white/[0.06]">
+   591→   591→                        <h4 className="text-[10px] font-bold text-white/40 mb-2 uppercase tracking-wider">Fit Score</h4>
+   592→   592→                        <div className="flex items-center gap-2">
+   593→   593→                          <span className={`text-2xl font-extrabold ${fitScoreColor(detail.fitScore.overall || detail.fitScore)}`}>
+   594→   594→                            {((detail.fitScore.overall || detail.fitScore) * 100).toFixed(0)}%
+   595→   595→                          </span>
+   596→   596→                          {detail.fitScore.recommendation && (
+   597→   597→                            <span className="text-xs text-white/40">{detail.fitScore.recommendation}</span>
+   598→   598→                          )}
+   599→   599→                        </div>
+   600→   600→                      </div>
+   601→   601→                    )}
+   602→   602→                    {detail.decision && (
+   603→   603→                      <div className="p-3 rounded-xl bg-white/[0.02] border border-white/[0.06]">
+   604→   604→                        <h4 className="text-[10px] font-bold text-white/40 mb-2 uppercase tracking-wider">Decisión</h4>
+   605→   605→                        <StatusBadge status={detail.decision.decision || detail.decision} />
+   606→   606→                        {detail.decision.rationale && (
+   607→   607→                          <p className="text-xs text-white/40 mt-2 line-clamp-3">{detail.decision.rationale}</p>
+   608→   608→                        )}
+   609→   609→                      </div>
+   610→   610→                    )}
+   611→   611→                    {detail.architecture && (
+   612→   612→                      <div className="p-3 rounded-xl bg-white/[0.02] border border-white/[0.06] sm:col-span-2">
+   613→   613→                        <h4 className="text-[10px] font-bold text-white/40 mb-2 uppercase tracking-wider">Arquitectura</h4>
+   614→   614→                        <p className="text-xs text-white/60">{JSON.stringify(detail.architecture, null, 2).substring(0, 500)}</p>
+   615→   615→                      </div>
+   616→   616→                    )}
+   617→   617→                  </div>
+   618→   618→
+   619→   619→                  {/* Raw JSON toggle */}
+   620→   620→                  <details className="group">
+   621→   621→                    <summary className="text-[10px] text-white/30 cursor-pointer hover:text-white/50 flex items-center gap-1">
+   622→   622→                      <Eye className="w-3 h-3" /> Ver JSON completo
+   623→   623→                    </summary>
+   624→   624→                    <pre className="mt-2 p-3 rounded-xl bg-black/30 text-[10px] text-white/30 overflow-auto max-h-64">
+   625→   625→                      {JSON.stringify(detail, null, 2)}
+   626→   626→                    </pre>
+   627→   627→                  </details>
+   628→   628→                </motion.div>
+   629→   629→              ) : (
+   630→   630→                <div className="flex items-center justify-center py-20 text-white/20">
+   631→   631→                  No se pudo cargar el detalle
+   632→   632→                </div>
+   633→   633→              )
+   634→   634→            ) : (
+   635→   635→              <div className="flex items-center justify-center py-20 text-white/20">
+   636→   636→                <div className="text-center">
+   637→   637→                  <FolderOpen className="w-10 h-10 mx-auto mb-3 opacity-50" />
+   638→   638→                  <p className="text-sm">Selecciona un dossier para ver el detalle</p>
+   639→   639→                </div>
+   640→   640→              </div>
+   641→   641→            )}
+   642→   642→          </div>
+   643→   643→        </div>
+   644→   644→      )}
+   645→   645→    </div>
+   646→   646→  );
+   647→   647→}
+   648→   648→
+   649→   649→/* ════════════ Production Section ════════════ */
+   650→   650→
+   651→   651→function ProductionSection() {
+   652→   652→  const [jobs, setJobs] = useState<ProductionJob[]>([]);
+   653→   653→  const [loading, setLoading] = useState(true);
+   654→   654→  const [error, setError] = useState("");
+   655→   655→
+   656→   656→  // Form
+   657→   657→  const [dossierId, setDossierId] = useState("");
+   658→   658→  const [submitting, setSubmitting] = useState(false);
+   659→   659→  const [formError, setFormError] = useState("");
+   660→   660→  const [showForm, setShowForm] = useState(false);
+   661→   661→
+   662→   662→  const load = useCallback(async () => {
+   663→   663→    setLoading(true);
+   664→   664→    setError("");
+   665→   665→    try {
+   666→   666→      const token = getToken();
+   667→   667→      const res = await fetch("/api/product/produce", {
+   668→   668→        headers: { Authorization: `Bearer ${token}` },
+   669→   669→      });
+   670→   670→      if (!res.ok) throw new Error("Error al cargar trabajos de producción");
+   671→   671→      const data = await res.json();
+   672→   672→      setJobs(Array.isArray(data) ? data : data.jobs || data.productions || []);
+   673→   673→    } catch (e: any) {
+   674→   674→      setError(e.message || "Error de conexión");
+   675→   675→    } finally {
+   676→   676→      setLoading(false);
+   677→   677→    }
+   678→   678→  }, []);
+   679→   679→
+   680→   680→  // eslint-disable-next-line react-hooks/set-state-in-effect
+   681→   681→  useEffect(() => { load(); }, [load]);
+   682→   682→
+   683→   683→  const startProduction = async () => {
+   684→   684→    setSubmitting(true);
+   685→   685→    setFormError("");
+   686→   686→    try {
+   687→   687→      const token = getToken();
+   688→   688→      const res = await fetch("/api/product/produce", {
+   689→   689→        method: "POST",
+   690→   690→        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+   691→   691→        body: JSON.stringify({ dossierId }),
+   692→   692→      });
+   693→   693→      if (!res.ok) {
+   694→   694→        const data = await res.json();
+   695→   695→        throw new Error(data.error || "Error al iniciar producción");
+   696→   696→      }
+   697→   697→      setShowForm(false);
+   698→   698→      setDossierId("");
+   699→   699→      load();
+   700→   700→    } catch (e: any) {
+   701→   701→      setFormError(e.message);
+   702→   702→    } finally {
+   703→   703→      setSubmitting(false);
+   704→   704→    }
+   705→   705→  };
+   706→   706→
+   707→   707→  const pollJob = async (jobId: string) => {
+   708→   708→    try {
+   709→   709→      const token = getToken();
+   710→   710→      const res = await fetch(`/api/product/produce/${jobId}`, {
+   711→   711→        headers: { Authorization: `Bearer ${token}` },
+   712→   712→      });
+   713→   713→      if (res.ok) {
+   714→   714→        const updated = await res.json();
+   715→   715→        setJobs(prev => prev.map(j => j.id === jobId ? { ...j, ...updated } : j));
+   716→   716→      }
+   717→   717→    } catch {}
+   718→   718→  };
+   719→   719→
+   720→   720→  return (
+   721→   721→    <div>
+   722→   722→      <SectionHeader
+   723→   723→        icon={Factory}
+   724→   724→        title="Producción"
+   725→   725→        subtitle="Pipeline de producción de eBooks y otros productos digitales"
+   726→   726→        actions={
+   727→   727→          <button
+   728→   728→            onClick={() => setShowForm(!showForm)}
+   729→   729→            className="px-4 py-2 rounded-xl bg-gradient-to-b from-[#3b82f6] to-[#1e40af] text-white font-bold text-xs shadow-[0_10px_24px_rgba(30,64,175,0.45)] hover:brightness-110 active:scale-[0.98] transition-all flex items-center gap-1.5"
+   730→   730→          >
+   731→   731→            <Play className="w-3.5 h-3.5" /> Nueva Producción
+   732→   732→          </button>
+   733→   733→        }
+   734→   734→      />
+   735→   735→
+   736→   736→      {/* Start Production Form */}
+   737→   737→      <AnimatePresence>
+   738→   738→        {showForm && (
+   739→   739→          <motion.div
+   740→   740→            initial={{ opacity: 0, height: 0 }}
+   741→   741→            animate={{ opacity: 1, height: "auto" }}
+   742→   742→            exit={{ opacity: 0, height: 0 }}
+   743→   743→            className="overflow-hidden mb-6"
+   744→   744→          >
+   745→   745→            <div className="p-5 rounded-2xl bg-[#0f1629] border border-white/[0.06] space-y-4">
+   746→   746→              <h3 className="text-sm font-bold flex items-center gap-2">
+   747→   747→                <Factory className="w-4 h-4 text-[#3b82f6]" /> Iniciar Producción
+   748→   748→              </h3>
+   749→   749→              <div>
+   750→   750→                <label className="text-xs text-white/50 mb-1.5 block">ID del Dossier</label>
+   751→   751→                <input
+   752→   752→                  type="text"
+   753→   753→                  value={dossierId}
+   754→   754→                  onChange={(e) => setDossierId(e.target.value)}
+   755→   755→                  className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm placeholder:text-white/30 focus:outline-none focus:border-[#3b82f6] transition-colors"
+   756→   756→                  placeholder="Pega el ID del dossier aprobado..."
+   757→   757→                />
+   758→   758→              </div>
+   759→   759→              <div className="flex items-center gap-3">
+   760→   760→                <button
+   761→   761→                  onClick={startProduction}
+   762→   762→                  disabled={submitting || !dossierId}
+   763→   763→                  className="px-6 py-2.5 rounded-xl bg-gradient-to-b from-[#3b82f6] to-[#1e40af] text-white font-bold text-xs shadow-[0_10px_24px_rgba(30,64,175,0.45)] hover:brightness-110 active:scale-[0.98] transition-all disabled:opacity-50 flex items-center gap-2"
+   764→   764→                >
+   765→   765→                  {submitting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5" />}
+   766→   766→                  {submitting ? "Iniciando..." : "Iniciar Pipeline"}
+   767→   767→                </button>
+   768→   768→                <button
+   769→   769→                  onClick={() => setShowForm(false)}
+   770→   770→                  className="px-4 py-2.5 rounded-xl bg-white/5 text-white/50 hover:text-white/80 text-xs transition-colors"
+   771→   771→                >
+   772→   772→                  Cancelar
+   773→   773→                </button>
+   774→   774→              </div>
+   775→   775→              {formError && <p className="text-red-400 text-xs">{formError}</p>}
+   776→   776→            </div>
+   777→   777→          </motion.div>
+   778→   778→        )}
+   779→   779→      </AnimatePresence>
+   780→   780→
+   781→   781→      {/* Jobs List */}
+   782→   782→      {error ? (
+   783→   783→        <ErrorBanner message={error} onRetry={load} />
+   784→   784→      ) : loading ? (
+   785→   785→        <div className="flex items-center justify-center py-20 text-white/30">
+   786→   786→          <Loader2 className="w-6 h-6 animate-spin mr-2" /> Cargando producciones...
+   787→   787→        </div>
+   788→   788→      ) : jobs.length === 0 ? (
+   789→   789→        <EmptyState
+   790→   790→          icon={Factory}
+   791→   791→          title="Sin producciones"
+   792→   792→          subtitle="Inicia una producción desde un dossier aprobado"
+   793→   793→        />
+   794→   794→      ) : (
+   795→   795→        <div className="space-y-3">
+   796→   796→          {jobs.map((job, i) => (
+   797→   797→            <motion.div
+   798→   798→              key={job.id}
+   799→   799→              initial={{ opacity: 0, y: 20 }}
+   800→   800→              animate={{ opacity: 1, y: 0 }}
+   801→   801→              transition={{ delay: i * 0.05 }}
+   802→   802→              className="p-4 rounded-2xl bg-[#0f1629] border border-white/[0.06] hover:border-white/10 transition-all"
+   803→   803→            >
+   804→   804→              <div className="flex items-center justify-between mb-3">
+   805→   805→                <div className="flex items-center gap-3">
+   806→   806→                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${
+   807→   807→                    job.status === "COMPLETED" ? "bg-emerald-400/10" :
+   808→   808→                    job.status === "FAILED" ? "bg-red-400/10" :
+   809→   809→                    job.status === "RUNNING" ? "bg-amber-400/10" :
+   810→   810→                    "bg-[#3b82f6]/10"
+   811→   811→                  }`}>
+   812→   812→                    {job.status === "COMPLETED" ? <CheckCircle2 className="w-5 h-5 text-emerald-400" /> :
+   813→   813→                     job.status === "FAILED" ? <XCircle className="w-5 h-5 text-red-400" /> :
+   814→   814→                     job.status === "RUNNING" ? <Loader2 className="w-5 h-5 text-amber-400 animate-spin" /> :
+   815→   815→                     <Factory className="w-5 h-5 text-[#3b82f6]" />}
+   816→   816→                  </div>
+   817→   817→                  <div>
+   818→   818→                    <p className="text-sm font-semibold">{job.productName || job.dossierId}</p>
+   819→   819→                    <p className="text-[10px] text-white/30">{job.productType} · {formatDate(job.createdAt)}</p>
+   820→   820→                  </div>
+   821→   821→                </div>
+   822→   822→                <div className="flex items-center gap-2">
+   823→   823→                  <StatusBadge status={job.status} />
+   824→   824→                  {job.status === "RUNNING" && (
+   825→   825→                    <button
+   826→   826→                      onClick={() => pollJob(job.id)}
+   827→   827→                      className="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-white/40 hover:text-white transition-colors"
+   828→   828→                      title="Actualizar estado"
+   829→   829→                    >
+   830→   830→                      <RefreshCw className="w-3.5 h-3.5" />
+   831→   831→                    </button>
+   832→   832→                  )}
+   833→   833→                </div>
+   834→   834→              </div>
+   835→   835→
+   836→   836→              {/* Progress bar */}
+   837→   837→              <div className="mb-1">
+   838→   838→                <div className="flex items-center justify-between mb-1">
+   839→   839→                  <span className="text-[10px] text-white/40">
+   840→   840→                    {job.currentStep || "Progreso"}
+   841→   841→                  </span>
+   842→   842→                  <span className="text-[10px] text-white/40">{job.progress}%</span>
+   843→   843→                </div>
+   844→   844→                <div className="h-2 rounded-full bg-white/5 overflow-hidden">
+   845→   845→                  <div
+   846→   846→                    className={`h-full rounded-full transition-all duration-500 ${
+   847→   847→                      job.status === "COMPLETED" ? "bg-emerald-400" :
+   848→   848→                      job.status === "FAILED" ? "bg-red-400" :
+   849→   849→                      "bg-[#3b82f6]"
+   850→   850→                    }`}
+   851→   851→                    style={{ width: `${job.progress}%` }}
+   852→   852→                  />
+   853→   853→                </div>
+   854→   854→              </div>
+   855→   855→            </motion.div>
+   856→   856→          ))}
+   857→   857→        </div>
+   858→   858→      )}
+   859→   859→    </div>
+   860→   860→  );
+   861→   861→}
+   862→   862→
+   863→   863→/* ════════════ Handoff Section ════════════ */
+   864→   864→
+   865→   865→function HandoffSection() {
+   866→   866→  const [handoffs, setHandoffs] = useState<Handoff[]>([]);
+   867→   867→  const [loading, setLoading] = useState(true);
+   868→   868→  const [error, setError] = useState("");
+   869→   869→  const [acting, setActing] = useState<string | null>(null);
+   870→   870→
+   871→   871→  const load = useCallback(async () => {
+   872→   872→    setLoading(true);
+   873→   873→    setError("");
+   874→   874→    try {
+   875→   875→      const token = getToken();
+   876→   876→      const res = await fetch("/api/product/handoff", {
+   877→   877→        headers: { Authorization: `Bearer ${token}` },
+   878→   878→      });
+   879→   879→      if (!res.ok) throw new Error("Error al cargar handoffs");
+   880→   880→      const data = await res.json();
+   881→   881→      setHandoffs(Array.isArray(data) ? data : data.handoffs || []);
+   882→   882→    } catch (e: any) {
+   883→   883→      setError(e.message || "Error de conexión");
+   884→   884→    } finally {
+   885→   885→      setLoading(false);
+   886→   886→    }
+   887→   887→  }, []);
+   888→   888→
+   889→   889→  // eslint-disable-next-line react-hooks/set-state-in-effect
+   890→   890→  useEffect(() => { load(); }, [load]);
+   891→   891→
+   892→   892→  const performAction = async (handoffId: string, action: string) => {
+   893→   893→    setActing(handoffId);
+   894→   894→    try {
+   895→   895→      const token = getToken();
+   896→   896→      const res = await fetch(`/api/product/handoff/${handoffId}`, {
+   897→   897→        method: "POST",
+   898→   898→        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+   899→   899→        body: JSON.stringify({ action }),
+   900→   900→      });
+   901→   901→      if (!res.ok) {
+   902→   902→        const data = await res.json();
+   903→   903→        throw new Error(data.error || `Error al ejecutar ${action}`);
+   904→   904→      }
+   905→   905→      load();
+   906→   906→    } catch (e: any) {
+   907→   907→      setError(e.message);
+   908→   908→    } finally {
+   909→   909→      setActing(null);
+   910→   910→    }
+   911→   911→  };
+   912→   912→
+   913→   913→  const getActions = (status: string): { action: string; label: string; icon: React.ComponentType<{ className?: string }> }[] => {
+   914→   914→    const s = status.toUpperCase();
+   915→   915→    if (s === "CREATED") return [{ action: "ready", label: "Marcar Listo", icon: CheckCircle2 }];
+   916→   916→    if (s === "READY") return [{ action: "send", label: "Enviar", icon: Send }];
+   917→   917→    if (s === "SENT") return [{ action: "acknowledge", label: "Acknowledge", icon: Eye }];
+   918→   918→    if (s === "ACKNOWLEDGED") return [{ action: "complete", label: "Completar", icon: CheckCircle2 }];
+   919→   919→    return [];
+   920→   920→  };
+   921→   921→
+   922→   922→  return (
+   923→   923→    <div>
+   924→   924→      <SectionHeader
+   925→   925→        icon={Send}
+   926→   926→        title="Handoff"
+   927→   927→        subtitle="Contratos de handoff para implementación externa de productos software"
+   928→   928→        actions={
+   929→   929→          <button
+   930→   930→            onClick={load}
+   931→   931→            className="p-2 rounded-lg bg-white/5 hover:bg-white/10 text-white/50 hover:text-white transition-colors"
+   932→   932→          >
+   933→   933→            <RefreshCw className="w-4 h-4" />
+   934→   934→          </button>
+   935→   935→        }
+   936→   936→      />
+   937→   937→
+   938→   938→      {/* Status summary */}
+   939→   939→      {!loading && !error && handoffs.length > 0 && (
+   940→   940→        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
+   941→   941→          {[
+   942→   942→            { label: "Creados", count: handoffs.filter(h => h.status === "CREATED").length, icon: Circle, color: "text-blue-400" },
+   943→   943→            { label: "Listos", count: handoffs.filter(h => h.status === "READY").length, icon: CheckCircle2, color: "text-amber-400" },
+   944→   944→            { label: "Enviados", count: handoffs.filter(h => ["SENT", "ACKNOWLEDGED"].includes(h.status)).length, icon: Send, color: "text-purple-400" },
+   945→   945→            { label: "Completados", count: handoffs.filter(h => h.status === "COMPLETED").length, icon: CheckCircle2, color: "text-emerald-400" },
+   946→   946→          ].map((s) => (
+   947→   947→            <div key={s.label} className="p-3 rounded-xl bg-[#0f1629] border border-white/[0.06] text-center">
+   948→   948→              <s.icon className={`w-5 h-5 mx-auto mb-1 ${s.color}`} />
+   949→   949→              <p className="text-xl font-extrabold">{s.count}</p>
+   950→   950→              <p className="text-[10px] text-white/40">{s.label}</p>
+   951→   951→            </div>
+   952→   952→          ))}
+   953→   953→        </div>
+   954→   954→      )}
+   955→   955→
+   956→   956→      {error ? (
+   957→   957→        <ErrorBanner message={error} onRetry={load} />
+   958→   958→      ) : loading ? (
+   959→   959→        <div className="flex items-center justify-center py-20 text-white/30">
+   960→   960→          <Loader2 className="w-6 h-6 animate-spin mr-2" /> Cargando handoffs...
+   961→   961→        </div>
+   962→   962→      ) : handoffs.length === 0 ? (
+   963→   963→        <EmptyState
+   964→   964→          icon={Send}
+   965→   965→          title="Sin handoffs"
+   966→   966→          subtitle="Los handoffs se crean para productos software que requieren implementación externa"
+   967→   967→        />
+   968→   968→      ) : (
+   969→   969→        <div className="space-y-3">
+   970→   970→          {handoffs.map((h, i) => {
+   971→   971→            const actions = getActions(h.status);
+   972→   972→            return (
+   973→   973→              <motion.div
+   974→   974→                key={h.id}
+   975→   975→                initial={{ opacity: 0, y: 20 }}
+   976→   976→                animate={{ opacity: 1, y: 0 }}
+   977→   977→                transition={{ delay: i * 0.05 }}
+   978→   978→                className="p-4 rounded-2xl bg-[#0f1629] border border-white/[0.06] hover:border-white/10 transition-all"
+   979→   979→              >
+   980→   980→                <div className="flex items-center justify-between mb-3">
+   981→   981→                  <div className="flex items-center gap-3">
+   982→   982→                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${
+   983→   983→                      h.status === "COMPLETED" ? "bg-emerald-400/10" :
+   984→   984→                      h.status === "FAILED" ? "bg-red-400/10" :
+   985→   985→                      h.status === "SENT" || h.status === "ACKNOWLEDGED" ? "bg-purple-400/10" :
+   986→   986→                      h.status === "READY" ? "bg-amber-400/10" :
+   987→   987→                      "bg-blue-400/10"
+   988→   988→                    }`}>
+   989→   989→                      <Send className={`w-5 h-5 ${
+   990→   990→                        h.status === "COMPLETED" ? "text-emerald-400" :
+   991→   991→                        h.status === "FAILED" ? "text-red-400" :
+   992→   992→                        h.status === "SENT" || h.status === "ACKNOWLEDGED" ? "text-purple-400" :
+   993→   993→                        h.status === "READY" ? "text-amber-400" :
+   994→   994→                        "text-blue-400"
+   995→   995→                      }`} />
+   996→   996→                    </div>
+   997→   997→                    <div>
+   998→   998→                      <p className="text-sm font-semibold">{h.productName || h.dossierId}</p>
+   999→   999→                      <p className="text-[10px] text-white/30 flex items-center gap-2">
+  1000→  1000→                        <span>Provider: {h.provider}</span>
+  1001→  1001→                        <span>·</span>
+  1002→  1002→                        <span>{formatDate(h.updatedAt)}</span>
+  1003→  1003→                      </p>
+  1004→  1004→                    </div>
+  1005→  1005→                  </div>
+  1006→  1006→                  <StatusBadge status={h.status} />
+  1007→  1007→                </div>
+  1008→  1008→
+  1009→  1009→                {/* Actions */}
+  1010→  1010→                {actions.length > 0 && (
+  1011→  1011→                  <div className="flex items-center gap-2 pt-2 border-t border-white/[0.06]">
+  1012→  1012→                    {actions.map((a) => (
+  1013→  1013→                      <button
+  1014→  1014→                        key={a.action}
+  1015→  1015→                        onClick={() => performAction(h.id, a.action)}
+  1016→  1016→                        disabled={acting === h.id}
+  1017→  1017→                        className="px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-white/60 hover:text-white text-xs font-medium flex items-center gap-1.5 transition-all disabled:opacity-50"
+  1018→  1018→                      >
+  1019→  1019→                        {acting === h.id ? (
+  1020→  1020→                          <Loader2 className="w-3 h-3 animate-spin" />
+  1021→  1021→                        ) : (
+  1022→  1022→                          <a.icon className="w-3 h-3" />
+  1023→  1023→                        )}
+  1024→  1024→                        {a.label}
+  1025→  1025→                      </button>
+  1026→  1026→                    ))}
+  1027→  1027→                  </div>
+  1028→  1028→                )}
+  1029→  1029→              </motion.div>
+  1030→  1030→            );
+  1031→  1031→          })}
+  1032→  1032→        </div>
+  1033→  1033→      )}
+  1034→  1034→    </div>
+  1035→  1035→  );
+  1036→  1036→}
+  1037→  1037→
+  1038→  1038→/* ════════════ Main ProductDashboard ════════════ */
+  1039→  1039→
+  1040→  1040→interface ProductDashboardProps {
+  1041→  1041→  initialSection?: Section;
+  1042→  1042→}
+  1043→  1043→
+  1044→  1044→export default function ProductDashboard({ initialSection = "opportunities" }: ProductDashboardProps) {
+  1045→  1045→  const [internalSection, setInternalSection] = useState<Section>(initialSection);
+  1046→  1046→  // When the parent changes the initialSection (different nav item clicked), update internal state
+  1047→  1047→  const activeSection = initialSection !== internalSection &&
+  1048→  1048→    ["opportunities", "dossiers", "production", "handoff"].includes(initialSection)
+  1049→  1049→    ? initialSection : internalSection;
+  1050→  1050→  const setActiveSection = (s: Section) => { setInternalSection(s); };
+  1051→  1051→
+  1052→  1052→  const sections: { id: Section; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
+  1053→  1053→    { id: "opportunities", label: "Oportunidades", icon: Lightbulb },
+  1054→  1054→    { id: "dossiers", label: "Dossiers", icon: FolderOpen },
+  1055→  1055→    { id: "production", label: "Producción", icon: Factory },
+  1056→  1056→    { id: "handoff", label: "Handoff", icon: Send },
+  1057→  1057→  ];
+  1058→  1058→
+  1059→  1059→  const renderSection = () => {
+  1060→  1060→    switch (activeSection) {
+  1061→  1061→      case "opportunities": return <OpportunitiesSection />;
+  1062→  1062→      case "dossiers": return <DossiersSection />;
+  1063→  1063→      case "production": return <ProductionSection />;
+  1064→  1064→      case "handoff": return <HandoffSection />;
+  1065→  1065→      default: return <OpportunitiesSection />;
+  1066→  1066→    }
+  1067→  1067→  };
+  1068→  1068→
+  1069→  1069→  return (
+  1070→  1070→    <div>
+  1071→  1071→      {/* Section Tabs */}
+  1072→  1072→      <div className="flex gap-2 mb-6 overflow-x-auto pb-1">
+  1073→  1073→        {sections.map((s) => (
+  1074→  1074→          <button
+  1075→  1075→            key={s.id}
+  1076→  1076→            onClick={() => setActiveSection(s.id)}
+  1077→  1077→            className={`px-4 py-2.5 rounded-xl text-xs font-bold flex items-center gap-2 whitespace-nowrap transition-all ${
+  1078→  1078→              activeSection === s.id
+  1079→  1079→                ? "bg-gradient-to-r from-[#3b82f6]/20 to-[#7c3aed]/10 text-white border border-[#3b82f6]/20"
+  1080→  1080→                : "bg-white/5 text-white/50 hover:text-white/80 hover:bg-white/10 border border-transparent"
+  1081→  1081→            }`}
+  1082→  1082→          >
+  1083→  1083→            <s.icon className="w-3.5 h-3.5" />
+  1084→  1084→            {s.label}
+  1085→  1085→          </button>
+  1086→  1086→        ))}
+  1087→  1087→      </div>
+  1088→  1088→
+  1089→  1089→      {/* Section Content */}
+  1090→  1090→      <AnimatePresence mode="wait">
+  1091→  1091→        <motion.div
+  1092→  1092→          key={activeSection}
+  1093→  1093→          initial={{ opacity: 0, y: 10 }}
+  1094→  1094→          animate={{ opacity: 1, y: 0 }}
+  1095→  1095→          exit={{ opacity: 0, y: -10 }}
+  1096→  1096→          transition={{ duration: 0.2 }}
+  1097→  1097→        >
+  1098→  1098→          {renderSection()}
+  1099→  1099→        </motion.div>
+  1100→  1100→      </AnimatePresence>
+  1101→  1101→    </div>
+  1102→  1102→  );
+  1103→  1103→}
+  1104→  1104→

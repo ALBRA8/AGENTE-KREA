@@ -20,6 +20,7 @@
     "test:all": "vitest run"
   },
   "dependencies": {
+    "@paralleldrive/cuid2": "^3.3.0",
     "@prisma/client": "^6.11.1",
     "@radix-ui/react-accordion": "^1.2.11",
     "class-variance-authority": "^0.7.1",

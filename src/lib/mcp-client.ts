@@ -364,7 +364,7 @@ export class KreaMCPClient {
    * Request execution of a tool on another agent.
    * Communication is via API (decoupled — no direct function calls).
    */
-  async requestTool(agentId: string, toolName: string, params: Record<string, unknown>): Promise<ToolResponse> {
+  async requestTool(agentId: string, toolName: string, params: Record<string, unknown>, timeout?: number): Promise<ToolResponse> {
     const start = Date.now();
     const requestId = crypto.randomUUID();
     const agent = ECOSYSTEM_REGISTRY.find((a) => a.id === agentId);
@@ -423,7 +423,7 @@ export class KreaMCPClient {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ...params, requestId }),
-        signal: AbortSignal.timeout(Number(params.timeout) || 30000),
+        signal: AbortSignal.timeout(timeout ?? 30000),
       });
 
       const data = await res.json();
@@ -455,13 +455,16 @@ export class KreaMCPClient {
           truthLevel: "OBSERVED",
         },
       };
-    } catch (e: any) {
+    } catch (e: unknown) {
+      const errorMessage = e instanceof Error ? e.message : String(e);
+      const isTimeout = e instanceof DOMException && e.name === "TimeoutError";
+
       // Update interaction record
       await db.agentInteraction.update({
         where: { id: interaction.id },
         data: {
-          status: "FAILED",
-          result: JSON.stringify({ error: e.message }),
+          status: isTimeout ? "TIMEOUT" : "FAILED",
+          result: JSON.stringify({ error: errorMessage, timedOut: isTimeout }),
           completedAt: new Date(),
         },
       });
@@ -471,7 +474,9 @@ export class KreaMCPClient {
 
       return {
         success: false,
-        error: `Failed to reach agent '${agentId}': ${e.message}`,
+        error: isTimeout
+          ? `Request to agent '${agentId}' timed out after ${timeout ?? 30000}ms`
+          : `Failed to reach agent '${agentId}': ${errorMessage}`,
         agentId,
         toolName,
         requestId,

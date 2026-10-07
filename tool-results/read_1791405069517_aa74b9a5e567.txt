@@ -1,0 +1,1008 @@
+     1→/**
+     2→ * Commercial Product Engine — KREA V2.1
+     3→ *
+     4→ * Transforms a Product Dossier into a commercial product definition.
+     5→ * This is the bridge between the Product Brain (analysis) and the
+     6→ * commercial pipeline (blueprint → packaging → offer).
+     7→ *
+     8→ * CRITICAL RULES:
+     9→ * - ALL market data must have an EvidenceTag — never present estimates as VERIFIED
+    10→ * - Price ranges based on domain heuristics, NEVER invented benchmarks
+    11→ * - Objections generated from target customer analysis
+    12→ * - Proof requirements: status starts as MISSING (honest default)
+    13→ * - NEVER inflates commercial readiness scores
+    14→ * - NEVER invents testimonials, market data, or guaranteed results
+    15→ */
+    16→
+    17→import ZAI from "z-ai-web-dev-sdk";
+    18→import { z } from "zod";
+    19→import { parseStructuredResponse } from "@/lib/structured-output";
+    20→import type { EvidenceTag } from "@/lib/product-fit";
+    21→import type { ProductArchitecture } from "@/lib/product-architecture";
+    22→import type { ProductEconomics, RiskFactor } from "@/lib/product-economics";
+    23→import type { ProductDossierData } from "@/lib/product-dossier";
+    24→
+    25→// ─── Types ────────────────────────────────────────────────────────────────────
+    26→
+    27→export type ProductType =
+    28→  | "ebook"
+    29→  | "guide"
+    30→  | "manual"
+    31→  | "workbook"
+    32→  | "checklist"
+    33→  | "template_pack"
+    34→  | "digital_kit"
+    35→  | "resource_pack"
+    36→  | "specialized_document"
+    37→  | "hybrid_content"
+    38→  | "software"
+    39→  | "saas"
+    40→  | "api";
+    41→
+    42→export interface CustomerProfile {
+    43→  description: string;
+    44→  demographics: string[];
+    45→  psychographics: string[];
+    46→  painPoints: string[];
+    47→  currentSolutions: string[];
+    48→}
+    49→
+    50→export interface PriceStrategy {
+    51→  model: "one_time" | "subscription" | "freemium" | "pay_what_you_want" | "tiered";
+    52→  reasoning: string;
+    53→  evidence: EvidenceTag;
+    54→}
+    55→
+    56→export interface PriceRange {
+    57→  min: number;
+    58→  max: number;
+    59→  currency: string;
+    60→  recommended: number;
+    61→  evidence: EvidenceTag; // ALWAYS ESTIMATED or INFERRED for new products
+    62→}
+    63→
+    64→export interface ProofRequirement {
+    65→  type: "testimonial" | "case_study" | "data" | "demo" | "sample" | "guarantee";
+    66→  description: string;
+    67→  status: "AVAILABLE" | "MISSING" | "PARTIAL";
+    68→}
+    69→
+    70→export interface CommercialReadinessScore {
+    71→  overall: number;
+    72→  productCompleteness: DimensionScore;
+    73→  contentCompleteness: DimensionScore;
+    74→  quality: DimensionScore;
+    75→  packaging: DimensionScore;
+    76→  delivery: DimensionScore;
+    77→  differentiation: DimensionScore;
+    78→  evidence: DimensionScore;
+    79→  commercialClarity: DimensionScore;
+    80→}
+    81→
+    82→export interface DimensionScore {
+    83→  score: number;
+    84→  evidence: EvidenceTag;
+    85→  confidence: number;
+    86→  warnings: string[];
+    87→}
+    88→
+    89→export interface CommercialProduct {
+    90→  productId: string;
+    91→  productVersion: string;
+    92→  productName: string;
+    93→  productType: ProductType;
+    94→  targetCustomer: CustomerProfile;
+    95→  problem: string;
+    96→  jobToBeDone: string;
+    97→  desiredOutcome: string;
+    98→  valueProposition: string;
+    99→  differentiation: string;
+   100→  format: string;
+   101→  includedAssets: string[];
+   102→  excludedScope: string[];
+   103→  priceStrategy: PriceStrategy;
+   104→  priceRange: PriceRange;
+   105→  monetizationModel: string;
+   106→  distributionStrategy: string;
+   107→  positioning: string;
+   108→  keyBenefits: string[];
+   109→  objections: string[];
+   110→  proofRequirements: ProofRequirement[];
+   111→  commercialReadiness: CommercialReadinessScore;
+   112→  launchRequirements: string[];
+   113→  assumptions: string[];
+   114→  risks: RiskFactor[];
+   115→  evidence: EvidenceTag;
+   116→  provenance: string;
+   117→}
+   118→
+   119→// ─── Zod Schemas for LLM Response ─────────────────────────────────────────────
+   120→
+   121→const customerProfileSchema = z.object({
+   122→  description: z.string().min(10),
+   123→  demographics: z.array(z.string()),
+   124→  psychographics: z.array(z.string()),
+   125→  painPoints: z.array(z.string()),
+   126→  currentSolutions: z.array(z.string()),
+   127→});
+   128→
+   129→const commercialResponseSchema = z.object({
+   130→  jobToBeDone: z.string().min(10),
+   131→  desiredOutcome: z.string().min(5),
+   132→  valueProposition: z.string().min(10),
+   133→  differentiation: z.string().min(5),
+   134→  positioning: z.string().min(5),
+   135→  keyBenefits: z.array(z.string()).min(1),
+   136→  objections: z.array(z.string()),
+   137→  targetCustomer: customerProfileSchema,
+   138→});
+   139→
+   140→// ─── Price Heuristics by Product Type ─────────────────────────────────────────
+   141→
+   142→/**
+   143→ * Conservative price range heuristics by product type.
+   144→ * These are ESTIMATED — never presented as verified market data.
+   145→ * Based on common digital product pricing patterns, not invented benchmarks.
+   146→ */
+   147→const PRICE_HEURISTICS: Record<string, { min: number; max: number; model: PriceStrategy["model"] }> = {
+   148→  ebook: { min: 9, max: 49, model: "one_time" },
+   149→  guide: { min: 7, max: 39, model: "one_time" },
+   150→  manual: { min: 19, max: 79, model: "one_time" },
+   151→  workbook: { min: 9, max: 39, model: "one_time" },
+   152→  checklist: { min: 3, max: 19, model: "one_time" },
+   153→  template_pack: { min: 9, max: 49, model: "one_time" },
+   154→  digital_kit: { min: 19, max: 99, model: "one_time" },
+   155→  resource_pack: { min: 14, max: 69, model: "one_time" },
+   156→  specialized_document: { min: 29, max: 149, model: "one_time" },
+   157→  hybrid_content: { min: 19, max: 99, model: "tiered" },
+   158→  software: { min: 19, max: 199, model: "one_time" },
+   159→  saas: { min: 9, max: 99, model: "subscription" },
+   160→  api: { min: 9, max: 299, model: "subscription" },
+   161→};
+   162→
+   163→/**
+   164→ * Distribution strategies by product type.
+   165→ */
+   166→const DISTRIBUTION_DEFAULTS: Record<string, string> = {
+   167→  ebook: "Direct download (PDF/EPUB) via website or marketplace",
+   168→  guide: "Direct download (PDF) via website",
+   169→  manual: "Direct download (PDF) via website or email delivery",
+   170→  workbook: "Direct download (PDF) with fillable fields",
+   171→  checklist: "Direct download (PDF) via website",
+   172→  template_pack: "Direct download (ZIP) via website",
+   173→  digital_kit: "Direct download (ZIP) via website with access instructions",
+   174→  resource_pack: "Direct download (ZIP) via website",
+   175→  specialized_document: "Direct download (PDF/DOCX) via secure delivery",
+   176→  hybrid_content: "Direct download (ZIP) with multiple format access",
+   177→  software: "Direct download (installer) or cloud access",
+   178→  saas: "Cloud access with account-based delivery",
+   179→  api: "API key provisioning with documentation portal",
+   180→};
+   181→
+   182→// ─── ZAI Adapter ──────────────────────────────────────────────────────────────
+   183→
+   184→let zaiInstance: Awaited<ReturnType<typeof ZAI.create>> | null = null;
+   185→
+   186→async function getZAI() {
+   187→  if (!zaiInstance) {
+   188→    zaiInstance = await ZAI.create();
+   189→  }
+   190→  return zaiInstance;
+   191→}
+   192→
+   193→// ─── Core Functions ───────────────────────────────────────────────────────────
+   194→
+   195→/**
+   196→ * Create a Commercial Product from a Product Dossier, Architecture, and Economics.
+   197→ *
+   198→ * Uses ZAI to help define the commercial product (customer profile, value prop,
+   199→ * positioning), but ALL market data is tagged INFERRED or ESTIMATED.
+   200→ *
+   201→ * Price ranges come from domain heuristics — never invented benchmarks.
+   202→ * Objections are generated from target customer analysis.
+   203→ * Proof requirements start as MISSING (honest default).
+   204→ */
+   205→export async function createCommercialProduct(
+   206→  dossier: ProductDossierData,
+   207→  architecture: ProductArchitecture,
+   208→  economics: ProductEconomics
+   209→): Promise<CommercialProduct> {
+   210→  const productId = generateId("cprod");
+   211→  const productVersion = "1.0.0";
+   212→  const productType = mapProductType(architecture.productType);
+   213→  const productName = dossier.title;
+   214→
+   215→  // Get price heuristics for this product type
+   216→  const priceHeuristic = PRICE_HEURISTICS[productType] || PRICE_HEURISTICS.ebook;
+   217→
+   218→  // Build the price range from heuristics (ALWAYS ESTIMATED for new products)
+   219→  const priceRange: PriceRange = {
+   220→    min: priceHeuristic.min,
+   221→    max: priceHeuristic.max,
+   222→    currency: economics.estimatedCost.currency,
+   223→    recommended: Math.round((priceHeuristic.min + priceHeuristic.max) / 2),
+   224→    evidence: "ESTIMATED", // NEVER VERIFIED for new product prices
+   225→  };
+   226→
+   227→  // Build the price strategy
+   228→  const priceStrategy: PriceStrategy = {
+   229→    model: priceHeuristic.model,
+   230→    reasoning: `Based on ${productType} product type heuristics. Actual pricing should be validated with market research.`,
+   231→    evidence: "ESTIMATED",
+   232→  };
+   233→
+   234→  // Generate proof requirements (all start as MISSING — honest default)
+   235→  const proofRequirements: ProofRequirement[] = generateProofRequirements(productType);
+   236→
+   237→  // Try LLM-assisted commercial definition
+   238→  try {
+   239→    const zai = await getZAI();
+   240→    const prompt = buildCommercialPrompt(dossier, architecture, economics, productType, priceRange);
+   241→
+   242→    const response = await zai.chat.completions.create({
+   243→      messages: [
+   244→        { role: "system", content: COMMERCIAL_SYSTEM_PROMPT },
+   245→        { role: "user", content: prompt },
+   246→      ],
+   247→    });
+   248→
+   249→    const content = response.choices[0]?.message?.content || "";
+   250→    const parseResult = parseStructuredResponse(content, commercialResponseSchema);
+   251→
+   252→    if (parseResult.success) {
+   253→      const data = parseResult.data;
+   254→
+   255→      const commercialProduct: CommercialProduct = {
+   256→        productId,
+   257→        productVersion,
+   258→        productName,
+   259→        productType,
+   260→        targetCustomer: data.targetCustomer,
+   261→        problem: dossier.opportunity?.problemStatement || dossier.description,
+   262→        jobToBeDone: data.jobToBeDone,
+   263→        desiredOutcome: data.desiredOutcome,
+   264→        valueProposition: data.valueProposition,
+   265→        differentiation: data.differentiation,
+   266→        format: inferFormat(productType, architecture),
+   267→        includedAssets: inferIncludedAssets(productType, architecture),
+   268→        excludedScope: inferExcludedScope(productType, architecture),
+   269→        priceStrategy,
+   270→        priceRange,
+   271→        monetizationModel: priceStrategy.model,
+   272→        distributionStrategy: DISTRIBUTION_DEFAULTS[productType] || "Direct digital delivery",
+   273→        positioning: data.positioning,
+   274→        keyBenefits: data.keyBenefits,
+   275→        objections: data.objections,
+   276→        proofRequirements,
+   277→        commercialReadiness: evaluateCommercialReadiness({
+   278→          productId,
+   279→          productVersion,
+   280→          productName,
+   281→          productType,
+   282→          targetCustomer: data.targetCustomer,
+   283→          problem: dossier.opportunity?.problemStatement || dossier.description,
+   284→          jobToBeDone: data.jobToBeDone,
+   285→          desiredOutcome: data.desiredOutcome,
+   286→          valueProposition: data.valueProposition,
+   287→          differentiation: data.differentiation,
+   288→          format: inferFormat(productType, architecture),
+   289→          includedAssets: inferIncludedAssets(productType, architecture),
+   290→          excludedScope: inferExcludedScope(productType, architecture),
+   291→          priceStrategy,
+   292→          priceRange,
+   293→          monetizationModel: priceStrategy.model,
+   294→          distributionStrategy: DISTRIBUTION_DEFAULTS[productType] || "Direct digital delivery",
+   295→          positioning: data.positioning,
+   296→          keyBenefits: data.keyBenefits,
+   297→          objections: data.objections,
+   298→          proofRequirements,
+   299→          commercialReadiness: createDefaultReadiness(),
+   300→          launchRequirements: [],
+   301→          assumptions: [],
+   302→          risks: economics.riskFactors,
+   303→          evidence: "INFERRED",
+   304→          provenance: `commercial-product:${productId}`,
+   305→        }),
+   306→        launchRequirements: generateLaunchRequirements(productType, proofRequirements),
+   307→        assumptions: generateAssumptions(productType, priceRange),
+   308→        risks: economics.riskFactors,
+   309→        evidence: "INFERRED", // LLM-derived, never VERIFIED
+   310→        provenance: `commercial-product:${productId}`,
+   311→      };
+   312→
+   313→      return commercialProduct;
+   314→    }
+   315→
+   316→    console.error("[CommercialProduct] LLM parse failed:", parseResult.error);
+   317→  } catch (error) {
+   318→    const message = error instanceof Error ? error.message : String(error);
+   319→    console.error("[CommercialProduct] LLM error:", message);
+   320→  }
+   321→
+   322→  // Fallback: create commercial product from dossier data without LLM
+   323→  return createFallbackCommercialProduct(
+   324→    productId,
+   325→    productVersion,
+   326→    productName,
+   327→    productType,
+   328→    dossier,
+   329→    architecture,
+   330→    economics,
+   331→    priceStrategy,
+   332→    priceRange,
+   333→    proofRequirements
+   334→  );
+   335→}
+   336→
+   337→/**
+   338→ * Evaluate commercial readiness of a product.
+   339→ *
+   340→ * Each dimension is scored 0-1 with evidence.
+   341→ * Overall = weighted average.
+   342→ * Warnings are added when data is insufficient.
+   343→ * NEVER inflates scores — honest assessment only.
+   344→ */
+   345→export function evaluateCommercialReadiness(
+   346→  product: CommercialProduct,
+   347→  qaReport?: { passed: boolean; issues: string[] },
+   348→  assets?: { id: string; type: string; verified: boolean }[]
+   349→): CommercialReadinessScore {
+   350→  // Product completeness: do we have a well-defined product?
+   351→  const productCompleteness = scoreProductCompleteness(product);
+   352→
+   353→  // Content completeness: is content ready?
+   354→  const contentCompleteness = scoreContentCompleteness(product, assets);
+   355→
+   356→  // Quality: has QA been done?
+   357→  const quality = scoreQuality(qaReport);
+   358→
+   359→  // Packaging: is the product packaged for delivery?
+   360→  const packaging = scorePackaging(product);
+   361→
+   362→  // Delivery: can we deliver the product?
+   363→  const delivery = scoreDelivery(product);
+   364→
+   365→  // Differentiation: is the product differentiated?
+   366→  const differentiation = scoreDifferentiation(product);
+   367→
+   368→  // Evidence: how strong is our evidence?
+   369→  const evidence = scoreEvidence(product);
+   370→
+   371→  // Commercial clarity: is the offer clear?
+   372→  const commercialClarity = scoreCommercialClarity(product);
+   373→
+   374→  // Weighted average — never inflate
+   375→  const weights = {
+   376→    productCompleteness: 0.15,
+   377→    contentCompleteness: 0.15,
+   378→    quality: 0.15,
+   379→    packaging: 0.10,
+   380→    delivery: 0.10,
+   381→    differentiation: 0.10,
+   382→    evidence: 0.15,
+   383→    commercialClarity: 0.10,
+   384→  };
+   385→
+   386→  const overall = Math.min(
+   387→    1,
+   388→    weights.productCompleteness * productCompleteness.score +
+   389→      weights.contentCompleteness * contentCompleteness.score +
+   390→      weights.quality * quality.score +
+   391→      weights.packaging * packaging.score +
+   392→      weights.delivery * delivery.score +
+   393→      weights.differentiation * differentiation.score +
+   394→      weights.evidence * evidence.score +
+   395→      weights.commercialClarity * commercialClarity.score
+   396→  );
+   397→
+   398→  return {
+   399→    overall: roundScore(overall),
+   400→    productCompleteness,
+   401→    contentCompleteness,
+   402→    quality,
+   403→    packaging,
+   404→    delivery,
+   405→    differentiation,
+   406→    evidence,
+   407→    commercialClarity,
+   408→  };
+   409→}
+   410→
+   411→// ─── Dimension Scoring Functions ──────────────────────────────────────────────
+   412→
+   413→function scoreProductCompleteness(product: CommercialProduct): DimensionScore {
+   414→  const warnings: string[] = [];
+   415→  let score = 0;
+   416→
+   417→  // Check core fields
+   418→  if (product.problem && product.problem.length > 10) score += 0.15;
+   419→  else warnings.push("Problem statement is missing or too short");
+   420→
+   421→  if (product.jobToBeDone && product.jobToBeDone.length > 10) score += 0.15;
+   422→  else warnings.push("Job to be done is missing or too short");
+   423→
+   424→  if (product.valueProposition && product.valueProposition.length > 10) score += 0.2;
+   425→  else warnings.push("Value proposition is missing or too short");
+   426→
+   427→  if (product.targetCustomer.description.length > 10) score += 0.15;
+   428→  else warnings.push("Target customer is not well defined");
+   429→
+   430→  if (product.keyBenefits.length > 0) score += 0.15;
+   431→  else warnings.push("No key benefits defined");
+   432→
+   433→  if (product.format) score += 0.1;
+   434→  else warnings.push("Product format not specified");
+   435→
+   436→  if (product.differentiation && product.differentiation.length > 5) score += 0.1;
+   437→  else warnings.push("Differentiation is not defined");
+   438→
+   439→  return {
+   440→    score: roundScore(score),
+   441→    evidence: "INFERRED",
+   442→    confidence: score > 0.7 ? 0.8 : score > 0.4 ? 0.5 : 0.2,
+   443→    warnings,
+   444→  };
+   445→}
+   446→
+   447→function scoreContentCompleteness(
+   448→  product: CommercialProduct,
+   449→  assets?: { id: string; type: string; verified: boolean }[]
+   450→): DimensionScore {
+   451→  const warnings: string[] = [];
+   452→
+   453→  if (!assets || assets.length === 0) {
+   454→    warnings.push("No assets available — content cannot be verified");
+   455→    return {
+   456→      score: 0.1,
+   457→      evidence: "NOT_VERIFIED",
+   458→      confidence: 0.1,
+   459→      warnings,
+   460→    };
+   461→  }
+   462→
+   463→  const verifiedAssets = assets.filter((a) => a.verified).length;
+   464→  const totalAssets = assets.length;
+   465→  const verifiedRatio = totalAssets > 0 ? verifiedAssets / totalAssets : 0;
+   466→
+   467→  if (verifiedRatio < 0.5) {
+   468→    warnings.push(`Only ${verifiedAssets}/${totalAssets} assets are verified`);
+   469→  }
+   470→
+   471→  return {
+   472→    score: roundScore(Math.min(1, verifiedRatio * 1.2)),
+   473→    evidence: verifiedRatio > 0.8 ? "VERIFIED" : verifiedRatio > 0.5 ? "INFERRED" : "NOT_VERIFIED",
+   474→    confidence: verifiedRatio > 0.8 ? 0.9 : verifiedRatio > 0.5 ? 0.6 : 0.3,
+   475→    warnings,
+   476→  };
+   477→}
+   478→
+   479→function scoreQuality(
+   480→  qaReport?: { passed: boolean; issues: string[] }
+   481→): DimensionScore {
+   482→  const warnings: string[] = [];
+   483→
+   484→  if (!qaReport) {
+   485→    warnings.push("No QA report available — quality cannot be verified");
+   486→    return {
+   487→      score: 0.2,
+   488→      evidence: "NOT_VERIFIED",
+   489→      confidence: 0.1,
+   490→      warnings,
+   491→    };
+   492→  }
+   493→
+   494→  if (!qaReport.passed) {
+   495→    warnings.push(`QA did not pass: ${qaReport.issues.length} issues found`);
+   496→    return {
+   497→      score: 0.3,
+   498→      evidence: "VERIFIED",
+   499→      confidence: 0.8,
+   500→      warnings,
+   501→    };
+   502→  }
+   503→
+   504→  if (qaReport.issues.length > 0) {
+   505→    warnings.push(`QA passed with ${qaReport.issues.length} minor issues`);
+   506→  }
+   507→
+   508→  return {
+   509→    score: qaReport.issues.length === 0 ? 0.95 : 0.75,
+   510→    evidence: "VERIFIED",
+   511→    confidence: 0.9,
+   512→    warnings,
+   513→  };
+   514→}
+   515→
+   516→function scorePackaging(product: CommercialProduct): DimensionScore {
+   517→  const warnings: string[] = [];
+   518→  let score = 0;
+   519→
+   520→  if (product.format) score += 0.25;
+   521→  else warnings.push("Format not specified");
+   522→
+   523→  if (product.distributionStrategy) score += 0.25;
+   524→  else warnings.push("Distribution strategy not defined");
+   525→
+   526→  if (product.includedAssets.length > 0) score += 0.25;
+   527→  else warnings.push("No included assets defined");
+   528→
+   529→  if (product.priceRange.recommended > 0) score += 0.25;
+   530→  else warnings.push("Price not set");
+   531→
+   532→  return {
+   533→    score: roundScore(score),
+   534→    evidence: "INFERRED",
+   535→    confidence: score > 0.7 ? 0.7 : 0.4,
+   536→    warnings,
+   537→  };
+   538→}
+   539→
+   540→function scoreDelivery(product: CommercialProduct): DimensionScore {
+   541→  const warnings: string[] = [];
+   542→  let score = 0;
+   543→
+   544→  if (product.distributionStrategy) score += 0.4;
+   545→  else warnings.push("No distribution strategy");
+   546→
+   547→  if (product.format) score += 0.3;
+   548→  else warnings.push("No delivery format specified");
+   549→
+   550→  if (product.priceStrategy.model) score += 0.3;
+   551→  else warnings.push("No monetization model");
+   552→
+   553→  return {
+   554→    score: roundScore(score),
+   555→    evidence: "INFERRED",
+   556→    confidence: 0.5,
+   557→    warnings,
+   558→  };
+   559→}
+   560→
+   561→function scoreDifferentiation(product: CommercialProduct): DimensionScore {
+   562→  const warnings: string[] = [];
+   563→
+   564→  if (!product.differentiation || product.differentiation.length < 10) {
+   565→    warnings.push("Differentiation is weak or undefined");
+   566→    return {
+   567→      score: 0.2,
+   568→      evidence: "NOT_VERIFIED",
+   569→      confidence: 0.2,
+   570→      warnings,
+   571→    };
+   572→  }
+   573→
+   574→  // Basic heuristic: longer, more specific differentiation statements score higher
+   575→  const lengthScore = Math.min(1, product.differentiation.length / 200);
+   576→  const hasSpecifics = product.keyBenefits.length > 2;
+   577→
+   578→  const score = Math.min(1, lengthScore * 0.6 + (hasSpecifics ? 0.4 : 0.1));
+   579→
+   580→  if (!hasSpecifics) {
+   581→    warnings.push("Few key benefits — differentiation may not be convincing");
+   582→  }
+   583→
+   584→  return {
+   585→    score: roundScore(score),
+   586→    evidence: "INFERRED",
+   587→    confidence: 0.5,
+   588→    warnings,
+   589→  };
+   590→}
+   591→
+   592→function scoreEvidence(product: CommercialProduct): DimensionScore {
+   593→  const warnings: string[] = [];
+   594→
+   595→  // Check how much evidence is actually verified
+   596→  const overallEvidence = product.evidence;
+   597→  const priceEvidence = product.priceRange.evidence;
+   598→  const strategyEvidence = product.priceStrategy.evidence;
+   599→
+   600→  // Count proof requirements that are available
+   601→  const availableProofs = product.proofRequirements.filter(
+   602→    (p) => p.status === "AVAILABLE"
+   603→  ).length;
+   604→  const totalProofs = product.proofRequirements.length;
+   605→  const proofRatio = totalProofs > 0 ? availableProofs / totalProofs : 0;
+   606→
+   607→  let score = 0;
+   608→
+   609→  // Overall evidence quality
+   610→  if (overallEvidence === "VERIFIED") score += 0.3;
+   611→  else if (overallEvidence === "INFERRED") score += 0.15;
+   612→  else warnings.push("Overall product evidence is not verified");
+   613→
+   614→  // Price evidence
+   615→  if (priceEvidence === "VERIFIED") score += 0.2;
+   616→  else if (priceEvidence === "ESTIMATED" || priceEvidence === "INFERRED") score += 0.1;
+   617→  else warnings.push("Price evidence is not established");
+   618→
+   619→  // Strategy evidence
+   620→  if (strategyEvidence === "VERIFIED") score += 0.2;
+   621→  else if (strategyEvidence === "ESTIMATED" || strategyEvidence === "INFERRED") score += 0.1;
+   622→  else warnings.push("Strategy evidence is not established");
+   623→
+   624→  // Proof availability
+   625→  score += proofRatio * 0.3;
+   626→
+   627→  if (proofRatio < 0.5) {
+   628→    warnings.push(
+   629→      `Only ${availableProofs}/${totalProofs} proof requirements are available — most are MISSING`
+   630→    );
+   631→  }
+   632→
+   633→  return {
+   634→    score: roundScore(score),
+   635→    evidence: overallEvidence === "VERIFIED" ? "VERIFIED" : "INFERRED",
+   636→    confidence: proofRatio > 0.7 ? 0.8 : proofRatio > 0.3 ? 0.5 : 0.2,
+   637→    warnings,
+   638→  };
+   639→}
+   640→
+   641→function scoreCommercialClarity(product: CommercialProduct): DimensionScore {
+   642→  const warnings: string[] = [];
+   643→  let score = 0;
+   644→
+   645→  if (product.valueProposition.length > 20) score += 0.2;
+   646→  else warnings.push("Value proposition is too short to be compelling");
+   647→
+   648→  if (product.positioning.length > 10) score += 0.2;
+   649→  else warnings.push("Positioning is missing");
+   650→
+   651→  if (product.objections.length > 0) score += 0.15;
+   652→  else warnings.push("No customer objections identified — may indicate incomplete customer analysis");
+   653→
+   654→  if (product.keyBenefits.length >= 3) score += 0.2;
+   655→  else if (product.keyBenefits.length > 0) score += 0.1;
+   656→  else warnings.push("No key benefits defined");
+   657→
+   658→  if (product.priceRange.recommended > 0) score += 0.15;
+   659→  else warnings.push("No recommended price set");
+   660→
+   661→  if (product.targetCustomer.painPoints.length > 0) score += 0.1;
+   662→  else warnings.push("No customer pain points identified");
+   663→
+   664→  return {
+   665→    score: roundScore(score),
+   666→    evidence: "INFERRED",
+   667→    confidence: score > 0.7 ? 0.7 : 0.4,
+   668→    warnings,
+   669→  };
+   670→}
+   671→
+   672→// ─── Helper Functions ─────────────────────────────────────────────────────────
+   673→
+   674→function generateProofRequirements(productType: ProductType): ProofRequirement[] {
+   675→  // Standard proof requirements for any product — all start as MISSING
+   676→  const base: ProofRequirement[] = [
+   677→    {
+   678→      type: "testimonial",
+   679→      description: "Customer testimonial verifying the product delivers on its promise",
+   680→      status: "MISSING",
+   681→    },
+   682→    {
+   683→      type: "case_study",
+   684→      description: "Case study demonstrating real-world application and results",
+   685→      status: "MISSING",
+   686→    },
+   687→    {
+   688→      type: "sample",
+   689→      description: "Free sample or preview of the product",
+   690→      status: "MISSING",
+   691→    },
+   692→  ];
+   693→
+   694→  // Product-type-specific requirements
+   695→  switch (productType) {
+   696→    case "software":
+   697→    case "saas":
+   698→    case "api":
+   699→      base.push(
+   700→        {
+   701→          type: "demo",
+   702→          description: "Working demo or trial access",
+   703→          status: "MISSING",
+   704→        },
+   705→        {
+   706→          type: "data",
+   707→          description: "Performance data or usage metrics",
+   708→          status: "MISSING",
+   709→        }
+   710→      );
+   711→      break;
+   712→    case "ebook":
+   713→    case "guide":
+   714→    case "manual":
+   715→    case "workbook":
+   716→      base.push({
+   717→        type: "sample",
+   718→        description: "Chapter excerpt or table of contents preview",
+   719→        status: "MISSING",
+   720→      });
+   721→      break;
+   722→    default:
+   723→      break;
+   724→  }
+   725→
+   726→  return base;
+   727→}
+   728→
+   729→function generateLaunchRequirements(
+   730→  productType: ProductType,
+   731→  proofRequirements: ProofRequirement[]
+   732→): string[] {
+   733→  const requirements: string[] = [];
+   734→
+   735→  // Core launch requirements
+   736→  requirements.push("Product content fully complete and QA-approved");
+   737→  requirements.push("Delivery mechanism tested and functional");
+   738→  requirements.push("Payment processing configured and tested");
+   739→
+   740→  // If proof requirements are mostly MISSING, flag it
+   741→  const missingProofs = proofRequirements.filter((p) => p.status === "MISSING").length;
+   742→  if (missingProofs > 0) {
+   743→    requirements.push(
+   744→      `Gather proof elements: ${missingProofs} requirement(s) currently MISSING`
+   745→    );
+   746→  }
+   747→
+   748→  // Product-type-specific requirements
+   749→  if (productType === "saas" || productType === "api") {
+   750→    requirements.push("Infrastructure provisioned and load-tested");
+   751→    requirements.push("Monitoring and error tracking configured");
+   752→  }
+   753→
+   754→  if (productType === "ebook" || productType === "guide") {
+   755→    requirements.push("Cover design finalized");
+   756→    requirements.push("File format tested on target devices");
+   757→  }
+   758→
+   759→  return requirements;
+   760→}
+   761→
+   762→function generateAssumptions(productType: ProductType, priceRange: PriceRange): string[] {
+   763→  return [
+   764→    `Target customers have the problem described — this is INFERRED, not verified`,
+   765→    `Price range $${priceRange.min}-$${priceRange.max} is appropriate for this market — ESTIMATED`,
+   766→    `Product can be delivered via standard digital distribution — INFERRED`,
+   767→    `Target audience can find and access the product — NOT VERIFIED`,
+   768→    productType === "saas" || productType === "api"
+   769→      ? `Technical infrastructure will support expected usage — ESTIMATED`
+   770→      : `Content quality meets professional standards — NOT VERIFIED`,
+   771→  ];
+   772→}
+   773→
+   774→function mapProductType(archType: string): ProductType {
+   775→  const mapping: Record<string, ProductType> = {
+   776→    ebook: "ebook",
+   777→    guide: "guide",
+   778→    software: "software",
+   779→    saas: "saas",
+   780→    template: "template_pack",
+   781→    kit: "digital_kit",
+   782→  };
+   783→  return mapping[archType] || "hybrid_content";
+   784→}
+   785→
+   786→function inferFormat(productType: ProductType, architecture: ProductArchitecture): string {
+   787→  // Check if architecture is a BookArchitecture with format
+   788→  if ("format" in architecture && typeof architecture.format === "string") {
+   789→    return architecture.format;
+   790→  }
+   791→
+   792→  const formatMap: Record<string, string> = {
+   793→    ebook: "PDF + EPUB",
+   794→    guide: "PDF",
+   795→    manual: "PDF",
+   796→    workbook: "PDF (fillable)",
+   797→    checklist: "PDF",
+   798→    template_pack: "ZIP (multiple formats)",
+   799→    digital_kit: "ZIP (organized files)",
+   800→    resource_pack: "ZIP (organized files)",
+   801→    specialized_document: "PDF + DOCX",
+   802→    hybrid_content: "ZIP (multiple formats)",
+   803→    software: "Installer / Cloud",
+   804→    saas: "Cloud (Web App)",
+   805→    api: "API + Documentation Portal",
+   806→  };
+   807→
+   808→  return formatMap[productType] || "Digital delivery";
+   809→}
+   810→
+   811→function inferIncludedAssets(productType: ProductType, architecture: ProductArchitecture): string[] {
+   812→  const assets: string[] = [];
+   813→
+   814→  // Add architecture components as assets
+   815→  for (const component of architecture.components) {
+   816→    assets.push(`${component.name} (${component.type})`);
+   817→  }
+   818→
+   819→  // Add product-type-specific assets
+   820→  switch (productType) {
+   821→    case "ebook":
+   822→    case "guide":
+   823→      assets.push("Main content document", "Table of contents", "Cover page");
+   824→      break;
+   825→    case "template_pack":
+   826→      assets.push("Template files", "Usage instructions", "Example outputs");
+   827→      break;
+   828→    case "digital_kit":
+   829→      assets.push("Kit components", "Assembly guide", "Quick-start instructions");
+   830→      break;
+   831→    case "software":
+   832→    case "saas":
+   833→      assets.push("Application", "User documentation", "API documentation");
+   834→      break;
+   835→    default:
+   836→      assets.push("Main deliverable", "Documentation");
+   837→      break;
+   838→  }
+   839→
+   840→  return assets;
+   841→}
+   842→
+   843→function inferExcludedScope(productType: ProductType, architecture: ProductArchitecture): string[] {
+   844→  const excluded: string[] = [];
+   845→
+   846→  // Common exclusions
+   847→  excluded.push("Ongoing consulting or coaching (not included unless explicitly stated)");
+   848→  excluded.push("Custom modifications or personalization services");
+   849→
+   850→  // Type-specific exclusions
+   851→  if (productType === "ebook" || productType === "guide") {
+   852→    excluded.push("Source files or editable formats");
+   853→    excluded.push("Resell or redistribution rights");
+   854→  }
+   855→
+   856→  if (productType === "software" || productType === "saas" || productType === "api") {
+   857→    excluded.push("Custom development or integration services");
+   858→    excluded.push("SLA guarantees (unless separately contracted)");
+   859→  }
+   860→
+   861→  return excluded;
+   862→}
+   863→
+   864→function createDefaultReadiness(): CommercialReadinessScore {
+   865→  const defaultDim: DimensionScore = {
+   866→    score: 0,
+   867→    evidence: "NOT_VERIFIED",
+   868→    confidence: 0,
+   869→    warnings: ["Readiness not yet evaluated"],
+   870→  };
+   871→
+   872→  return {
+   873→    overall: 0,
+   874→    productCompleteness: { ...defaultDim },
+   875→    contentCompleteness: { ...defaultDim },
+   876→    quality: { ...defaultDim },
+   877→    packaging: { ...defaultDim },
+   878→    delivery: { ...defaultDim },
+   879→    differentiation: { ...defaultDim },
+   880→    evidence: { ...defaultDim },
+   881→    commercialClarity: { ...defaultDim },
+   882→  };
+   883→}
+   884→
+   885→function createFallbackCommercialProduct(
+   886→  productId: string,
+   887→  productVersion: string,
+   888→  productName: string,
+   889→  productType: ProductType,
+   890→  dossier: ProductDossierData,
+   891→  architecture: ProductArchitecture,
+   892→  economics: ProductEconomics,
+   893→  priceStrategy: PriceStrategy,
+   894→  priceRange: PriceRange,
+   895→  proofRequirements: ProofRequirement[]
+   896→): CommercialProduct {
+   897→  const targetCustomer: CustomerProfile = {
+   898→    description: dossier.opportunity?.targetAudience || "Target audience not yet defined",
+   899→    demographics: [],
+   900→    psychographics: [],
+   901→    painPoints: [dossier.opportunity?.problemStatement || "Problem not yet defined"],
+   902→    currentSolutions: dossier.opportunity?.existingAlternatives || [],
+   903→  };
+   904→
+   905→  const product: CommercialProduct = {
+   906→    productId,
+   907→    productVersion,
+   908→    productName,
+   909→    productType,
+   910→    targetCustomer,
+   911→    problem: dossier.opportunity?.problemStatement || dossier.description,
+   912→    jobToBeDone: `Help ${targetCustomer.description} solve: ${dossier.opportunity?.problemStatement || dossier.description}`,
+   913→    desiredOutcome: "Desired outcome to be defined with further analysis",
+   914→    valueProposition: `${productName} addresses the problem of ${dossier.opportunity?.problemStatement || "undefined"} for ${targetCustomer.description}`,
+   915→    differentiation: "Differentiation to be established through market research",
+   916→    format: inferFormat(productType, architecture),
+   917→    includedAssets: inferIncludedAssets(productType, architecture),
+   918→    excludedScope: inferExcludedScope(productType, architecture),
+   919→    priceStrategy,
+   920→    priceRange,
+   921→    monetizationModel: priceStrategy.model,
+   922→    distributionStrategy: DISTRIBUTION_DEFAULTS[productType] || "Direct digital delivery",
+   923→    positioning: `For ${targetCustomer.description} who need to solve ${dossier.opportunity?.problemStatement || "their problem"}`,
+   924→    keyBenefits: ["Benefit definitions require further analysis"],
+   925→    objections: ["Customer objections require further analysis"],
+   926→    proofRequirements,
+   927→    commercialReadiness: createDefaultReadiness(),
+   928→    launchRequirements: generateLaunchRequirements(productType, proofRequirements),
+   929→    assumptions: generateAssumptions(productType, priceRange),
+   930→    risks: economics.riskFactors,
+   931→    evidence: "NOT_VERIFIED",
+   932→    provenance: `commercial-product:${productId}:fallback`,
+   933→  };
+   934→
+   935→  // Now evaluate readiness
+   936→  product.commercialReadiness = evaluateCommercialReadiness(product);
+   937→
+   938→  return product;
+   939→}
+   940→
+   941→// ─── System Prompt ────────────────────────────────────────────────────────────
+   942→
+   943→const COMMERCIAL_SYSTEM_PROMPT = `You are a Commercial Product Strategist for KREA V2.1.
+   944→Transform the product dossier and architecture into a commercial product definition.
+   945→
+   946→Return a JSON object with:
+   947→- jobToBeDone: string (the job the customer is hiring this product to do)
+   948→- desiredOutcome: string (the specific outcome the customer wants)
+   949→- valueProposition: string (why this product is the best choice)
+   950→- differentiation: string (how this product is different from alternatives)
+   951→- positioning: string (market positioning statement)
+   952→- keyBenefits: array of strings (3-7 specific benefits)
+   953→- objections: array of strings (likely customer objections, 2-5)
+   954→- targetCustomer: { description, demographics[], psychographics[], painPoints[], currentSolutions[] }
+   955→
+   956→CRITICAL RULES:
+   957→- Do NOT invent market data, statistics, or benchmarks
+   958→- Do NOT create fake testimonials or guaranteed results
+   959→- Base analysis ONLY on the information provided
+   960→- Be CONSERVATIVE — it's better to be honest than impressive
+   961→- Objections should be realistic concerns real customers would have
+   962→- Price is NOT set here — it comes from heuristics and economics
+   963→- Return ONLY valid JSON`;
+   964→
+   965→function buildCommercialPrompt(
+   966→  dossier: ProductDossierData,
+   967→  architecture: ProductArchitecture,
+   968→  economics: ProductEconomics,
+   969→  productType: ProductType,
+   970→  priceRange: PriceRange
+   971→): string {
+   972→  const componentsSummary = architecture.components
+   973→    .map((c) => `  - ${c.name} (${c.type}): ${c.description}`)
+   974→    .join("\n");
+   975→
+   976→  return `Define the commercial product for:
+   977→
+   978→Title: ${dossier.title}
+   979→Description: ${dossier.description}
+   980→Domain: ${dossier.domain}
+   981→Product Type: ${productType}
+   982→Problem: ${dossier.opportunity?.problemStatement || "Not yet defined"}
+   983→Target Audience: ${dossier.opportunity?.targetAudience || "Not yet defined"}
+   984→Existing Alternatives: ${dossier.opportunity?.existingAlternatives?.join(", ") || "None specified"}
+   985→
+   986→Architecture:
+   987→${architecture.architecture}
+   988→Components:
+   989→${componentsSummary}
+   990→
+   991→Economics:
+   992→- Estimated Price Range: $${priceRange.min}-$${priceRange.max} (ESTIMATED)
+   993→- Estimated Cost: $${economics.estimatedCost.total} ${economics.estimatedCost.currency}
+   994→- Risk Factors: ${economics.riskFactors.length}
+   995→
+   996→Provide a complete commercial product definition. Be specific but honest.`;
+   997→}
+   998→
+   999→// ─── Utility Functions ────────────────────────────────────────────────────────
+  1000→
+  1001→function generateId(prefix: string): string {
+  1002→  return `${prefix}_${Date.now().toString(36)}${Math.random().toString(36).substring(2, 10)}`;
+  1003→}
+  1004→
+  1005→function roundScore(score: number): number {
+  1006→  return Math.round(score * 100) / 100;
+  1007→}
+  1008→
