@@ -1,5 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
+import { SecurityManager } from "@/lib/security";
+import { createSession } from "@/lib/auth";
+
+const security = new SecurityManager();
 
 export async function POST(req: NextRequest) {
   try {
@@ -17,16 +21,23 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Este email ya está registrado" }, { status: 409 });
     }
 
+    const hashedPassword = security.hashPassword(password);
+
     const user = await db.user.create({
-      data: { name, email, password, credits: 50, plan: "starter" },
+      data: { name, email, password: hashedPassword, credits: 50, plan: "starter" },
     });
 
+    const token = await createSession(user.id);
+
     return NextResponse.json({
-      id: user.id,
-      name: user.name,
-      email: user.email,
-      credits: user.credits,
-      plan: user.plan,
+      user: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        credits: user.credits,
+        plan: user.plan,
+      },
+      token,
     });
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : "Error al registrar";

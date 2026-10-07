@@ -1,0 +1,768 @@
+     1→     1→/**
+     2→     2→ * Book Factory — KREA Book Factory Layer
+     3→     3→ *
+     4→     4→ * Orchestrates the full eBook production pipeline from opportunity to verified artifact.
+     5→     5→ * Each step produces evidence and is fully traceable.
+     6→     6→ *
+     7→     7→ * Satisfies:
+     8→     8→ *   AC-029 — Full pipeline: bookArchitecture → content → artDirection →
+     9→     9→ *            coverDesign → editorialDesign → layout → pdf → visualQA →
+    10→    10→ *            repair → finalProduct
+    11→    11→ *   AC-032 — No copying literal content from references; model principles only
+    12→    12→ *   AC-045 — Repair loop: DETECT → DIAGNOSE → REPAIR → RENDER → VERIFY
+    13→    13→ *            (max 5 iterations)
+    14→    14→ *
+    15→    15→ * Uses ZAI SDK for content generation (the ONLY module that imports ZAI).
+    16→    16→ * Uses ArtDirection, CoverDesign, EditorialDesign, PDFFactory, VisualQA
+    17→    17→ * for the respective pipeline steps.
+    18→    18→ * Uses MemoryManager and ExecutionTracer for traceability.
+    19→    19→ */
+    20→    20→
+    21→    21→import ZAI from "z-ai-web-dev-sdk";
+    22→    22→import { randomUUID } from "crypto";
+    23→    23→import { ArtDirection } from "./art-direction";
+    24→    24→import type { ArtDirectionSpec, ArchitectureInput, BookArchitectureInput } from "./art-direction";
+    25→    25→import { CoverDesign } from "./cover-design";
+    26→    26→import type { CoverSpecification } from "./cover-design";
+    27→    27→import { EditorialDesign } from "./editorial-design";
+    28→    28→import type {
+    29→    29→  EditorialSpecification,
+    30→    30→  LayoutResult,
+    31→    31→  BookContent,
+    32→    32→  ChapterContent,
+    33→    33→  SectionContent,
+    34→    34→} from "./editorial-design";
+    35→    35→import { PDFFactory } from "./pdf-factory";
+    36→    36→import type { PDFResult, PDFVerification, PDFGenerationOptions } from "./pdf-factory";
+    37→    37→import { VisualQA } from "./visual-qa";
+    38→    38→import type { QAResult, Diagnosis, RepairedContent } from "./visual-qa";
+    39→    39→import { MemoryManager } from "./memory";
+    40→    40→import { ExecutionTracer } from "./execution";
+    41→    41→
+    42→    42→// ─── Pipeline Step Evidence ─────────────────────────────────────────────
+    43→    43→
+    44→    44→export interface PipelineStepEvidence {
+    45→    45→  step: string;
+    46→    46→  step_number: number;
+    47→    47→  started_at: string;
+    48→    48→  completed_at: string;
+    49→    49→  duration_ms: number;
+    50→    50→  success: boolean;
+    51→    51→  output_id: string;
+    52→    52→  error?: string;
+    53→    53→}
+    54→    54→
+    55→    55→// ─── Pipeline State ────────────────────────────────────────────────────
+    56→    56→
+    57→    57→export interface PipelineState {
+    58→    58→  /** Current step in the pipeline */
+    59→    59→  current_step: string;
+    60→    60→  /** Completed steps with evidence */
+    61→    61→  steps: PipelineStepEvidence[];
+    62→    62→  /** Whether the pipeline is in repair mode */
+    63→    63→  in_repair: boolean;
+    64→    64→  /** Current repair iteration (0 = no repair, 1-5 = repair loop) */
+    65→    65→  repair_iteration: number;
+    66→    66→  /** Maximum repair iterations (AC-045: max 5) */
+    67→    67→  max_repair_iterations: number;
+    68→    68→}
+    69→    69→
+    70→    70→// ─── Opportunity (input to BookFactory) ─────────────────────────────────
+    71→    71→
+    72→    72→export interface Opportunity {
+    73→    73→  /** Topic/subject of the book */
+    74→    74→  topic: string;
+    75→    75→  /** Target audience */
+    76→    76→  targetAudience: string;
+    77→    77→  /** Genre/category */
+    78→    78→  genre: string;
+    79→    79→  /** Desired chapter count */
+    80→    80→  chapterCount: number;
+    81→    81→  /** Author name */
+    82→    82→  author: string;
+    83→    83→  /** Purpose of the book (e.g., "generate leads", "educate", "build authority") */
+    84→    84→  purpose: string;
+    85→    85→  /** Tone of the content (e.g., "professional", "conversational") */
+    86→    86→  tone: string;
+    87→    87→  /** Optional subtitle override */
+    88→    88→  subtitle?: string;
+    89→    89→  /** User ID for tracing */
+    90→    90→  userId?: string;
+    91→    91→}
+    92→    92→
+    93→    93→// ─── Architecture (input to BookFactory) ───────────────────────────────
+    94→    94→
+    95→    95→export interface Architecture {
+    96→    96→  /** Product format */
+    97→    97→  format: "ebook" | "guide" | "template" | "report";
+    98→    98→  /** Complexity level */
+    99→    99→  complexity: "simple" | "moderate" | "complex";
+   100→   100→  /** Target market */
+   101→   101→  targetMarket: string;
+   102→   102→}
+   103→   103→
+   104→   104→// ─── Book Product (final output) ───────────────────────────────────────
+   105→   105→
+   106→   106→export interface BookProduct {
+   107→   107→  /** Whether production was successful */
+   108→   108→  success: boolean;
+   109→   109→  /** Book title */
+   110→   110→  title: string;
+   111→   111→  /** Book subtitle */
+   112→   112→  subtitle: string;
+   113→   113→  /** Author name */
+   114→   114→  author: string;
+   115→   115→  /** The complete content */
+   116→   116→  content: BookContent;
+   117→   117→  /** Art direction specification */
+   118→   118→  art_direction: ArtDirectionSpec;
+   119→   119→  /** Cover specification */
+   120→   120→  cover: CoverSpecification;
+   121→   121→  /** Editorial specification */
+   122→   122→  editorial: EditorialSpecification;
+   123→   123→  /** Layout result */
+   124→   124→  layout: LayoutResult;
+   125→   125→  /** PDF result */
+   126→   126→  pdf: PDFResult;
+   127→   127→  /** PDF verification */
+   128→   128→  pdf_verification: PDFVerification;
+   129→   129→  /** QA result */
+   130→   130→  qa_result: QAResult;
+   131→   131→  /** Pipeline state with evidence */
+   132→   132→  pipeline: PipelineState;
+   133→   133→  /** Total production time in ms */
+   134→   134→  production_time_ms: number;
+   135→   135→  /** Number of repair iterations used */
+   136→   136→  repair_iterations_used: number;
+   137→   137→  /** Any errors */
+   138→   138→  errors: string[];
+   139→   139→}
+   140→   140→
+   141→   141→// ─── Content Generation Options ─────────────────────────────────────────
+   142→   142→
+   143→   143→export interface ContentGenerationOptions {
+   144→   144→  /** Words per chapter (approximate) */
+   145→   145→  words_per_chapter: number;
+   146→   146→  /** Include introduction chapter */
+   147→   147→  include_introduction: boolean;
+   148→   148→  /** Include conclusion chapter */
+   149→   149→  include_conclusion: boolean;
+   150→   150→  /** Language for content generation */
+   151→   151→  language: string;
+   152→   152→}
+   153→   153→
+   154→   154→// ─── BookFactory Class ─────────────────────────────────────────────────
+   155→   155→
+   156→   156→/**
+   157→   157→ * BookFactory — orchestrates the full eBook production pipeline.
+   158→   158→ *
+   159→   159→ * Pipeline (AC-029):
+   160→   160→ *   1. bookArchitecture — define editorial structure
+   161→   161→ *   2. content — generate chapter content with ZAI
+   162→   162→ *   3. artDirection — define visual system
+   163→   163→ *   4. coverDesign — specify cover
+   164→   164→ *   5. editorialDesign — margins, grid, typography, hierarchy
+   165→   165→ *   6. layout — produce deterministic layout
+   166→   166→ *   7. pdf — generate PDF artifact
+   167→   167→ *   8. visualQA — inspect result
+   168→   168→ *   9. repair — fix issues if found (AC-045: max 5 iterations)
+   169→   169→ *   10. finalProduct — verified artifact
+   170→   170→ *
+   171→   171→ * Each step produces evidence and is traceable via ExecutionTracer.
+   172→   172→ */
+   173→   173→export class BookFactory {
+   174→   174→  private artDirection = new ArtDirection();
+   175→   175→  private coverDesign = new CoverDesign();
+   176→   176→  private editorialDesign = new EditorialDesign();
+   177→   177→  private pdfFactory = new PDFFactory();
+   178→   178→  private visualQA = new VisualQA();
+   179→   179→  private memory = new MemoryManager();
+   180→   180→  private tracer = new ExecutionTracer();
+   181→   181→
+   182→   182→  /**
+   183→   183→   * Produce a complete book product from an opportunity and architecture.
+   184→   184→   *
+   185→   185→   * @param opportunity - The book opportunity/topic
+   186→   186→   * @param architecture - The product architecture
+   187→   187→   * @returns BookProduct — the verified book artifact
+   188→   188→   */
+   189→   189→  async produce(
+   190→   190→    opportunity: Opportunity,
+   191→   191→    architecture: Architecture
+   192→   192→  ): Promise<BookProduct> {
+   193→   193→    const startTime = Date.now();
+   194→   194→    const errors: string[] = [];
+   195→   195→    const pipelineSteps: PipelineStepEvidence[] = [];
+   196→   196→
+   197→   197→    const pipelineState: PipelineState = {
+   198→   198→      current_step: "init",
+   199→   199→      steps: pipelineSteps,
+   200→   200→      in_repair: false,
+   201→   201→      repair_iteration: 0,
+   202→   202→      max_repair_iterations: 5,
+   203→   203→    };
+   204→   204→
+   205→   205→    // Start execution trace
+   206→   206→    const executionId = await this.tracer.start("book-factory-produce", {
+   207→   207→      agentId: "krea",
+   208→   208→      userId: opportunity.userId,
+   209→   209→      inputs: { topic: opportunity.topic, genre: opportunity.genre },
+   210→   210→      skillsUsed: ["book-factory"],
+   211→   211→    });
+   212→   212→
+   213→   213→    // Mutable state for repair loop
+   214→   214→    let bookArchitecture: BookArchitectureInput | null = null;
+   215→   215→    let content: BookContent | null = null;
+   216→   216→    let artDir: ArtDirectionSpec | null = null;
+   217→   217→    let cover: CoverSpecification | null = null;
+   218→   218→    let editorial: EditorialSpecification | null = null;
+   219→   219→    let layout: LayoutResult | null = null;
+   220→   220→    let pdfResult: PDFResult | null = null;
+   221→   221→    let qaResult: QAResult | null = null;
+   222→   222→    let pdfVerification: PDFVerification | null = null;
+   223→   223→
+   224→   224→    try {
+   225→   225→      // ─── Step 1: Book Architecture ────────────────────────────────
+   226→   226→      pipelineState.current_step = "bookArchitecture";
+   227→   227→      bookArchitecture = await this.runStep(
+   228→   228→        "bookArchitecture", 1, pipelineSteps, executionId,
+   229→   229→        () => this.defineBookArchitecture(opportunity)
+   230→   230→      );
+   231→   231→
+   232→   232→      // ─── Step 2: Content Generation ───────────────────────────────
+   233→   233→      pipelineState.current_step = "content";
+   234→   234→      content = await this.runStep(
+   235→   235→        "content", 2, pipelineSteps, executionId,
+   236→   236→        () => this.generateContent(opportunity, bookArchitecture!, executionId)
+   237→   237→      );
+   238→   238→
+   239→   239→      // ─── Step 3: Art Direction ────────────────────────────────────
+   240→   240→      pipelineState.current_step = "artDirection";
+   241→   241→      const archInput: ArchitectureInput = {
+   242→   242→        productType: "book",
+   243→   243→        format: architecture.format,
+   244→   244→        complexity: architecture.complexity,
+   245→   245→        targetMarket: architecture.targetMarket,
+   246→   246→      };
+   247→   247→      artDir = await this.runStep(
+   248→   248→        "artDirection", 3, pipelineSteps, executionId,
+   249→   249→        () => Promise.resolve(this.artDirection.define(archInput, bookArchitecture!))
+   250→   250→      );
+   251→   251→
+   252→   252→      // ─── Step 4: Cover Design ─────────────────────────────────────
+   253→   253→      pipelineState.current_step = "coverDesign";
+   254→   254→      cover = await this.runStep(
+   255→   255→        "coverDesign", 4, pipelineSteps, executionId,
+   256→   256→        () => Promise.resolve(this.coverDesign.design(artDir!, bookArchitecture!))
+   257→   257→      );
+   258→   258→
+   259→   259→      // ─── Step 5: Editorial Design ────────────────────────────────
+   260→   260→      pipelineState.current_step = "editorialDesign";
+   261→   261→      editorial = await this.runStep(
+   262→   262→        "editorialDesign", 5, pipelineSteps, executionId,
+   263→   263→        () => Promise.resolve(this.editorialDesign.design(artDir!, bookArchitecture!))
+   264→   264→      );
+   265→   265→
+   266→   266→      // ─── Step 6: Layout ──────────────────────────────────────────
+   267→   267→      pipelineState.current_step = "layout";
+   268→   268→      layout = await this.runStep(
+   269→   269→        "layout", 6, pipelineSteps, executionId,
+   270→   270→        () => Promise.resolve(this.editorialDesign.layout(content!, editorial!, artDir!))
+   271→   271→      );
+   272→   272→
+   273→   273→      // ─── Step 7: PDF Generation ──────────────────────────────────
+   274→   274→      pipelineState.current_step = "pdf";
+   275→   275→      pdfResult = await this.runStep(
+   276→   276→        "pdf", 7, pipelineSteps, executionId,
+   277→   277→        () => Promise.resolve(this.pdfFactory.generatePDF(
+   278→   278→          layout!, content!, cover!, editorial!, artDir!
+   279→   279→        ))
+   280→   280→      );
+   281→   281→
+   282→   282→      // ─── Step 8: Visual QA ──────────────────────────────────────
+   283→   283→      pipelineState.current_step = "visualQA";
+   284→   284→      qaResult = await this.runStep(
+   285→   285→        "visualQA", 8, pipelineSteps, executionId,
+   286→   286→        () => Promise.resolve(this.visualQA.inspect(
+   287→   287→          { page_count: pdfResult!.pageCount, layout: layout!, content: content! },
+   288→   288→          content!,
+   289→   289→          editorial!
+   290→   290→        ))
+   291→   291→      );
+   292→   292→
+   293→   293→      // ─── Step 9: Repair Loop (AC-045) ──────────────────────────
+   294→   294→      if (!qaResult.passed) {
+   295→   295→        pipelineState.in_repair = true;
+   296→   296→        const repairResult = await this.executeRepairLoop(
+   297→   297→          qaResult, content, editorial, artDir, layout, cover,
+   298→   298→          pipelineState, pipelineSteps, executionId
+   299→   299→        );
+   300→   300→        content = repairResult.content;
+   301→   301→        editorial = repairResult.editorial;
+   302→   302→        layout = repairResult.layout;
+   303→   303→        cover = repairResult.cover;
+   304→   304→        qaResult = repairResult.qaResult;
+   305→   305→
+   306→   306→        // Re-generate PDF after repair
+   307→   307→        pdfResult = this.pdfFactory.generatePDF(
+   308→   308→          layout, content, cover, editorial, artDir
+   309→   309→        );
+   310→   310→      }
+   311→   311→
+   312→   312→      // ─── Step 10: Final Verification ───────────────────────────
+   313→   313→      pipelineState.current_step = "finalProduct";
+   314→   314→      pdfVerification = this.pdfFactory.verify(
+   315→   315→        pdfResult,
+   316→   316→        layout.page_count,
+   317→   317→        qaResult
+   318→   318→      );
+   319→   319→
+   320→   320→      // Record step
+   321→   321→      pipelineSteps.push({
+   322→   322→        step: "finalProduct",
+   323→   323→        step_number: 10,
+   324→   324→        started_at: new Date().toISOString(),
+   325→   325→        completed_at: new Date().toISOString(),
+   326→   326→        duration_ms: 0,
+   327→   327→        success: pdfVerification.overall,
+   328→   328→        output_id: randomUUID(),
+   329→   329→      });
+   330→   330→
+   331→   331→      // Store in memory for future reference
+   332→   332→      await this.storeProductMemory(opportunity, content, executionId);
+   333→   333→
+   334→   334→      // Mark execution as succeeded
+   335→   335→      await this.tracer.succeed(executionId, {
+   336→   336→        pageCount: layout.page_count,
+   337→   337→        qaPassed: qaResult.passed,
+   338→   338→        pdfVerified: pdfVerification.overall,
+   339→   339→      });
+   340→   340→
+   341→   341→    } catch (error) {
+   342→   342→      const message = error instanceof Error ? error.message : String(error);
+   343→   343→      errors.push(message);
+   344→   344→      await this.tracer.addError(executionId, message);
+   345→   345→      await this.tracer.fail(executionId, { message });
+   346→   346→    }
+   347→   347→
+   348→   348→    return {
+   349→   349→      success: pdfVerification?.overall ?? false,
+   350→   350→      title: bookArchitecture?.title ?? opportunity.topic,
+   351→   351→      subtitle: bookArchitecture?.subtitle ?? "",
+   352→   352→      author: opportunity.author,
+   353→   353→      content: content ?? { title: "", subtitle: "", author: "", chapters: [], total_word_count: 0 },
+   354→   354→      art_direction: artDir ?? {} as ArtDirectionSpec,
+   355→   355→      cover: cover ?? {} as CoverSpecification,
+   356→   356→      editorial: editorial ?? {} as EditorialSpecification,
+   357→   357→      layout: layout ?? { id: "", createdAt: "", input_hash: "", page_count: 0, pages: [], table_of_contents: [], visual_system_id: "" },
+   358→   358→      pdf: pdfResult ?? { success: false, filePath: null, fileName: "", pageCount: 0, sizeBytes: 0, checksum: "", generatedAt: "", spec: {} as PDFResult["spec"], errors: [] },
+   359→   359→      pdf_verification: pdfVerification ?? {} as PDFVerification,
+   360→   360→      qa_result: qaResult ?? { passed: false, issue_count: 0, issues: [], by_category: {} as QAResult["by_category"], by_severity: {} as QAResult["by_severity"], inspectedAt: "", inspection_duration_ms: 0 },
+   361→   361→      pipeline: pipelineState,
+   362→   362→      production_time_ms: Date.now() - startTime,
+   363→   363→      repair_iterations_used: pipelineState.repair_iteration,
+   364→   364→      errors,
+   365→   365→    };
+   366→   366→  }
+   367→   367→
+   368→   368→  // ─── Pipeline Steps ───────────────────────────────────────────────
+   369→   369→
+   370→   370→  /**
+   371→   371→   * Step 1: Define the book's editorial architecture.
+   372→   372→   * Derives structure from the opportunity (topic, audience, genre, etc.)
+   373→   373→   */
+   374→   374→  private async defineBookArchitecture(
+   375→   375→    opportunity: Opportunity
+   376→   376→  ): Promise<BookArchitectureInput> {
+   377→   377→    // Generate chapter titles using ZAI
+   378→   378→    const chapterTitles = await this.generateChapterTitles(opportunity);
+   379→   379→
+   380→   380→    return {
+   381→   381→      title: opportunity.topic,
+   382→   382→      subtitle: opportunity.subtitle ?? `A comprehensive guide for ${opportunity.targetAudience}`,
+   383→   383→      author: opportunity.author,
+   384→   384→      genre: opportunity.genre,
+   385→   385→      audience: opportunity.targetAudience,
+   386→   386→      chapterCount: opportunity.chapterCount,
+   387→   387→      chapterTitles,
+   388→   388→      tone: opportunity.tone,
+   389→   389→      purpose: opportunity.purpose,
+   390→   390→    };
+   391→   391→  }
+   392→   392→
+   393→   393→  /**
+   394→   394→   * Step 2: Generate chapter content using ZAI SDK.
+   395→   395→   *
+   396→   396→   * AC-032: Model principles and structure only — no literal copying.
+   397→   397→   * The ZAI generates original content based on the topic and structure.
+   398→   398→   */
+   399→   399→  private async generateContent(
+   400→   400→    opportunity: Opportunity,
+   401→   401→    bookArchitecture: BookArchitectureInput,
+   402→   402→    executionId: string
+   403→   403→  ): Promise<BookContent> {
+   404→   404→    const zai = await ZAI.create();
+   405→   405→    const chapters: ChapterContent[] = [];
+   406→   406→
+   407→   407→    for (let i = 0; i < bookArchitecture.chapterCount; i++) {
+   408→   408→      const chapterTitle = bookArchitecture.chapterTitles[i] ?? `Chapter ${i + 1}`;
+   409→   409→
+   410→   410→      const prompt = `Write a comprehensive, original chapter titled "${chapterTitle}" for a book about "${opportunity.topic}".
+   411→   411→
+   412→   412→Target audience: ${opportunity.targetAudience}
+   413→   413→Genre: ${opportunity.genre}
+   414→   414→Tone: ${opportunity.tone}
+   415→   415→Purpose: ${opportunity.purpose}
+   416→   416→
+   417→   417→Requirements:
+   418→   418→- Write ORIGINAL content that models principles and structure (AC-032)
+   419→   419→- Include 3-5 major sections with subheadings
+   420→   420→- Each section should have 2-3 substantial paragraphs
+   421→   421→- Include practical insights the reader can apply
+   422→   422→- Use clear, engaging language appropriate for the audience
+   423→   423→- Do NOT copy or closely paraphrase existing sources
+   424→   424→
+   425→   425→Format the response as JSON with this structure:
+   426→   426→{
+   427→   427→  "sections": [
+   428→   428→    {
+   429→   429→      "heading": "Section Title",
+   430→   430→      "level": 2,
+   431→   431→      "paragraphs": ["paragraph 1 text...", "paragraph 2 text..."]
+   432→   432→    }
+   433→   433→  ]
+   434→   434→}`;
+   435→   435→
+   436→   436→      try {
+   437→   437→        const response = await zai.chat.completions.create({
+   438→   438→          messages: [
+   439→   439→            {
+   440→   440→              role: "system",
+   441→   441→              content: `You are a professional author writing original book content. You model principles and structure without copying literal content from references. You write in ${opportunity.tone} tone for ${opportunity.targetAudience}. Always respond with valid JSON.`,
+   442→   442→            },
+   443→   443→            { role: "user", content: prompt },
+   444→   444→          ],
+   445→   445→        });
+   446→   446→
+   447→   447→        const rawContent = response.choices[0]?.message?.content ?? "{}";
+   448→   448→
+   449→   449→        // Parse the generated content
+   450→   450→        let sections: SectionContent[];
+   451→   451→        try {
+   452→   452→          // Extract JSON from the response (may be wrapped in markdown code blocks)
+   453→   453→          const jsonMatch = rawContent.match(/\{[\s\S]*\}/);
+   454→   454→          const parsed = JSON.parse(jsonMatch?.[0] ?? "{}");
+   455→   455→          sections = Array.isArray(parsed.sections)
+   456→   456→            ? parsed.sections.map((s: Record<string, unknown>) => ({
+   457→   457→                heading: String(s.heading ?? ""),
+   458→   458→                level: Number(s.level ?? 2),
+   459→   459→                paragraphs: Array.isArray(s.paragraphs)
+   460→   460→                  ? s.paragraphs.map((p: unknown) => String(p))
+   461→   461→                  : [],
+   462→   462→              }))
+   463→   463→            : [];
+   464→   464→        } catch {
+   465→   465→          // Fallback: treat entire response as a single section
+   466→   466→          sections = [{
+   467→   467→            heading: chapterTitle,
+   468→   468→            level: 2,
+   469→   469→            paragraphs: [rawContent],
+   470→   470→          }];
+   471→   471→        }
+   472→   472→
+   473→   473→        const wordCount = sections.reduce(
+   474→   474→          (sum, s) => sum + s.paragraphs.reduce((ps, p) => ps + p.split(/\s+/).length, 0),
+   475→   475→          0
+   476→   476→        );
+   477→   477→
+   478→   478→        chapters.push({
+   479→   479→          chapter_number: i + 1,
+   480→   480→          title: chapterTitle,
+   481→   481→          sections,
+   482→   482→          word_count: wordCount,
+   483→   483→        });
+   484→   484→
+   485→   485→        await this.tracer.addTool(executionId, "zai-chat-completions");
+   486→   486→      } catch (error) {
+   487→   487→        const msg = error instanceof Error ? error.message : String(error);
+   488→   488→        await this.tracer.addError(executionId, `Chapter ${i + 1} generation failed: ${msg}`);
+   489→   489→
+   490→   490→        // Add placeholder chapter on failure
+   491→   491→        chapters.push({
+   492→   492→          chapter_number: i + 1,
+   493→   493→          title: chapterTitle,
+   494→   494→          sections: [{
+   495→   495→            heading: chapterTitle,
+   496→   496→            level: 2,
+   497→   497→            paragraphs: [`Content for ${chapterTitle} will be regenerated.`],
+   498→   498→          }],
+   499→   499→          word_count: 10,
+   500→   500→        });
+   501→   501→      }
+   502→   502→    }
+   503→   503→
+   504→   504→    const totalWordCount = chapters.reduce((sum, ch) => sum + ch.word_count, 0);
+   505→   505→
+   506→   506→    return {
+   507→   507→      title: bookArchitecture.title,
+   508→   508→      subtitle: bookArchitecture.subtitle,
+   509→   509→      author: bookArchitecture.author,
+   510→   510→      chapters,
+   511→   511→      total_word_count: totalWordCount,
+   512→   512→    };
+   513→   513→  }
+   514→   514→
+   515→   515→  /**
+   516→   516→   * Generate chapter titles using ZAI.
+   517→   517→   */
+   518→   518→  private async generateChapterTitles(
+   519→   519→    opportunity: Opportunity
+   520→   520→  ): Promise<string[]> {
+   521→   521→    try {
+   522→   522→      const zai = await ZAI.create();
+   523→   523→
+   524→   524→      const response = await zai.chat.completions.create({
+   525→   525→        messages: [
+   526→   526→          {
+   527→   527→            role: "system",
+   528→   528→            content: "You are a book architect. Generate compelling, original chapter titles. Respond with a JSON array of strings only.",
+   529→   529→          },
+   530→   530→          {
+   531→   531→            role: "user",
+   532→   532→            content: `Generate ${opportunity.chapterCount} chapter titles for a book about "${opportunity.topic}" for ${opportunity.targetAudience}. The tone should be ${opportunity.tone}. Each title should be concise (2-6 words) and descriptive. Return as JSON array: ["Title 1", "Title 2", ...]`,
+   533→   533→          },
+   534→   534→        ],
+   535→   535→      });
+   536→   536→
+   537→   537→      const raw = response.choices[0]?.message?.content ?? "[]";
+   538→   538→      const jsonMatch = raw.match(/\[[\s\S]*\]/);
+   539→   539→      const parsed = JSON.parse(jsonMatch?.[0] ?? "[]");
+   540→   540→
+   541→   541→      if (Array.isArray(parsed) && parsed.length >= opportunity.chapterCount) {
+   542→   542→        return parsed.slice(0, opportunity.chapterCount).map(String);
+   543→   543→      }
+   544→   544→
+   545→   545→      // Fallback if ZAI returned wrong number of titles
+   546→   546→      return this.generateFallbackTitles(opportunity);
+   547→   547→    } catch {
+   548→   548→      return this.generateFallbackTitles(opportunity);
+   549→   549→    }
+   550→   550→  }
+   551→   551→
+   552→   552→  /**
+   553→   553→   * Fallback chapter titles when ZAI is unavailable.
+   554→   554→   */
+   555→   555→  private generateFallbackTitles(opportunity: Opportunity): string[] {
+   556→   556→    const titles: string[] = [];
+   557→   557→    for (let i = 1; i <= opportunity.chapterCount; i++) {
+   558→   558→      titles.push(`Chapter ${i}: ${opportunity.topic} — Part ${i}`);
+   559→   559→    }
+   560→   560→    return titles;
+   561→   561→  }
+   562→   562→
+   563→   563→  // ─── Repair Loop (AC-045) ─────────────────────────────────────────
+   564→   564→
+   565→   565→  /**
+   566→   566→   * Execute the repair loop: DETECT → DIAGNOSE → REPAIR → RENDER → VERIFY
+   567→   567→   *
+   568→   568→   * AC-045: Maximum 5 iterations. Each iteration:
+   569→   569→   *   1. DETECT — issues already detected in qaResult
+   570→   570→   *   2. DIAGNOSE — determine root causes
+   571→   571→   *   3. REPAIR — apply fixes
+   572→   572→   *   4. RENDER — re-layout and re-render
+   573→   573→   *   5. VERIFY — re-inspect
+   574→   574→   */
+   575→   575→  private async executeRepairLoop(
+   576→   576→    qaResult: QAResult,
+   577→   577→    content: BookContent,
+   578→   578→    editorial: EditorialSpecification,
+   579→   579→    artDir: ArtDirectionSpec,
+   580→   580→    layout: LayoutResult,
+   581→   581→    cover: CoverSpecification,
+   582→   582→    pipelineState: PipelineState,
+   583→   583→    pipelineSteps: PipelineStepEvidence[],
+   584→   584→    executionId: string
+   585→   585→  ): Promise<{
+   586→   586→    content: BookContent;
+   587→   587→    editorial: EditorialSpecification;
+   588→   588→    layout: LayoutResult;
+   589→   589→    cover: CoverSpecification;
+   590→   590→    qaResult: QAResult;
+   591→   591→  }> {
+   592→   592→    let currentContent = content;
+   593→   593→    let currentEditorial = editorial;
+   594→   594→    let currentLayout = layout;
+   595→   595→    let currentCover = cover;
+   596→   596→    let currentQA = qaResult;
+   597→   597→
+   598→   598→    // Only repair critical and auto-repairable issues
+   599→   599→    const repairableIssues = currentQA.issues.filter(
+   600→   600→      (i) => i.severity === "critical" && i.auto_repairable
+   601→   601→    );
+   602→   602→
+   603→   603→    if (repairableIssues.length === 0) {
+   604→   604→      // No auto-repairable issues — skip repair
+   605→   605→      return {
+   606→   606→        content: currentContent,
+   607→   607→        editorial: currentEditorial,
+   608→   608→        layout: currentLayout,
+   609→   609→        cover: currentCover,
+   610→   610→        qaResult: currentQA,
+   611→   611→      };
+   612→   612→    }
+   613→   613→
+   614→   614→    for (let iteration = 1; iteration <= pipelineState.max_repair_iterations; iteration++) {
+   615→   615→      pipelineState.repair_iteration = iteration;
+   616→   616→      pipelineState.current_step = `repair-${iteration}`;
+   617→   617→
+   618→   618→      const iterStart = Date.now();
+   619→   619→
+   620→   620→      // ── DETECT (already done) ──────────────────────────────────────
+   621→   621→      const criticalIssues = currentQA.issues.filter(
+   622→   622→        (i) => i.severity === "critical" && i.auto_repairable
+   623→   623→      );
+   624→   624→
+   625→   625→      if (criticalIssues.length === 0) {
+   626→   626→        // All critical issues resolved
+   627→   627→        break;
+   628→   628→      }
+   629→   629→
+   630→   630→      // ── DIAGNOSE ───────────────────────────────────────────────────
+   631→   631→      const diagnoses = this.visualQA.diagnose(criticalIssues);
+   632→   632→
+   633→   633→      // ── REPAIR ─────────────────────────────────────────────────────
+   634→   634→      for (const diagnosis of diagnoses) {
+   635→   635→        const issue = criticalIssues.find((i) => i.id === diagnosis.issue_id);
+   636→   636→        if (!issue) continue;
+   637→   637→
+   638→   638→        const repairResult: RepairedContent = this.visualQA.repair(
+   639→   639→          issue, currentContent, currentEditorial
+   640→   640→        );
+   641→   641→
+   642→   642→        if (repairResult.repaired) {
+   643→   643→          if (repairResult.updated_content) {
+   644→   644→            currentContent = repairResult.updated_content;
+   645→   645→          }
+   646→   646→          if (repairResult.updated_editorial) {
+   647→   647→            currentEditorial = repairResult.updated_editorial;
+   648→   648→          }
+   649→   649→        }
+   650→   650→
+   651→   651→        await this.tracer.addEvidence(executionId, {
+   652→   652→          repair_iteration: iteration,
+   653→   653→          issue_id: issue.id,
+   654→   654→          repair_strategy: diagnosis.repair_strategy,
+   655→   655→          repaired: repairResult.repaired,
+   656→   656→        });
+   657→   657→      }
+   658→   658→
+   659→   659→      // ── RENDER ─────────────────────────────────────────────────────
+   660→   660→      currentLayout = this.editorialDesign.layout(
+   661→   661→        currentContent, currentEditorial, artDir
+   662→   662→      );
+   663→   663→
+   664→   664→      // ── VERIFY ─────────────────────────────────────────────────────
+   665→   665→      currentQA = this.visualQA.inspect(
+   666→   666→        { page_count: currentLayout.page_count, layout: currentLayout, content: currentContent },
+   667→   667→        currentContent,
+   668→   668→        currentEditorial
+   669→   669→      );
+   670→   670→
+   671→   671→      // Record step evidence
+   672→   672→      pipelineSteps.push({
+   673→   673→        step: `repair-${iteration}`,
+   674→   674→        step_number: 9,
+   675→   675→        started_at: new Date(iterStart).toISOString(),
+   676→   676→        completed_at: new Date().toISOString(),
+   677→   677→        duration_ms: Date.now() - iterStart,
+   678→   678→        success: currentQA.passed,
+   679→   679→        output_id: randomUUID(),
+   680→   680→      });
+   681→   681→
+   682→   682→      // If QA now passes, exit repair loop
+   683→   683→      if (currentQA.passed) {
+   684→   684→        break;
+   685→   685→      }
+   686→   686→    }
+   687→   687→
+   688→   688→    return {
+   689→   689→      content: currentContent,
+   690→   690→      editorial: currentEditorial,
+   691→   691→      layout: currentLayout,
+   692→   692→      cover: currentCover,
+   693→   693→      qaResult: currentQA,
+   694→   694→    };
+   695→   695→  }
+   696→   696→
+   697→   697→  // ─── Utility Methods ──────────────────────────────────────────────
+   698→   698→
+   699→   699→  /**
+   700→   700→   * Run a single pipeline step with timing and error handling.
+   701→   701→   */
+   702→   702→  private async runStep<T>(
+   703→   703→    stepName: string,
+   704→   704→    stepNumber: number,
+   705→   705→    pipelineSteps: PipelineStepEvidence[],
+   706→   706→    executionId: string,
+   707→   707→    fn: () => Promise<T>
+   708→   708→  ): Promise<T> {
+   709→   709→    const start = Date.now();
+   710→   710→    try {
+   711→   711→      const result = await fn();
+   712→   712→      pipelineSteps.push({
+   713→   713→        step: stepName,
+   714→   714→        step_number: stepNumber,
+   715→   715→        started_at: new Date(start).toISOString(),
+   716→   716→        completed_at: new Date().toISOString(),
+   717→   717→        duration_ms: Date.now() - start,
+   718→   718→        success: true,
+   719→   719→        output_id: randomUUID(),
+   720→   720→      });
+   721→   721→      await this.tracer.addSkill(executionId, `book-factory-${stepName}`);
+   722→   722→      return result;
+   723→   723→    } catch (error) {
+   724→   724→      const message = error instanceof Error ? error.message : String(error);
+   725→   725→      pipelineSteps.push({
+   726→   726→        step: stepName,
+   727→   727→        step_number: stepNumber,
+   728→   728→        started_at: new Date(start).toISOString(),
+   729→   729→        completed_at: new Date().toISOString(),
+   730→   730→        duration_ms: Date.now() - start,
+   731→   731→        success: false,
+   732→   732→        output_id: randomUUID(),
+   733→   733→        error: message,
+   734→   734→      });
+   735→   735→      await this.tracer.addError(executionId, `${stepName}: ${message}`);
+   736→   736→      throw error;
+   737→   737→    }
+   738→   738→  }
+   739→   739→
+   740→   740→  /**
+   741→   741→   * Store the produced book in memory for future reference.
+   742→   742→   */
+   743→   743→  private async storeProductMemory(
+   744→   744→    opportunity: Opportunity,
+   745→   745→    content: BookContent,
+   746→   746→    executionId: string
+   747→   747→  ): Promise<void> {
+   748→   748→    try {
+   749→   749→      await this.memory.store("krea", "book-production", "EPISODIC", {
+   750→   750→        topic: opportunity.topic,
+   751→   751→        genre: opportunity.genre,
+   752→   752→        audience: opportunity.targetAudience,
+   753→   753→        chapterCount: content.chapters.length,
+   754→   754→        totalWordCount: content.total_word_count,
+   755→   755→        executionId,
+   756→   756→      }, {
+   757→   757→        source: "book-factory",
+   758→   758→        sourceType: "AGENT",
+   759→   759→        confidence: 0.9,
+   760→   760→        truthLevel: "OBSERVED",
+   761→   761→        scope: "agent",
+   762→   762→      });
+   763→   763→    } catch {
+   764→   764→      // Memory storage failure is non-critical
+   765→   765→    }
+   766→   766→  }
+   767→   767→}
+   768→   768→

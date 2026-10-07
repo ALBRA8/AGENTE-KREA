@@ -1,0 +1,803 @@
+     1→/**
+     2→ * Product Specification Engine — KREA V2 Product Brain
+     3→ *
+     4→ * Converts product architecture into executable specifications:
+     5→ *   - Constructor-independent specification (AC-016)
+     6→ *   - Software specification for Codex/Antigravity (AC-017)
+     7→ *   - Handoff contracts for agent delegation (AC-019)
+     8→ *
+     9→ * Acceptance Criteria satisfied:
+    10→ *   AC-016: Constructor-independent specification — describes WHAT, not HOW
+    11→ *   AC-017: Software specification ready for Codex/Antigravity consumption
+    12→ *   AC-018: Handoff is reproducible — receiver understands intent without guessing
+    13→ *   AC-019: Handoff contracts include all context needed for construction
+    14→ *   AC-021: Handoff includes evidence, constraints, and acceptance criteria
+    15→ */
+    16→
+    17→import { randomUUID } from "crypto";
+    18→import { ProductArchitecture, MoscowItem, JobToBeDone, ValidationRequirement, BuildRequirement } from "./product-architecture";
+    19→import { ProductEvidence } from "./product-intelligence";
+    20→import { ProductDecision, ConstructorSelection } from "./product-decision";
+    21→import { Opportunity } from "./product-fit";
+    22→
+    23→// ─── Constructor-Independent Specification (AC-016) ───────────────────────────
+    24→
+    25→/** Feature specification — constructor-independent */
+    26→export interface FeatureSpec {
+    27→  /** Feature name */
+    28→  name: string;
+    29→  /** What this feature does (WHAT, not HOW) */
+    30→  description: string;
+    31→  /** User stories */
+    32→  userStories: string[];
+    33→  /** Acceptance criteria */
+    34→  acceptanceCriteria: string[];
+    35→  /** Priority from MoSCoW */
+    36→  priority: "MUST" | "SHOULD" | "COULD";
+    37→  /** Dependencies on other features */
+    38→  dependencies: string[];
+    39→  /** Evidence supporting this feature */
+    40→  evidenceIds: string[];
+    41→}
+    42→
+    43→/** Constructor-independent product specification (AC-016) */
+    44→export interface ProductSpecification {
+    45→  /** Specification ID */
+    46→  specId: string;
+    47→  /** Product name */
+    48→  productName: string;
+    49→  /** Version */
+    50→  version: string;
+    51→  /** Problem statement */
+    52→  problem: string;
+    53→  /** Target user */
+    54→  targetUser: string;
+    55→  /** Jobs To Be Done */
+    56→  jtbd: JobToBeDone[];
+    57→  /** Desired outcome */
+    58→  desiredOutcome: string;
+    59→  /** Value proposition */
+    60→  valueProposition: string;
+    61→  /** Product format */
+    62→  format: string;
+    63→  /** Features (AC-016 — constructor-independent) */
+    64→  features: FeatureSpec[];
+    65→  /** UX description (WHAT the experience should be, not HOW to build it) */
+    66→  uxDescription: string;
+    67→  /** Differentiation */
+    68→  differentiation: string;
+    69→  /** Monetization model */
+    70→  monetization: string;
+    71→  /** MVP scope */
+    72→  mvpScope: string;
+    73→  /** Validation requirements */
+    74→  validationRequirements: ValidationRequirement[];
+    75→  /** Build requirements */
+    76→  buildRequirements: BuildRequirement[];
+    77→  /** Success criteria */
+    78→  successCriteria: string[];
+    79→  /** Risks */
+    80→  risks: string[];
+    81→  /** Assumptions */
+    82→  assumptions: string[];
+    83→  /** Unknowns */
+    84→  unknowns: string[];
+    85→  /** Evidence referenced */
+    86→  evidence: ProductEvidence[];
+    87→  /** Timestamp */
+    88→  specifiedAt: string;
+    89→}
+    90→
+    91→// ─── Software Specification (AC-017) ──────────────────────────────────────────
+    92→
+    93→/** Software feature with technical details */
+    94→export interface SoftwareFeature {
+    95→  /** Feature name */
+    96→  name: string;
+    97→  /** Description */
+    98→  description: string;
+    99→  /** User stories in Given/When/Then format */
+   100→  userStories: string[];
+   101→  /** Acceptance criteria */
+   102→  acceptanceCriteria: string[];
+   103→  /** Priority */
+   104→  priority: "MUST" | "SHOULD" | "COULD";
+   105→  /** Technical notes */
+   106→  technicalNotes: string;
+   107→  /** Dependencies */
+   108→  dependencies: string[];
+   109→}
+   110→
+   111→/** Software specification ready for Codex/Antigravity (AC-017) */
+   112→export interface SoftwareSpecification {
+   113→  /** Specification identity */
+   114→  identity: {
+   115→    id: string;
+   116→    name: string;
+   117→    version: string;
+   118→    type: string;
+   119→    format: string;
+   120→  };
+   121→
+   122→  /** User definition */
+   123→  user: {
+   124→    target: string;
+   125→    personas: string[];
+   126→    authentication: string;
+   127→  };
+   128→
+   129→  /** Problem definition */
+   130→  problem: {
+   131→    statement: string;
+   132→    jtbd: JobToBeDone[];
+   133→    desiredOutcome: string;
+   134→  };
+   135→
+   136→  /** Expected result */
+   137→  result: {
+   138→    valueProposition: string;
+   139→    differentiation: string;
+   140→    monetization: string;
+   141→    successCriteria: string[];
+   142→  };
+   143→
+   144→  /** Features (AC-017) */
+   145→  features: SoftwareFeature[];
+   146→
+   147→  /** UX specification */
+   148→  ux: {
+   149→    description: string;
+   150→    flows: string[];
+   151→    responsive: boolean;
+   152→    accessibility: boolean;
+   153→  };
+   154→
+   155→  /** Functional requirements */
+   156→  functional_requirements: string[];
+   157→
+   158→  /** Non-functional requirements */
+   159→  non_functional_requirements: string[];
+   160→
+   161→  /** Design direction */
+   162→  design: {
+   163→    style: string;
+   164→    colorSystem: string;
+   165→    componentLibrary: string;
+   166→    layoutPrinciples: string[];
+   167→  };
+   168→
+   169→  /** Data model */
+   170→  data: {
+   171→    entities: string[];
+   172→    relationships: string[];
+   173→    storageRequirements: string;
+   174→  };
+   175→
+   176→  /** Integrations */
+   177→  integrations: string[];
+   178→
+   179→  /** Security requirements */
+   180→  security: {
+   181→    authentication: string;
+   182→    authorization: string;
+   183→    dataProtection: string;
+   184→    compliance: string[];
+   185→  };
+   186→
+   187→  /** Permissions model */
+   188→  permissions: string[];
+   189→
+   190→  /** Error handling */
+   191→  errors: string[];
+   192→
+   193→  /** Acceptance criteria */
+   194→  acceptance_criteria: string[];
+   195→
+   196→  /** Dependencies */
+   197→  dependencies: string[];
+   198→
+   199→  /** Constraints */
+   200→  constraints: string[];
+   201→
+   202→  /** Risks */
+   203→  risks: string[];
+   204→
+   205→  /** Unknowns */
+   206→  unknowns: string[];
+   207→
+   208→  /** Timestamp */
+   209→  specifiedAt: string;
+   210→}
+   211→
+   212→// ─── Handoff Contract (AC-018, AC-019, AC-021) ────────────────────────────────
+   213→
+   214→/** Autonomy level for the receiving agent */
+   215→export type AutonomyLevel = "full" | "guided" | "supervised" | "approval_required";
+   216→
+   217→/** Approval requirement */
+   218→export interface ApprovalRequirement {
+   219→  /** What requires approval */
+   220→  what: string;
+   221→  /** Who must approve */
+   222→  approver: "krea" | "human";
+   223→  /** When approval is needed */
+   224→  trigger: "before_start" | "at_milestone" | "before_deploy" | "on_change";
+   225→}
+   226→
+   227→/** Handoff contract (AC-018, AC-019, AC-021) */
+   228→export interface HandoffContract {
+   229→  /** Unique handoff identifier */
+   230→  handoff_id: string;
+   231→  /** Source agent (always KREA for product handoffs) */
+   232→  source_agent: "krea";
+   233→  /** Target agent */
+   234→  target_agent: "codex" | "antigravity" | "krea";
+   235→  /** What the target agent should accomplish */
+   236→  objective: string;
+   237→  /** Product being handed off */
+   238→  product: {
+   239→    name: string;
+   240→    version: string;
+   241→    format: string;
+   242→  };
+   243→  /** Input specification (the full spec the target receives) */
+   244→  input_specification: SoftwareSpecification | ProductSpecification;
+   245→  /** Constraints on the handoff */
+   246→  constraints: {
+   247→    /** Time constraints */
+   248→    timebox?: string;
+   249→    /** Budget constraints */
+   250→    budget?: string;
+   251→    /** Quality constraints */
+   252→    quality?: string[];
+   253→    /** Scope constraints (what NOT to do) */
+   254→    outOfScope: string[];
+   255→  };
+   256→  /** Required output from the target agent */
+   257→  required_output: {
+   258→    /** What must be delivered */
+   259→    deliverables: string[];
+   260→    /** Format of deliverables */
+   261→    format: string;
+   262→    /** Quality standards */
+   263→    qualityStandards: string[];
+   264→  };
+   265→  /** Acceptance criteria for the handoff result */
+   266→  acceptance_criteria: string[];
+   267→  /** Evidence supporting the handoff decisions (AC-021) */
+   268→  evidence: ProductEvidence[];
+   269→  /** Dependencies that must be resolved before handoff */
+   270→  dependencies: string[];
+   271→  /** Risk assessment for the handoff */
+   272→  risk: {
+   273→    level: "low" | "medium" | "high";
+   274→    factors: string[];
+   275→    mitigations: string[];
+   276→  };
+   277→  /** Autonomy level for the target agent */
+   278→  autonomy: AutonomyLevel;
+   279→  /** Approval requirements */
+   280→  approvals: ApprovalRequirement[];
+   281→  /** Handoff status */
+   282→  status: "draft" | "sent" | "acknowledged" | "in_progress" | "completed" | "failed";
+   283→  /** Timestamp */
+   284→  handedOffAt: string;
+   285→}
+   286→
+   287→// ─── Product Specification Engine ─────────────────────────────────────────────
+   288→
+   289→/**
+   290→ * ProductSpecificationEngine — Converts architecture into executable specifications.
+   291→ *
+   292→ * AC-016: specifyNeutral — constructor-independent, describes WHAT not HOW
+   293→ * AC-017: specifySoftware — Codex/Antigravity-ready with technical details
+   294→ * AC-019: generateHandoff — complete contract for agent delegation
+   295→ * AC-018/AC-021: Handoff is reproducible with full evidence and context
+   296→ */
+   297→export class ProductSpecificationEngine {
+   298→  /**
+   299→   * specifyNeutral — Create a constructor-independent specification.
+   300→   *
+   301→   * AC-016: This specification describes WHAT the product should do,
+   302→   * not HOW it should be built. No technology choices, no implementation
+   303→   * details — only problem, features, and acceptance criteria.
+   304→   */
+   305→  specifyNeutral(
+   306→    architecture: ProductArchitecture,
+   307→    evidence: ProductEvidence[] = [],
+   308→    opportunity?: Opportunity
+   309→  ): ProductSpecification {
+   310→    const features = this.buildNeutralFeatures(architecture);
+   311→
+   312→    return {
+   313→      specId: randomUUID(),
+   314→      productName: opportunity?.name || architecture.client,
+   315→      version: "1.0.0",
+   316→      problem: architecture.problem,
+   317→      targetUser: architecture.client,
+   318→      jtbd: architecture.jtbd,
+   319→      desiredOutcome: architecture.desired_outcome,
+   320→      valueProposition: architecture.value_proposition,
+   321→      format: architecture.format,
+   322→      features,
+   323→      uxDescription: architecture.ux_description,
+   324→      differentiation: architecture.differentiation,
+   325→      monetization: architecture.monetization,
+   326→      mvpScope: architecture.mvp_definition.scope,
+   327→      validationRequirements: architecture.validation_requirements,
+   328→      buildRequirements: architecture.build_requirements,
+   329→      successCriteria: architecture.success_criteria,
+   330→      risks: architecture.risks,
+   331→      assumptions: architecture.assumptions,
+   332→      unknowns: architecture.unknowns,
+   333→      evidence,
+   334→      specifiedAt: new Date().toISOString(),
+   335→    };
+   336→  }
+   337→
+   338→  /**
+   339→   * specifySoftware — Create a software-specific specification.
+   340→   *
+   341→   * AC-017: This specification is ready for consumption by Codex/Antigravity.
+   342→   * It includes technical details, data models, integration points,
+   343→   * and deployment considerations while remaining implementation-flexible.
+   344→   */
+   345→  specifySoftware(
+   346→    architecture: ProductArchitecture,
+   347→    evidence: ProductEvidence[] = [],
+   348→    opportunity?: Opportunity
+   349→  ): SoftwareSpecification {
+   350→    const productName = opportunity?.name || architecture.client;
+   351→
+   352→    return {
+   353→      identity: {
+   354→        id: randomUUID(),
+   355→        name: productName,
+   356→        version: "1.0.0",
+   357→        type: this.inferProductType(architecture.format),
+   358→        format: architecture.format,
+   359→      },
+   360→
+   361→      user: {
+   362→        target: architecture.client,
+   363→        personas: this.inferPersonas(architecture),
+   364→        authentication: this.inferAuthRequirement(architecture.format),
+   365→      },
+   366→
+   367→      problem: {
+   368→        statement: architecture.problem,
+   369→        jtbd: architecture.jtbd,
+   370→        desiredOutcome: architecture.desired_outcome,
+   371→      },
+   372→
+   373→      result: {
+   374→        valueProposition: architecture.value_proposition,
+   375→        differentiation: architecture.differentiation,
+   376→        monetization: architecture.monetization,
+   377→        successCriteria: architecture.success_criteria,
+   378→      },
+   379→
+   380→      features: this.buildSoftwareFeatures(architecture),
+   381→
+   382→      ux: {
+   383→        description: architecture.ux_description,
+   384→        flows: this.inferUserFlows(architecture),
+   385→        responsive: true,
+   386→        accessibility: true,
+   387→      },
+   388→
+   389→      functional_requirements: this.buildFunctionalRequirements(architecture),
+   390→
+   391→      non_functional_requirements: [
+   392→        "Performance: Page load < 3 seconds",
+   393→        "Availability: 99.9% uptime",
+   394→        "Scalability: Support 10x initial user growth",
+   395→        "Security: OWASP Top 10 compliance",
+   396→        "Observability: Logging, metrics, and tracing",
+   397→      ],
+   398→
+   399→      design: {
+   400→        style: "Clean, modern, professional — aligned with target audience",
+   401→        colorSystem: "Tailwind CSS built-in variables with custom brand palette",
+   402→        componentLibrary: "shadcn/ui (New York style) with Lucide icons",
+   403→        layoutPrinciples: [
+   404→          "Mobile-first responsive design",
+   405→          "Consistent spacing and typography",
+   406→          "Clear visual hierarchy",
+   407→          "Accessible color contrast (WCAG 2.1 AA)",
+   408→        ],
+   409→      },
+   410→
+   411→      data: {
+   412→        entities: this.inferDataEntities(architecture),
+   413→        relationships: this.inferDataRelationships(architecture),
+   414→        storageRequirements: this.inferStorageRequirements(architecture.format),
+   415→      },
+   416→
+   417→      integrations: architecture.dependencies,
+   418→
+   419→      security: {
+   420→        authentication: this.inferAuthRequirement(architecture.format),
+   421→        authorization: "Role-based access control (RBAC)",
+   422→        dataProtection: "Encryption at rest and in transit",
+   423→        compliance: ["GDPR", "Data minimization"],
+   424→      },
+   425→
+   426→      permissions: this.inferPermissions(architecture),
+   427→
+   428→      errors: [
+   429→        "Network errors: Retry with exponential backoff",
+   430→        "Validation errors: Clear field-level messages",
+   431→        "Auth errors: Redirect to login with session expiry message",
+   432→        "Rate limiting: Graceful degradation with user feedback",
+   433→        "Unexpected errors: Generic message with error ID for support",
+   434→      ],
+   435→
+   436→      acceptance_criteria: architecture.success_criteria,
+   437→
+   438→      dependencies: architecture.dependencies,
+   439→
+   440→      constraints: [
+   441→        `Scope: MUST items only for MVP (${architecture.MUST.length} items)`,
+   442→        `Timebox: ${architecture.mvp_definition.timebox}`,
+   443→        ...architecture.OUT.map((item) => `OUT: ${item.description} — ${item.rationale}`),
+   444→      ],
+   445→
+   446→      risks: architecture.risks,
+   447→      unknowns: architecture.unknowns,
+   448→
+   449→      specifiedAt: new Date().toISOString(),
+   450→    };
+   451→  }
+   452→
+   453→  /**
+   454→   * generateHandoff — Create a handoff contract for agent delegation.
+   455→   *
+   456→   * AC-018: Handoff is reproducible — the receiver can understand the full
+   457→   * intent without guessing, because all context is included.
+   458→   *
+   459→   * AC-019: The contract includes objective, specification, constraints,
+   460→   * required output, acceptance criteria, and evidence.
+   461→   *
+   462→   * AC-021: Evidence is included so the receiver understands WHY decisions
+   463→   * were made, not just WHAT was decided.
+   464→   */
+   465→  generateHandoff(
+   466→    specification: SoftwareSpecification | ProductSpecification,
+   467→    targetAgent: "codex" | "antigravity" | "krea",
+   468→    constructor?: ConstructorSelection,
+   469→    architecture?: ProductArchitecture,
+   470→    evidence: ProductEvidence[] = []
+   471→  ): HandoffContract {
+   472→    const productName = "productName" in specification
+   473→      ? specification.productName
+   474→      : specification.identity.name;
+   475→
+   476→    const isSoftware = "identity" in specification;
+   477→    const softwareSpec = isSoftware ? specification as SoftwareSpecification : undefined;
+   478→
+   479→    // Determine autonomy level based on target agent and evidence quality
+   480→    const autonomy = this.determineAutonomy(targetAgent, evidence);
+   481→
+   482→    // Determine approval requirements
+   483→    const approvals = this.determineApprovals(targetAgent, autonomy);
+   484→
+   485→    // Build constraints
+   486→    const outOfScope = architecture
+   487→      ? architecture.OUT.map((item) => item.description)
+   488→      : ["Features not in MUST list", "Multi-language support", "Mobile native apps"];
+   489→
+   490→    return {
+   491→      handoff_id: randomUUID(),
+   492→      source_agent: "krea",
+   493→      target_agent: targetAgent,
+   494→      objective: this.buildHandoffObjective(targetAgent, productName, constructor),
+   495→      product: {
+   496→        name: productName,
+   497→        version: "1.0.0",
+   498→        format: architecture?.format || "unspecified",
+   499→      },
+   500→      input_specification: specification,
+   501→      constraints: {
+   502→        timebox: architecture?.mvp_definition.timebox || "4-6 weeks",
+   503→        quality: [
+   504→          "All acceptance criteria must pass",
+   505→          "No critical or high-severity bugs",
+   506→          "Code review completed",
+   507→        ],
+   508→        outOfScope,
+   509→      },
+   510→      required_output: {
+   511→        deliverables: this.inferDeliverables(targetAgent, architecture),
+   512→        format: this.inferOutputFormat(targetAgent),
+   513→        qualityStandards: [
+   514→          "All acceptance criteria met",
+   515→          "Test coverage >= 80%",
+   516→          "No regressions in existing functionality",
+   517→          "Documentation for all public APIs",
+   518→        ],
+   519→      },
+   520→      acceptance_criteria: architecture?.success_criteria || [
+   521→        "Product meets all MUST requirements",
+   522→        "All validation tests pass",
+   523→        "User acceptance testing completed",
+   524→      ],
+   525→      evidence,
+   526→      dependencies: architecture?.dependencies || [],
+   527→      risk: {
+   528→        level: this.assessHandoffRisk(targetAgent, evidence),
+   529→        factors: architecture?.risks || ["Unknown technical complexity"],
+   530→        mitigations: [
+   531→          "Phased delivery with milestones",
+   532→          "Regular progress check-ins",
+   533→          "Rollback plan for each phase",
+   534→        ],
+   535→      },
+   536→      autonomy,
+   537→      approvals,
+   538→      status: "draft",
+   539→      handedOffAt: new Date().toISOString(),
+   540→    };
+   541→  }
+   542→
+   543→  // ─── Private Helpers ───────────────────────────────────────────────────
+   544→
+   545→  /** Build constructor-independent features from architecture (AC-016) */
+   546→  private buildNeutralFeatures(architecture: ProductArchitecture): FeatureSpec[] {
+   547→    const features: FeatureSpec[] = [];
+   548→
+   549→    for (const item of architecture.MUST) {
+   550→      features.push(this.moscowToFeature(item, "MUST"));
+   551→    }
+   552→    for (const item of architecture.SHOULD) {
+   553→      features.push(this.moscowToFeature(item, "SHOULD"));
+   554→    }
+   555→    for (const item of architecture.COULD) {
+   556→      features.push(this.moscowToFeature(item, "COULD"));
+   557→    }
+   558→
+   559→    return features;
+   560→  }
+   561→
+   562→  /** Convert MoSCoW item to feature specification */
+   563→  private moscowToFeature(item: MoscowItem, priority: "MUST" | "SHOULD" | "COULD"): FeatureSpec {
+   564→    return {
+   565→      name: item.description.substring(0, 80),
+   566→      description: item.description,
+   567→      userStories: [`As a user, I want ${item.description.toLowerCase()} so that ${item.rationale.toLowerCase()}`],
+   568→      acceptanceCriteria: [
+   569→        `Feature "${item.description}" is fully functional`,
+   570→        `Feature passes all validation tests`,
+   571→      ],
+   572→      priority,
+   573→      dependencies: [],
+   574→      evidenceIds: item.evidenceIds,
+   575→    };
+   576→  }
+   577→
+   578→  /** Build software-specific features (AC-017) */
+   579→  private buildSoftwareFeatures(architecture: ProductArchitecture): SoftwareFeature[] {
+   580→    const features: SoftwareFeature[] = [];
+   581→
+   582→    const allItems = [
+   583→      ...architecture.MUST.map((i) => ({ ...i, priority: "MUST" as const })),
+   584→      ...architecture.SHOULD.map((i) => ({ ...i, priority: "SHOULD" as const })),
+   585→      ...architecture.COULD.map((i) => ({ ...i, priority: "COULD" as const })),
+   586→    ];
+   587→
+   588→    for (const item of allItems) {
+   589→      features.push({
+   590→        name: item.description.substring(0, 80),
+   591→        description: item.description,
+   592→        userStories: [`Given a user in the target audience, When they need ${item.description.toLowerCase()}, Then the product provides ${item.rationale.toLowerCase()}`],
+   593→        acceptanceCriteria: [
+   594→          `Feature works end-to-end`,
+   595→          `Error handling is graceful`,
+   596→          `Feature is accessible`,
+   597→        ],
+   598→        priority: item.priority,
+   599→        technicalNotes: `Implementation approach determined by constructor. Effort: ${item.effort || "TBD"}.`,
+   600→        dependencies: [],
+   601→      });
+   602→    }
+   603→
+   604→    return features;
+   605→  }
+   606→
+   607→  /** Infer product type from format */
+   608→  private inferProductType(format: string): string {
+   609→    const lower = format.toLowerCase();
+   610→    if (["app", "saas", "web app", "platform"].some((f) => lower.includes(f))) return "web_application";
+   611→    if (["api", "backend", "service"].some((f) => lower.includes(f))) return "api_service";
+   612→    if (["ebook", "guide", "template"].some((f) => lower.includes(f))) return "digital_product";
+   613→    if (["course", "curso"].some((f) => lower.includes(f))) return "course";
+   614→    return "product";
+   615→  }
+   616→
+   617→  /** Infer user personas from architecture */
+   618→  private inferPersonas(architecture: ProductArchitecture): string[] {
+   619→    return [
+   620→      `${architecture.client} — primary user seeking ${architecture.desired_outcome}`,
+   621→      `Evaluator — comparing solutions before adopting`,
+   622→    ];
+   623→  }
+   624→
+   625→  /** Infer authentication requirement */
+   626→  private inferAuthRequirement(format: string): string {
+   627→    const lower = format.toLowerCase();
+   628→    if (["ebook", "guide", "template", "course"].some((f) => lower.includes(f))) {
+   629→      return "Email-based or social login for purchase access";
+   630→    }
+   631→    return "NextAuth.js v4 with email + social providers";
+   632→  }
+   633→
+   634→  /** Infer user flows */
+   635→  private inferUserFlows(architecture: ProductArchitecture): string[] {
+   636→    return [
+   637→      "Onboarding: Sign up → Profile setup → First value moment",
+   638→      "Core flow: Problem identification → Solution application → Result",
+   639→      "Feedback: Result review → Feedback → Iteration",
+   640→    ];
+   641→  }
+   642→
+   643→  /** Build functional requirements */
+   644→  private buildFunctionalRequirements(architecture: ProductArchitecture): string[] {
+   645→    const requirements: string[] = [];
+   646→
+   647→    for (const item of architecture.MUST) {
+   648→      requirements.push(`MUST: ${item.description}`);
+   649→    }
+   650→    for (const item of architecture.SHOULD) {
+   651→      requirements.push(`SHOULD: ${item.description}`);
+   652→    }
+   653→
+   654→    requirements.push("User can create, read, update, and delete their own data");
+   655→    requirements.push("System provides error feedback for all invalid operations");
+   656→
+   657→    return requirements;
+   658→  }
+   659→
+   660→  /** Infer data entities */
+   661→  private inferDataEntities(architecture: ProductArchitecture): string[] {
+   662→    return [
+   663→      "User (profile, preferences, authentication)",
+   664→      "Product/Content (core deliverable)",
+   665→      "Session (user activity tracking)",
+   666→    ];
+   667→  }
+   668→
+   669→  /** Infer data relationships */
+   670→  private inferDataRelationships(architecture: ProductArchitecture): string[] {
+   671→    return [
+   672→      "User → has many → Sessions",
+   673→      "User → owns → Product/Content",
+   674→    ];
+   675→  }
+   676→
+   677→  /** Infer storage requirements */
+   678→  private inferStorageRequirements(format: string): string {
+   679→    const lower = format.toLowerCase();
+   680→    if (["app", "saas", "platform"].some((f) => lower.includes(f))) {
+   681→      return "SQLite via Prisma ORM for MVP; migrate to PostgreSQL for scale";
+   682→    }
+   683→    return "File storage for content delivery; SQLite for user data";
+   684→  }
+   685→
+   686→  /** Infer permissions */
+   687→  private inferPermissions(architecture: ProductArchitecture): string[] {
+   688→    return [
+   689→      "User: read/write own data",
+   690→      "Admin: read/write all data",
+   691→      "Public: read published content only",
+   692→    ];
+   693→  }
+   694→
+   695→  /** Determine autonomy level for handoff */
+   696→  private determineAutonomy(
+   697→    targetAgent: "codex" | "antigravity" | "krea",
+   698→    evidence: ProductEvidence[]
+   699→  ): AutonomyLevel {
+   700→    const avgConfidence = evidence.length > 0
+   701→      ? evidence.reduce((s, e) => s + e.confidence, 0) / evidence.length
+   702→      : 0.3;
+   703→
+   704→    if (avgConfidence >= 0.7) return "guided";
+   705→    if (avgConfidence >= 0.5) return "supervised";
+   706→    return "approval_required";
+   707→  }
+   708→
+   709→  /** Determine approval requirements */
+   710→  private determineApprovals(
+   711→    targetAgent: "codex" | "antigravity" | "krea",
+   712→    autonomy: AutonomyLevel
+   713→  ): ApprovalRequirement[] {
+   714→    const approvals: ApprovalRequirement[] = [];
+   715→
+   716→    approvals.push({
+   717→      what: "Architecture and tech stack decisions",
+   718→      approver: "krea",
+   719→      trigger: "before_start",
+   720→    });
+   721→
+   722→    if (autonomy !== "full") {
+   723→      approvals.push({
+   724→        what: "Scope changes or additions beyond MUST items",
+   725→        approver: "krea",
+   726→        trigger: "on_change",
+   727→      });
+   728→    }
+   729→
+   730→    approvals.push({
+   731→      what: "Deployment to production",
+   732→      approver: "human",
+   733→      trigger: "before_deploy",
+   734→    });
+   735→
+   736→    return approvals;
+   737→  }
+   738→
+   739→  /** Build handoff objective */
+   740→  private buildHandoffObjective(
+   741→    targetAgent: "codex" | "antigravity" | "krea",
+   742→    productName: string,
+   743→    constructor?: ConstructorSelection
+   744→  ): string {
+   745→    switch (targetAgent) {
+   746→      case "codex":
+   747→        return `Implement the software for "${productName}" according to the provided specification. Build all MUST items first, then SHOULD items if time permits. Follow the architecture constraints and OUT scope boundaries strictly.`;
+   748→      case "antigravity":
+   749→        return `Design and implement the UX/UI for "${productName}" according to the provided specification. Create a user experience that delivers the desired outcome for the target audience.`;
+   750→      case "krea":
+   751→        return `Produce the content for "${productName}" according to the provided specification. Create all MUST content items with evidence-backed material.`;
+   752→    }
+   753→  }
+   754→
+   755→  /** Infer deliverables for target agent */
+   756→  private inferDeliverables(
+   757→    targetAgent: "codex" | "antigravity" | "krea",
+   758→    architecture?: ProductArchitecture
+   759→  ): string[] {
+   760→    switch (targetAgent) {
+   761→      case "codex":
+   762→        return [
+   763→          "Working application with all MUST features",
+   764→          "API documentation",
+   765→          "Test suite with >= 80% coverage",
+   766→          "Deployment configuration",
+   767→        ];
+   768→      case "antigravity":
+   769→        return [
+   770→          "UI component library",
+   771→          "Responsive layouts for all screens",
+   772→          "Interactive prototypes",
+   773→          "Design system documentation",
+   774→        ];
+   775→      case "krea":
+   776→        return architecture?.MUST.map((m) => m.description) || ["Complete product content"];
+   777→    }
+   778→  }
+   779→
+   780→  /** Infer output format */
+   781→  private inferOutputFormat(targetAgent: "codex" | "antigravity" | "krea"): string {
+   782→    switch (targetAgent) {
+   783→      case "codex": return "Next.js application with TypeScript, deployable to Vercel";
+   784→      case "antigravity": return "Figma design system + React component library";
+   785→      case "krea": return "Structured content in product-specific format";
+   786→    }
+   787→  }
+   788→
+   789→  /** Assess handoff risk level */
+   790→  private assessHandoffRisk(
+   791→    targetAgent: "codex" | "antigravity" | "krea",
+   792→    evidence: ProductEvidence[]
+   793→  ): "low" | "medium" | "high" {
+   794→    const avgConfidence = evidence.length > 0
+   795→      ? evidence.reduce((s, e) => s + e.confidence, 0) / evidence.length
+   796→      : 0.3;
+   797→
+   798→    if (avgConfidence >= 0.7) return "low";
+   799→    if (avgConfidence >= 0.4) return "medium";
+   800→    return "high";
+   801→  }
+   802→}
+   803→

@@ -10,8 +10,17 @@
  *   AC-043 — KREA cannot declare PDF done just because renderer finished
  *   AC-044 — QAIssue categories with severity, location, description, suggested_fix
  *   AC-045 — Repair loop: DETECT → DIAGNOSE → REPAIR → RENDER → VERIFY (max 5 iterations)
+ *
+ * FASE 10 hardening:
+ *   - NOT_VERIFIED is a valid QA status alongside PASS/FAIL
+ *   - inspectPDF() method inspects real PDF files when available
+ *   - inspect() marks layout-level-only QA honestly
+ *   - repairBadHierarchy() now applies a real fix (not false)
  */
 
+import { existsSync, statSync, readFileSync } from "fs";
+import { execSync } from "child_process";
+import { join } from "path";
 import type { EditorialSpecification, LayoutResult, BookContent } from "./editorial-design";
 import type { ArtDirectionSpec } from "./art-direction";
 import type { CoverSpecification } from "./cover-design";
@@ -39,6 +48,16 @@ export type QAIssueCategory =
 // ─── QA Issue Severity ─────────────────────────────────────────────────
 
 export type QAIssueSeverity = "critical" | "warning" | "info";
+
+// ─── QA Status (FASE 10: adds NOT_VERIFIED) ────────────────────────────
+
+/**
+ * Tri-state QA status:
+ * - "PASS"  — check was performed and passed
+ * - "FAIL"  — check was performed and failed
+ * - "NOT_VERIFIED" — check could not be performed (with reason)
+ */
+export type QAStatus = "PASS" | "FAIL" | "NOT_VERIFIED";
 
 // ─── QA Issue Location ─────────────────────────────────────────────────
 
@@ -77,6 +96,10 @@ export interface QAIssue {
   auto_repairable: boolean;
   /** Related issues that should be fixed together */
   related_issues?: string[];
+  /** QA status — PASS, FAIL, or NOT_VERIFIED (FASE 10) */
+  status?: QAStatus;
+  /** Reason for NOT_VERIFIED status, if applicable */
+  not_verified_reason?: string;
 }
 
 // ─── QA Result (AC-043) ────────────────────────────────────────────────
@@ -102,6 +125,10 @@ export interface QAResult {
   inspectedAt: string;
   /** Inspection duration in ms */
   inspection_duration_ms: number;
+  /** Whether this was layout-level-only QA (no PDF file inspected) */
+  layout_level_only?: boolean;
+  /** Note about QA scope (FASE 10) */
+  qa_scope_note?: string;
 }
 
 // ─── Diagnosis ──────────────────────────────────────────────────────────
@@ -149,6 +176,33 @@ export interface PDFSpecForQA {
   content: BookContent;
 }
 
+// ─── PDF Inspection Result (FASE 10) ───────────────────────────────────
+
+export interface PDFInspectionResult {
+  /** Whether the inspection was performed */
+  inspected: boolean;
+  /** Reason if inspection was not performed */
+  not_inspected_reason?: string;
+  /** Page count from the actual PDF */
+  pageCount?: number;
+  /** File size in bytes */
+  sizeBytes?: number;
+  /** Whether the file has a valid %PDF header */
+  validHeader?: boolean;
+  /** Text extracted from the PDF (if any) */
+  extractedText?: string;
+  /** Issues found at PDF level */
+  issues: QAIssue[];
+  /** QA status for each checkable property */
+  checks: {
+    file_exists: QAStatus;
+    valid_pdf: QAStatus;
+    page_count_matches: QAStatus;
+    text_extractable: QAStatus;
+    no_rendering_defects: QAStatus;
+  };
+}
+
 // ─── VisualQA Class ────────────────────────────────────────────────────
 
 /**
@@ -156,8 +210,9 @@ export interface PDFSpecForQA {
  *
  * Three main operations:
  * 1. inspect() — detect all visual quality issues (AC-043)
- * 2. diagnose() — determine root cause for each issue
- * 3. repair() — attempt to fix an issue
+ * 2. inspectPDF() — inspect an actual PDF file for rendering-level issues (FASE 10)
+ * 3. diagnose() — determine root cause for each issue
+ * 4. repair() — attempt to fix an issue
  *
  * AC-043: Never trust the renderer output blindly.
  * AC-044: Every issue has severity, location, description, suggested_fix.
@@ -169,6 +224,9 @@ export class VisualQA {
    *
    * AC-043: This inspection is MANDATORY. The renderer finishing does NOT
    * mean the PDF is done — we must actively verify visual quality.
+   *
+   * FASE 10: This is a LAYOUT-LEVEL inspection only. It checks the layout
+   * JSON, not the actual rendered PDF. For PDF-level QA, use inspectPDF().
    *
    * @param pdfSpec - The PDF specification and layout to inspect
    * @param content - The source content that was rendered
@@ -221,7 +279,207 @@ export class VisualQA {
       by_severity: bySeverity,
       inspectedAt: new Date().toISOString(),
       inspection_duration_ms: duration,
+      layout_level_only: true,
+      qa_scope_note: "Layout-level QA only. PDF-level QA requires renderToPDF + inspectPDF.",
     };
+  }
+
+  /**
+   * Inspect an actual PDF file for rendering-level issues.
+   *
+   * FASE 10: This method checks the real PDF file on disk, not just the
+   * layout JSON. It can detect rendering defects that layout-level checks
+   * cannot.
+   *
+   * @param filePath - Absolute path to the PDF file
+   * @param expectedPageCount - Expected number of pages
+   * @returns PDFInspectionResult with check results
+   */
+  inspectPDF(
+    filePath: string,
+    expectedPageCount?: number
+  ): PDFInspectionResult {
+    const result: PDFInspectionResult = {
+      inspected: false,
+      issues: [],
+      checks: {
+        file_exists: "NOT_VERIFIED",
+        valid_pdf: "NOT_VERIFIED",
+        page_count_matches: "NOT_VERIFIED",
+        text_extractable: "NOT_VERIFIED",
+        no_rendering_defects: "NOT_VERIFIED",
+      },
+    };
+
+    // ── Check: File exists ──────────────────────────────────────────
+    if (!existsSync(filePath)) {
+      result.not_inspected_reason = `No PDF file to inspect: ${filePath} does not exist`;
+      result.checks.file_exists = "FAIL";
+      result.checks.valid_pdf = "NOT_VERIFIED";
+      result.checks.page_count_matches = "NOT_VERIFIED";
+      result.checks.text_extractable = "NOT_VERIFIED";
+      result.checks.no_rendering_defects = "NOT_VERIFIED";
+
+      // Add an issue for the missing file
+      result.issues.push({
+        id: "qa-pdf-missing-file",
+        category: "empty_pages",
+        severity: "critical",
+        location: { page: 0 },
+        description: `PDF file does not exist at expected path: ${filePath}`,
+        suggested_fix: "Run renderToPDF() before inspectPDF()",
+        auto_repairable: false,
+        status: "FAIL",
+      });
+      return result;
+    }
+
+    result.checks.file_exists = "PASS";
+    result.inspected = true;
+
+    // ── Check: Valid PDF (read header) ──────────────────────────────
+    let fileContent: Buffer;
+    try {
+      const stat = statSync(filePath);
+      result.sizeBytes = stat.size;
+
+      if (stat.size === 0) {
+        result.checks.valid_pdf = "FAIL";
+        result.issues.push({
+          id: "qa-pdf-empty-file",
+          category: "empty_pages",
+          severity: "critical",
+          location: { page: 0 },
+          description: `PDF file is empty (0 bytes): ${filePath}`,
+          suggested_fix: "Re-render the PDF — the renderer produced an empty file",
+          auto_repairable: false,
+          status: "FAIL",
+        });
+        return result;
+      }
+
+      fileContent = readFileSync(filePath);
+
+      // Check %PDF header
+      const header = fileContent.subarray(0, 5).toString("utf-8");
+      if (header.startsWith("%PDF")) {
+        result.checks.valid_pdf = "PASS";
+        result.validHeader = true;
+      } else {
+        result.checks.valid_pdf = "FAIL";
+        result.validHeader = false;
+        result.issues.push({
+          id: "qa-pdf-invalid-header",
+          category: "empty_pages",
+          severity: "critical",
+          location: { page: 0 },
+          description: `File does not have a valid PDF header: expected %PDF, got "${header}"`,
+          suggested_fix: "Re-render the PDF — the output may be corrupted or not a PDF",
+          auto_repairable: false,
+          status: "FAIL",
+        });
+        return result;
+      }
+    } catch (err) {
+      result.checks.valid_pdf = "NOT_VERIFIED";
+      result.not_inspected_reason = `Cannot read PDF file: ${err instanceof Error ? err.message : String(err)}`;
+      return result;
+    }
+
+    // ── Check: Page count ───────────────────────────────────────────
+    // Quick page count by scanning for /Type /Page (not /Pages) objects
+    const contentStr = fileContent.toString("binary");
+    const pageTypeCount = contentStr.split("/Type /Page").length - 1;
+    const pagesTreeCount = contentStr.split("/Type /Pages").length - 1;
+    const pageCount = Math.max(1, pageTypeCount - pagesTreeCount);
+    result.pageCount = pageCount;
+
+    if (expectedPageCount !== undefined) {
+      if (pageCount === expectedPageCount) {
+        result.checks.page_count_matches = "PASS";
+      } else {
+        result.checks.page_count_matches = "FAIL";
+        result.issues.push({
+          id: "qa-pdf-page-count-mismatch",
+          category: "numbering_errors",
+          severity: "warning",
+          location: { page: 0 },
+          description: `PDF has ${pageCount} pages, expected ${expectedPageCount}`,
+          suggested_fix: "Check page break algorithm or re-render with correct spec",
+          auto_repairable: false,
+          status: "FAIL",
+        });
+      }
+    } else {
+      result.checks.page_count_matches = "NOT_VERIFIED";
+      result.issues.push({
+        id: "qa-pdf-page-count-unknown",
+        category: "numbering_errors",
+        severity: "info",
+        location: { page: 0 },
+        description: `PDF has ${pageCount} pages but no expected count was provided for comparison`,
+        suggested_fix: "Provide expectedPageCount to inspectPDF() for verification",
+        auto_repairable: false,
+        status: "NOT_VERIFIED",
+        not_verified_reason: "No expectedPageCount provided",
+      });
+    }
+
+    // ── Check: Text extractability ──────────────────────────────────
+    // Quick check: look for text stream objects in the PDF
+    const textStreamCount = contentStr.split("/Subtype /Form").length - 1;
+    const hasTextStreams = contentStr.includes("BT\n") || contentStr.includes("BT ");
+    if (hasTextStreams || textStreamCount > 0) {
+      result.checks.text_extractable = "PASS";
+    } else {
+      // Could be a scanned/image-only PDF, or we just can't detect text
+      result.checks.text_extractable = "NOT_VERIFIED";
+      result.issues.push({
+        id: "qa-pdf-text-not-detected",
+        category: "legibility_problems",
+        severity: "warning",
+        location: { page: 0 },
+        description: "Could not detect text streams in PDF — file may be image-only or use non-standard text encoding",
+        suggested_fix: "Use a PDF text extraction tool (pdftotext) to verify text content",
+        auto_repairable: false,
+        status: "NOT_VERIFIED",
+        not_verified_reason: "No PDF text extraction library available",
+      });
+    }
+
+    // ── Check: No rendering defects ─────────────────────────────────
+    // Without a visual renderer, we can only check for structural issues
+    // Check for common PDF error markers
+    const hasXref = contentStr.includes("xref") || contentStr.includes("/XRef");
+    const hasTrailer = contentStr.includes("trailer") || contentStr.includes("/Root");
+    if (hasXref && hasTrailer) {
+      result.checks.no_rendering_defects = "NOT_VERIFIED";
+      result.issues.push({
+        id: "qa-pdf-render-not-verified",
+        category: "distorted_images",
+        severity: "info",
+        location: { page: 0 },
+        description: "PDF structure appears valid but rendering defects cannot be detected without visual inspection",
+        suggested_fix: "Open the PDF in a viewer and visually verify rendering quality",
+        auto_repairable: false,
+        status: "NOT_VERIFIED",
+        not_verified_reason: "No visual PDF renderer available for defect detection",
+      });
+    } else {
+      result.checks.no_rendering_defects = "FAIL";
+      result.issues.push({
+        id: "qa-pdf-corrupt-structure",
+        category: "empty_pages",
+        severity: "critical",
+        location: { page: 0 },
+        description: `PDF is missing critical structure: ${!hasXref ? "no xref table" : ""} ${!hasTrailer ? "no trailer/root" : ""}`,
+        suggested_fix: "Re-render the PDF — the file may be truncated or corrupted",
+        auto_repairable: false,
+        status: "FAIL",
+      });
+    }
+
+    return result;
   }
 
   /**
@@ -309,6 +567,7 @@ export class VisualQA {
               description: `Text appears truncated on page ${page.page_number + 1}: element height (${element.height.toFixed(1)}pt) is less than estimated minimum`,
               suggested_fix: "Reduce font size, increase line height, or split content across pages",
               auto_repairable: true,
+              status: "FAIL",
             });
           }
         }
@@ -349,6 +608,7 @@ export class VisualQA {
             description: `Content overflows page bottom by ${(elementBottom - contentBottom).toFixed(1)}pt on page ${page.page_number + 1}`,
             suggested_fix: "Move overflowing content to next page or reduce element size",
             auto_repairable: true,
+            status: "FAIL",
           });
         }
       }
@@ -378,6 +638,7 @@ export class VisualQA {
             description: `Element placed off-page at (${element.x.toFixed(1)}, ${element.y.toFixed(1)}) on page ${page.page_number + 1}`,
             suggested_fix: "Adjust margins or reposition element within page bounds",
             auto_repairable: true,
+            status: "FAIL",
           });
         }
       }
@@ -406,6 +667,7 @@ export class VisualQA {
           description: `Page ${page.page_number + 1} has no meaningful content`,
           suggested_fix: "Remove empty page or redistribute content from adjacent pages",
           auto_repairable: true,
+          status: "FAIL",
         });
       }
     }
@@ -439,6 +701,7 @@ export class VisualQA {
               description: `Heading hierarchy skip: level ${lastHeadingLevel} to ${section.level} in chapter ${chapter.chapter_number}`,
               suggested_fix: "Insert intermediate heading level or adjust hierarchy",
               auto_repairable: true,
+              status: "FAIL",
             });
           }
           lastHeadingLevel = section.level;
@@ -473,6 +736,7 @@ export class VisualQA {
         description: `Body text contrast ratio (${bodyContrast.toFixed(2)}:1) below WCAG AA minimum (4.5:1)`,
         suggested_fix: "Increase text color darkness or adjust background color",
         auto_repairable: true,
+        status: "FAIL",
       });
     }
 
@@ -508,6 +772,7 @@ export class VisualQA {
         description: `${usedFonts.size} different fonts used — recommend maximum 3 for coherence`,
         suggested_fix: "Reduce font variety to heading + body + mono maximum",
         auto_repairable: false,
+        status: "FAIL",
       });
     }
 
@@ -537,6 +802,7 @@ export class VisualQA {
           description: `Chapter numbering gap: expected ${prev + 1}, found ${curr}`,
           suggested_fix: "Renumber chapters sequentially",
           auto_repairable: true,
+          status: "FAIL",
         });
       }
     }
@@ -563,6 +829,7 @@ export class VisualQA {
         description: `Body text size (${editorial.paragraph_style.size}pt) is below minimum readable size`,
         suggested_fix: "Increase body text size to at least 9pt (print) or 12pt (ebook)",
         auto_repairable: true,
+        status: "FAIL",
       });
     }
 
@@ -576,6 +843,7 @@ export class VisualQA {
         description: `Line height (${editorial.paragraph_style.line_height}) is below minimum readable value (1.2)`,
         suggested_fix: "Increase line height to at least 1.2 for comfortable reading",
         auto_repairable: true,
+        status: "FAIL",
       });
     }
 
@@ -732,16 +1000,77 @@ export class VisualQA {
     };
   }
 
+  /**
+   * Repair bad heading hierarchy.
+   *
+   * FASE 10 fix: This now applies a REAL repair — it inserts intermediate
+   * heading levels to fill gaps in the hierarchy.
+   *
+   * Example: If hierarchy goes H1 → H3, we insert an H2 section with
+   * a generated heading to bridge the gap.
+   */
   private repairBadHierarchy(
     issue: QAIssue,
     content: BookContent,
     editorial: EditorialSpecification
   ): RepairedContent {
+    // Parse the chapter and level from the issue ID
+    // Format: qa-hierarchy-{chapterNumber}-{level}
+    const match = issue.id.match(/qa-hierarchy-(\d+)-(\d+)/);
+    if (!match) {
+      return {
+        repaired: false,
+        issue_id: issue.id,
+        repair_description: "Cannot parse hierarchy issue — unable to determine which chapter and level to repair",
+        remaining_issues: [issue.id],
+      };
+    }
+
+    const chapterNum = parseInt(match[1], 10);
+    const skippedLevel = parseInt(match[2], 10);
+
+    // Find the chapter with the hierarchy issue
+    const updatedContent: BookContent = {
+      ...content,
+      chapters: content.chapters.map((ch) => {
+        if (ch.chapter_number !== chapterNum) return ch;
+
+        // Insert intermediate heading levels to fill the gap
+        // We walk through sections and when we find a skip, we insert
+        // a bridging section at the missing level
+        const repairedSections: typeof ch.sections = [];
+        let lastLevel = 0;
+
+        for (const section of ch.sections) {
+          if (section.heading && section.level > lastLevel + 1 && lastLevel > 0) {
+            // Insert intermediate sections for each skipped level
+            for (let level = lastLevel + 1; level < section.level; level++) {
+              repairedSections.push({
+                heading: `Section ${level}`,
+                level,
+                paragraphs: [],
+              });
+            }
+          }
+          repairedSections.push(section);
+          if (section.heading) {
+            lastLevel = section.level;
+          }
+        }
+
+        return {
+          ...ch,
+          sections: repairedSections,
+        };
+      }),
+    };
+
     return {
-      repaired: false,
+      repaired: true,
       issue_id: issue.id,
-      repair_description: "Hierarchy issues require content restructuring — manual review recommended",
-      remaining_issues: [issue.id],
+      repair_description: `Inserted intermediate heading levels to bridge hierarchy gap in chapter ${chapterNum} (up to level ${skippedLevel})`,
+      updated_content: updatedContent,
+      remaining_issues: [],
     };
   }
 

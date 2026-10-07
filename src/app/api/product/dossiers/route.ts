@@ -11,6 +11,7 @@ export async function GET(req: NextRequest) {
   try {
     const token = req.headers.get("authorization")?.replace("Bearer ", "");
     const user = await getSessionUser(token || "");
+    if (!user) return NextResponse.json({ error: "No autorizado" }, { status: 401 });
 
     const { searchParams } = new URL(req.url);
     const status = searchParams.get("status") || undefined;
@@ -20,7 +21,7 @@ export async function GET(req: NextRequest) {
     const where: Record<string, unknown> = {};
     if (status) where.status = status;
     if (format) where.format = format;
-    if (user) where.userId = user.id;
+    where.userId = user.id;
 
     const dossiers = await db.productDossier.findMany({
       where,

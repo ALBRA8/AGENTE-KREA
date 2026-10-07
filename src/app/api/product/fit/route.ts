@@ -27,9 +27,14 @@ export async function POST(req: NextRequest) {
     if (opportunityId) {
       const opportunity = await db.productOpportunity.findUnique({
         where: { id: opportunityId },
+        include: { dossier: true },
       });
       if (!opportunity) {
         return NextResponse.json({ error: "Opportunity not found" }, { status: 404 });
+      }
+      // Ownership check: if linked to a dossier, verify the user owns it
+      if (opportunity.dossier?.userId && opportunity.dossier.userId !== user.id) {
+        return NextResponse.json({ error: "Forbidden" }, { status: 403 });
       }
       // Mark as ANALYZING
       await db.productOpportunity.update({

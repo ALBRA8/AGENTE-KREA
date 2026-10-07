@@ -1,0 +1,765 @@
+     1→     1→/**
+     2→     2→ * Product Factory — KREA Book Factory Layer
+     3→     3→ *
+     4→     4→ * General orchestration layer that routes product production based on type
+     5→     5→ * and complexity. Content products (eBook, guide, template) are routed to
+     6→     6→ * BookFactory; software products generate HandoffContracts for Codex/
+     7→     7→ * Antigravity; hybrid products combine both.
+     8→     8→ *
+     9→     9→ * Satisfies:
+    10→    10→ *   AC-027 — Complexity determines routing: category alone isn't enough
+    11→    11→ *   AC-028 — Pipeline: Opportunity → Fit → Architecture → Specification →
+    12→    12→ *            Production → QA → Final Product
+    13→    13→ *
+    14→    14→ * The Product Factory is the top-level entry point for all product creation.
+    15→    15→ */
+    16→    16→
+    17→    17→import { randomUUID } from "crypto";
+    18→    18→import { BookFactory } from "./book-factory";
+    19→    19→import type { Opportunity as BookOpportunity, Architecture as BookArchitecture, BookProduct } from "./book-factory";
+    20→    20→import { MemoryManager } from "./memory";
+    21→    21→import { ExecutionTracer } from "./execution";
+    22→    22→
+    23→    23→// ─── Product Types ──────────────────────────────────────────────────────
+    24→    24→
+    25→    25→export type ProductType =
+    26→    26→  | "ebook"        // Full eBook — routes to BookFactory
+    27→    27→  | "guide"        // How-to guide — routes to BookFactory
+    28→    28→  | "template"     // Document template — routes to BookFactory
+    29→    29→  | "report"       // Research report — routes to BookFactory
+    30→    30→  | "software"     // Software product — generates HandoffContract
+    31→    31→  | "hybrid";      // Content + Software — combines both
+    32→    32→
+    33→    33→export type ProductCategory = "content" | "software" | "hybrid";
+    34→    34→
+    35→    35→// ─── Opportunity (general, for all product types) ───────────────────────
+    36→    36→
+    37→    37→export interface ProductOpportunity {
+    38→    38→  /** Unique opportunity ID */
+    39→    39→  id: string;
+    40→    40→  /** Topic/subject of the product */
+    41→    41→  topic: string;
+    42→    42→  /** Target audience */
+    43→    43→  targetAudience: string;
+    44→    44→  /** Genre/category */
+    45→    45→  genre: string;
+    46→    46→  /** Author/creator name */
+    47→    47→  author: string;
+    48→    48→  /** Purpose of the product */
+    49→    49→  purpose: string;
+    50→    50→  /** Product type */
+    51→    51→  productType: ProductType;
+    52→    52→  /** Complexity level (AC-027: determines routing) */
+    53→    53→  complexity: "simple" | "moderate" | "complex";
+    54→    54→  /** Desired output format */
+    55→    55→  format: "ebook" | "guide" | "template" | "report" | "software" | "hybrid";
+    56→    56→  /** Tone of the content */
+    57→    57→  tone: string;
+    58→    58→  /** Chapter/section count (for content products) */
+    59→    59→  sectionCount: number;
+    60→    60→  /** Target market */
+    61→    61→  targetMarket: string;
+    62→    62→  /** User ID for tracing */
+    63→    63→  userId?: string;
+    64→    64→}
+    65→    65→
+    66→    66→// ─── Fit Result ─────────────────────────────────────────────────────────
+    67→    67→
+    68→    68→/**
+    69→    69→ * Result of fitting an opportunity to a production path.
+    70→    70→ *
+    71→    71→ * AC-027: Category alone isn't enough — complexity also determines routing.
+    72→    72→ * A "simple ebook" might use a streamlined path, while a "complex ebook"
+    73→    73→ * uses the full BookFactory pipeline.
+    74→    74→ */
+    75→    75→export interface FitResult {
+    76→    76→  /** Whether the opportunity fits the selected production path */
+    77→    77→  fits: boolean;
+    78→    78→  /** Selected production category */
+    79→    79→  category: ProductCategory;
+    80→    80→  /** Production path based on type + complexity */
+    81→    81→  production_path: "book-factory-full" | "book-factory-streamlined" | "handoff-contract" | "hybrid";
+    82→    82→  /** Reason for the routing decision */
+    83→    83→  routing_reason: string;
+    84→    84→  /** Estimated complexity score (0-1) */
+    85→    85→  complexity_score: number;
+    86→    86→  /** Required capabilities for this production path */
+    87→    87→  required_capabilities: string[];
+    88→    88→  /** Estimated time in seconds */
+    89→    89→  estimated_time_seconds: number;
+    90→    90→}
+    91→    91→
+    92→    92→// ─── Architecture Decision ─────────────────────────────────────────────
+    93→    93→
+    94→    94→export interface ArchitectureDecision {
+    95→    95→  /** Architecture type */
+    96→    96→  type: "monolithic" | "modular" | "microservices";
+    97→    97→  /** Component breakdown */
+    98→    98→  components: ArchitectureComponent[];
+    99→    99→  /** Quality attributes prioritized */
+   100→   100→  quality_attributes: string[];
+   101→   101→  /** Constraints */
+   102→   102→  constraints: string[];
+   103→   103→}
+   104→   104→
+   105→   105→export interface ArchitectureComponent {
+   106→   106→  name: string;
+   107→   107→  type: "content" | "design" | "layout" | "render" | "qa" | "software";
+   108→   108→  dependencies: string[];
+   109→   109→}
+   110→   110→
+   111→   111→// ─── Handoff Contract (for software products) ───────────────────────────
+   112→   112→
+   113→   113→/**
+   114→   114→ * Contract for handing off a software product specification to
+   115→   115→ * Codex or Antigravity for implementation.
+   116→   116→ */
+   117→   117→export interface HandoffContract {
+   118→   118→  /** Unique contract ID */
+   119→   119→  id: string;
+   120→   120→  /** The opportunity being handed off */
+   121→   121→  opportunity_id: string;
+   122→   122→  /** Target implementation agent */
+   123→   123→  target_agent: "codex" | "antigravity";
+   124→   124→  /** Software specification */
+   125→   125→  specification: SoftwareSpecification;
+   126→   126→  /** Acceptance criteria */
+   127→   127→  acceptance_criteria: string[];
+   128→   128→  /** Constraints and non-functional requirements */
+   129→   129→  constraints: string[];
+   130→   130→  /** Created timestamp */
+   131→   131→  createdAt: string;
+   132→   132→}
+   133→   133→
+   134→   134→export interface SoftwareSpecification {
+   135→   135→  /** Product name */
+   136→   136→  name: string;
+   137→   137→  /** Product description */
+   138→   138→  description: string;
+   139→   139→  /** Feature list */
+   140→   140→  features: { name: string; description: string; priority: "must" | "should" | "nice" }[];
+   141→   141→  /** Tech stack requirements */
+   142→   142→  tech_stack: string[];
+   143→   143→  /** Architecture decision */
+   144→   144→  architecture: ArchitectureDecision;
+   145→   145→  /** Estimated complexity */
+   146→   146→  complexity: "simple" | "moderate" | "complex";
+   147→   147→}
+   148→   148→
+   149→   149→// ─── Product Evidence ──────────────────────────────────────────────────
+   150→   150→
+   151→   151→export interface ProductEvidence {
+   152→   152→  /** Step that produced this evidence */
+   153→   153→  step: string;
+   154→   154→  /** Timestamp */
+   155→   155→  timestamp: string;
+   156→   156→  /** Evidence description */
+   157→   157→  description: string;
+   158→   158→  /** Evidence data */
+   159→   159→  data: Record<string, unknown>;
+   160→   160→}
+   161→   161→
+   162→   162→// ─── Product Result ────────────────────────────────────────────────────
+   163→   163→
+   164→   164→/**
+   165→   165→ * Final result of product production.
+   166→   166→ *
+   167→   167→ * AC-028: Pipeline result with success, product_type, artifact_path,
+   168→   168→ *   dossier_id, evidence, qa_result.
+   169→   169→ */
+   170→   170→export interface ProductResult {
+   171→   171→  /** Whether production was successful */
+   172→   172→  success: boolean;
+   173→   173→  /** Type of product produced */
+   174→   174→  product_type: ProductType;
+   175→   175→  /** Path to the artifact (file path or reference) */
+   176→   176→  artifact_path: string | null;
+   177→   177→  /** Dossier ID for traceability */
+   178→   178→  dossier_id: string;
+   179→   179→  /** Evidence trail for the entire pipeline */
+   180→   180→  evidence: ProductEvidence[];
+   181→   181→  /** QA result (pass/fail with details) */
+   182→   182→  qa_result: {
+   183→   183→    passed: boolean;
+   184→   184→    issues_count: number;
+   185→   185→    details: string;
+   186→   186→  };
+   187→   187→  /** Book product (if content product) */
+   188→   188→  book_product?: BookProduct;
+   189→   189→  /** Handoff contract (if software product) */
+   190→   190→  handoff_contract?: HandoffContract;
+   191→   191→  /** Production time in ms */
+   192→   192→  production_time_ms: number;
+   193→   193→  /** Errors */
+   194→   194→  errors: string[];
+   195→   195→}
+   196→   196→
+   197→   197→// ─── ProductFactory Class ──────────────────────────────────────────────
+   198→   198→
+   199→   199→/**
+   200→   200→ * ProductFactory — general orchestration for all product types.
+   201→   201→ *
+   202→   202→ * Pipeline (AC-028):
+   203→   203→ *   Opportunity → Fit → Architecture → Specification → Production → QA → Final Product
+   204→   204→ *
+   205→   205→ * Routing (AC-027):
+   206→   206→ *   - Content products (ebook, guide, template, report) → BookFactory
+   207→   207→ *   - Software products → HandoffContract for Codex/Antigravity
+   208→   208→ *   - Hybrid → combines both
+   209→   209→ *
+   210→   210→ * Complexity determines routing: category alone isn't enough (AC-027).
+   211→   211→ */
+   212→   212→export class ProductFactory {
+   213→   213→  private bookFactory = new BookFactory();
+   214→   214→  private memory = new MemoryManager();
+   215→   215→  private tracer = new ExecutionTracer();
+   216→   216→
+   217→   217→  /**
+   218→   218→   * Produce a product from an opportunity.
+   219→   219→   *
+   220→   220→   * @param opportunity - The product opportunity
+   221→   221→   * @param fitResult - Pre-computed fit result (or computed internally)
+   222→   222→   * @param decision - Architecture decision (optional)
+   223→   223→   * @returns ProductResult with the final product and evidence
+   224→   224→   */
+   225→   225→  async produce(
+   226→   226→    opportunity: ProductOpportunity,
+   227→   227→    fitResult?: FitResult,
+   228→   228→    decision?: ArchitectureDecision
+   229→   229→  ): Promise<ProductResult> {
+   230→   230→    const startTime = Date.now();
+   231→   231→    const evidence: ProductEvidence[] = [];
+   232→   232→    const errors: string[] = [];
+   233→   233→
+   234→   234→    // Start execution trace
+   235→   235→    const executionId = await this.tracer.start("product-factory-produce", {
+   236→   236→      agentId: "krea",
+   237→   237→      userId: opportunity.userId,
+   238→   238→      inputs: { topic: opportunity.topic, productType: opportunity.productType },
+   239→   239→    });
+   240→   240→
+   241→   241→    try {
+   242→   242→      // ─── Step 1: Fit ──────────────────────────────────────────────
+   243→   243→      const fit = fitResult ?? this.computeFit(opportunity);
+   244→   244→      evidence.push({
+   245→   245→        step: "fit",
+   246→   246→        timestamp: new Date().toISOString(),
+   247→   247→        description: `Routed to ${fit.production_path} (complexity: ${fit.complexity_score})`,
+   248→   248→        data: { fit },
+   249→   249→      });
+   250→   250→
+   251→   251→      // ─── Step 2: Architecture ─────────────────────────────────────
+   252→   252→      const arch = decision ?? this.computeArchitecture(opportunity, fit);
+   253→   253→      evidence.push({
+   254→   254→        step: "architecture",
+   255→   255→        timestamp: new Date().toISOString(),
+   256→   256→        description: `Architecture: ${arch.type} with ${arch.components.length} components`,
+   257→   257→        data: { architecture: arch },
+   258→   258→      });
+   259→   259→
+   260→   260→      // ─── Step 3-7: Production (routed by type) ────────────────────
+   261→   261→      let result: ProductResult;
+   262→   262→
+   263→   263→      switch (fit.category) {
+   264→   264→        case "content":
+   265→   265→          result = await this.produceContentProduct(opportunity, fit, arch, evidence, executionId);
+   266→   266→          break;
+   267→   267→
+   268→   268→        case "software":
+   269→   269→          result = this.produceSoftwareProduct(opportunity, fit, arch, evidence);
+   270→   270→          break;
+   271→   271→
+   272→   272→        case "hybrid":
+   273→   273→          result = await this.produceHybridProduct(opportunity, fit, arch, evidence, executionId);
+   274→   274→          break;
+   275→   275→
+   276→   276→        default:
+   277→   277→          throw new Error(`Unknown product category: ${fit.category}`);
+   278→   278→      }
+   279→   279→
+   280→   280→      await this.tracer.succeed(executionId, {
+   281→   281→        productType: opportunity.productType,
+   282→   282→        success: result.success,
+   283→   283→      });
+   284→   284→
+   285→   285→      return result;
+   286→   286→
+   287→   287→    } catch (error) {
+   288→   288→      const message = error instanceof Error ? error.message : String(error);
+   289→   289→      errors.push(message);
+   290→   290→      await this.tracer.addError(executionId, message);
+   291→   291→      await this.tracer.fail(executionId, { message });
+   292→   292→
+   293→   293→      return {
+   294→   294→        success: false,
+   295→   295→        product_type: opportunity.productType,
+   296→   296→        artifact_path: null,
+   297→   297→        dossier_id: randomUUID(),
+   298→   298→        evidence,
+   299→   299→        qa_result: { passed: false, issues_count: 1, details: message },
+   300→   300→        production_time_ms: Date.now() - startTime,
+   301→   301→        errors,
+   302→   302→      };
+   303→   303→    }
+   304→   304→  }
+   305→   305→
+   306→   306→  /**
+   307→   307→   * Compute the fit result for an opportunity.
+   308→   308→   *
+   309→   309→   * AC-027: Complexity determines routing, not just category.
+   310→   310→   */
+   311→   311→  computeFit(opportunity: ProductOpportunity): FitResult {
+   312→   312→    const category = this.inferCategory(opportunity.productType);
+   313→   313→
+   314→   314→    // Compute complexity score (0-1)
+   315→   315→    const complexityScore = this.computeComplexityScore(opportunity);
+   316→   316→
+   317→   317→    // Route based on category + complexity (AC-027)
+   318→   318→    let productionPath: FitResult["production_path"];
+   319→   319→    let routingReason: string;
+   320→   320→
+   321→   321→    if (category === "content") {
+   322→   322→      if (complexityScore <= 0.3) {
+   323→   323→        productionPath = "book-factory-streamlined";
+   324→   324→        routingReason = "Simple content product — streamlined pipeline sufficient";
+   325→   325→      } else {
+   326→   326→        productionPath = "book-factory-full";
+   327→   327→        routingReason = "Complex content product — full BookFactory pipeline required";
+   328→   328→      }
+   329→   329→    } else if (category === "software") {
+   330→   330→      productionPath = "handoff-contract";
+   331→   331→      routingReason = "Software product — generate HandoffContract for implementation agent";
+   332→   332→    } else {
+   333→   333→      productionPath = "hybrid";
+   334→   334→      routingReason = "Hybrid product — combine BookFactory + HandoffContract";
+   335→   335→    }
+   336→   336→
+   337→   337→    const requiredCapabilities = this.getRequiredCapabilities(productionPath);
+   338→   338→    const estimatedTime = this.estimateProductionTime(productionPath, opportunity);
+   339→   339→
+   340→   340→    return {
+   341→   341→      fits: true,
+   342→   342→      category,
+   343→   343→      production_path: productionPath,
+   344→   344→      routing_reason: routingReason,
+   345→   345→      complexity_score: complexityScore,
+   346→   346→      required_capabilities: requiredCapabilities,
+   347→   347→      estimated_time_seconds: estimatedTime,
+   348→   348→    };
+   349→   349→  }
+   350→   350→
+   351→   351→  // ─── Private Methods ───────────────────────────────────────────────
+   352→   352→
+   353→   353→  /**
+   354→   354→   * Infer the product category from the product type.
+   355→   355→   */
+   356→   356→  private inferCategory(productType: ProductType): ProductCategory {
+   357→   357→    const contentTypes: ProductType[] = ["ebook", "guide", "template", "report"];
+   358→   358→    if (contentTypes.includes(productType)) return "content";
+   359→   359→    if (productType === "software") return "software";
+   360→   360→    return "hybrid";
+   361→   361→  }
+   362→   362→
+   363→   363→  /**
+   364→   364→   * Compute complexity score (0-1) from opportunity attributes.
+   365→   365→   *
+   366→   366→   * AC-027: Complexity is multi-dimensional, not just category.
+   367→   367→   */
+   368→   368→  private computeComplexityScore(opportunity: ProductOpportunity): number {
+   369→   369→    let score = 0;
+   370→   370→
+   371→   371→    // Section count contributes to complexity
+   372→   372→    score += Math.min(0.3, opportunity.sectionCount / 20);
+   373→   373→
+   374→   374→    // Explicit complexity level
+   375→   375→    const complexityMap: Record<string, number> = {
+   376→   376→      simple: 0.1,
+   377→   377→      moderate: 0.3,
+   378→   378→      complex: 0.5,
+   379→   379→    };
+   380→   380→    score += complexityMap[opportunity.complexity] ?? 0.3;
+   381→   381→
+   382→   382→    // Format complexity
+   383→   383→    if (opportunity.format === "report") score += 0.1;
+   384→   384→    if (opportunity.format === "hybrid") score += 0.2;
+   385→   385→
+   386→   386→    // Genre complexity (some genres need more visual richness)
+   387→   387→    const complexGenres = ["fiction", "lifestyle", "creative"];
+   388→   388→    if (complexGenres.includes(opportunity.genre.toLowerCase())) score += 0.1;
+   389→   389→
+   390→   390→    return Math.min(1, score);
+   391→   391→  }
+   392→   392→
+   393→   393→  /**
+   394→   394→   * Compute architecture for the product.
+   395→   395→   */
+   396→   396→  private computeArchitecture(
+   397→   397→    opportunity: ProductOpportunity,
+   398→   398→    fit: FitResult
+   399→   399→  ): ArchitectureDecision {
+   400→   400→    const contentComponents: ArchitectureComponent[] = [
+   401→   401→      { name: "content-gen", type: "content", dependencies: [] },
+   402→   402→      { name: "art-direction", type: "design", dependencies: ["content-gen"] },
+   403→   403→      { name: "editorial-design", type: "design", dependencies: ["art-direction"] },
+   404→   404→      { name: "layout", type: "layout", dependencies: ["editorial-design"] },
+   405→   405→      { name: "render", type: "render", dependencies: ["layout"] },
+   406→   406→      { name: "qa", type: "qa", dependencies: ["render"] },
+   407→   407→    ];
+   408→   408→
+   409→   409→    if (fit.category === "software" || fit.category === "hybrid") {
+   410→   410→      contentComponents.push({
+   411→   411→        name: "software-impl",
+   412→   412→        type: "software",
+   413→   413→        dependencies: ["content-gen"],
+   414→   414→      });
+   415→   415→    }
+   416→   416→
+   417→   417→    return {
+   418→   418→      type: fit.complexity_score > 0.6 ? "modular" : "monolithic",
+   419→   419→      components: contentComponents,
+   420→   420→      quality_attributes: [
+   421→   421→        "correctness",
+   422→   422→        "completeness",
+   423→   423→        "visual_quality",
+   424→   424→        "accessibility",
+   425→   425→      ],
+   426→   426→      constraints: [
+   427→   427→        "No literal content copying (AC-032)",
+   428→   428→        "Deterministic layout (AC-039)",
+   429→   429→        "Visual system coherence (AC-034)",
+   430→   430→        "Max 5 repair iterations (AC-045)",
+   431→   431→      ],
+   432→   432→    };
+   433→   433→  }
+   434→   434→
+   435→   435→  /**
+   436→   436→   * Produce a content product via BookFactory.
+   437→   437→   */
+   438→   438→  private async produceContentProduct(
+   439→   439→    opportunity: ProductOpportunity,
+   440→   440→    fit: FitResult,
+   441→   441→    _arch: ArchitectureDecision,
+   442→   442→    evidence: ProductEvidence[],
+   443→   443→    executionId: string
+   444→   444→  ): Promise<ProductResult> {
+   445→   445→    const startTime = Date.now();
+   446→   446→
+   447→   447→    // Map ProductOpportunity → BookOpportunity
+   448→   448→    const bookOpportunity: BookOpportunity = {
+   449→   449→      topic: opportunity.topic,
+   450→   450→      targetAudience: opportunity.targetAudience,
+   451→   451→      genre: opportunity.genre,
+   452→   452→      chapterCount: opportunity.sectionCount,
+   453→   453→      author: opportunity.author,
+   454→   454→      purpose: opportunity.purpose,
+   455→   455→      tone: opportunity.tone,
+   456→   456→      userId: opportunity.userId,
+   457→   457→    };
+   458→   458→
+   459→   459→    const bookArchitecture: BookArchitecture = {
+   460→   460→      format: opportunity.format as BookArchitecture["format"],
+   461→   461→      complexity: opportunity.complexity,
+   462→   462→      targetMarket: opportunity.targetMarket,
+   463→   463→    };
+   464→   464→
+   465→   465→    evidence.push({
+   466→   466→      step: "specification",
+   467→   467→      timestamp: new Date().toISOString(),
+   468→   468→      description: "Content product specification mapped to BookFactory input",
+   469→   469→      data: { productionPath: fit.production_path },
+   470→   470→    });
+   471→   471→
+   472→   472→    // Route to BookFactory
+   473→   473→    const bookProduct = await this.bookFactory.produce(bookOpportunity, bookArchitecture);
+   474→   474→
+   475→   475→    evidence.push({
+   476→   476→      step: "production",
+   477→   477→      timestamp: new Date().toISOString(),
+   478→   478→      description: `BookFactory produced ${bookProduct.content.chapters.length} chapters, ${bookProduct.pdf.pageCount} pages`,
+   479→   479→      data: {
+   480→   480→        pageCount: bookProduct.pdf.pageCount,
+   481→   481→        wordCount: bookProduct.content.total_word_count,
+   482→   482→        qaPassed: bookProduct.qa_result.passed,
+   483→   483→        pdfVerified: bookProduct.pdf_verification.overall,
+   484→   484→      },
+   485→   485→    });
+   486→   486→
+   487→   487→    evidence.push({
+   488→   488→      step: "qa",
+   489→   489→      timestamp: new Date().toISOString(),
+   490→   490→      description: bookProduct.qa_result.passed
+   491→   491→        ? "QA passed — product is verified"
+   492→   492→        : `QA found ${bookProduct.qa_result.issue_count} issues`,
+   493→   493→      data: {
+   494→   494→        passed: bookProduct.qa_result.passed,
+   495→   495→        issueCount: bookProduct.qa_result.issue_count,
+   496→   496→        criticalCount: bookProduct.qa_result.by_severity.critical,
+   497→   497→      },
+   498→   498→    });
+   499→   499→
+   500→   500→    await this.tracer.addSkill(executionId, "book-factory");
+   501→   501→
+   502→   502→    // Store product dossier in memory
+   503→   503→    const dossierId = randomUUID();
+   504→   504→    await this.storeDossier(opportunity, bookProduct, dossierId);
+   505→   505→
+   506→   506→    return {
+   507→   507→      success: bookProduct.success,
+   508→   508→      product_type: opportunity.productType,
+   509→   509→      artifact_path: bookProduct.pdf.filePath,
+   510→   510→      dossier_id: dossierId,
+   511→   511→      evidence,
+   512→   512→      qa_result: {
+   513→   513→        passed: bookProduct.qa_result.passed && bookProduct.pdf_verification.overall,
+   514→   514→        issues_count: bookProduct.qa_result.issue_count,
+   515→   515→        details: bookProduct.qa_result.passed
+   516→   516→          ? "All QA checks passed"
+   517→   517→          : `${bookProduct.qa_result.by_severity.critical} critical, ${bookProduct.qa_result.by_severity.warning} warnings`,
+   518→   518→      },
+   519→   519→      book_product: bookProduct,
+   520→   520→      production_time_ms: Date.now() - startTime,
+   521→   521→      errors: bookProduct.errors,
+   522→   522→    };
+   523→   523→  }
+   524→   524→
+   525→   525→  /**
+   526→   526→   * Produce a software product via HandoffContract.
+   527→   527→   */
+   528→   528→  private produceSoftwareProduct(
+   529→   529→    opportunity: ProductOpportunity,
+   530→   530→    fit: FitResult,
+   531→   531→    arch: ArchitectureDecision,
+   532→   532→    evidence: ProductEvidence[]
+   533→   533→  ): ProductResult {
+   534→   534→    const contract: HandoffContract = {
+   535→   535→      id: randomUUID(),
+   536→   536→      opportunity_id: opportunity.id,
+   537→   537→      target_agent: opportunity.complexity === "complex" ? "codex" : "antigravity",
+   538→   538→      specification: {
+   539→   539→        name: opportunity.topic,
+   540→   540→        description: `${opportunity.purpose} — ${opportunity.targetAudience}`,
+   541→   541→        features: this.inferFeatures(opportunity),
+   542→   542→        tech_stack: this.inferTechStack(opportunity),
+   543→   543→        architecture: arch,
+   544→   544→        complexity: opportunity.complexity,
+   545→   545→      },
+   546→   546→      acceptance_criteria: this.inferAcceptanceCriteria(opportunity),
+   547→   547→      constraints: arch.constraints,
+   548→   548→      createdAt: new Date().toISOString(),
+   549→   549→    };
+   550→   550→
+   551→   551→    evidence.push({
+   552→   552→      step: "specification",
+   553→   553→      timestamp: new Date().toISOString(),
+   554→   554→      description: `HandoffContract generated for ${contract.target_agent}`,
+   555→   555→      data: { contractId: contract.id, targetAgent: contract.target_agent },
+   556→   556→    });
+   557→   557→
+   558→   558→    evidence.push({
+   559→   559→      step: "production",
+   560→   560→      timestamp: new Date().toISOString(),
+   561→   561→      description: "Software specification ready for handoff — no rendering required",
+   562→   562→      data: { features: contract.specification.features.length },
+   563→   563→    });
+   564→   564→
+   565→   565→    evidence.push({
+   566→   566→      step: "qa",
+   567→   567→      timestamp: new Date().toISOString(),
+   568→   568→      description: "Software products are QA'd by implementation agent",
+   569→   569→      data: { passed: true },
+   570→   570→    });
+   571→   571→
+   572→   572→    return {
+   573→   573→      success: true,
+   574→   574→      product_type: opportunity.productType,
+   575→   575→      artifact_path: null,
+   576→   576→      dossier_id: randomUUID(),
+   577→   577→      evidence,
+   578→   578→      qa_result: {
+   579→   579→        passed: true,
+   580→   580→        issues_count: 0,
+   581→   581→        details: "HandoffContract ready — QA delegated to implementation agent",
+   582→   582→      },
+   583→   583→      handoff_contract: contract,
+   584→   584→      production_time_ms: 0,
+   585→   585→      errors: [],
+   586→   586→    };
+   587→   587→  }
+   588→   588→
+   589→   589→  /**
+   590→   590→   * Produce a hybrid product (content + software).
+   591→   591→   */
+   592→   592→  private async produceHybridProduct(
+   593→   593→    opportunity: ProductOpportunity,
+   594→   594→    fit: FitResult,
+   595→   595→    arch: ArchitectureDecision,
+   596→   596→    evidence: ProductEvidence[],
+   597→   597→    executionId: string
+   598→   598→  ): Promise<ProductResult> {
+   599→   599→    const startTime = Date.now();
+   600→   600→
+   601→   601→    // Produce the content component
+   602→   602→    const contentResult = await this.produceContentProduct(
+   603→   603→      opportunity, fit, arch, evidence, executionId
+   604→   604→    );
+   605→   605→
+   606→   606→    // Produce the software component
+   607→   607→    const softwareResult = this.produceSoftwareProduct(
+   608→   608→      opportunity, fit, arch, evidence
+   609→   609→    );
+   610→   610→
+   611→   611→    const combinedSuccess = contentResult.success && softwareResult.success;
+   612→   612→
+   613→   613→    return {
+   614→   614→      success: combinedSuccess,
+   615→   615→      product_type: opportunity.productType,
+   616→   616→      artifact_path: contentResult.artifact_path,
+   617→   617→      dossier_id: randomUUID(),
+   618→   618→      evidence,
+   619→   619→      qa_result: {
+   620→   620→        passed: combinedSuccess,
+   621→   621→        issues_count: contentResult.qa_result.issues_count + softwareResult.qa_result.issues_count,
+   622→   622→        details: `Content: ${contentResult.qa_result.details} | Software: ${softwareResult.qa_result.details}`,
+   623→   623→      },
+   624→   624→      book_product: contentResult.book_product,
+   625→   625→      handoff_contract: softwareResult.handoff_contract,
+   626→   626→      production_time_ms: Date.now() - startTime,
+   627→   627→      errors: [...contentResult.errors, ...softwareResult.errors],
+   628→   628→    };
+   629→   629→  }
+   630→   630→
+   631→   631→  /**
+   632→   632→   * Get required capabilities for a production path.
+   633→   633→   */
+   634→   634→  private getRequiredCapabilities(path: FitResult["production_path"]): string[] {
+   635→   635→    const capabilities: Record<FitResult["production_path"], string[]> = {
+   636→   636→      "book-factory-full": [
+   637→   637→        "zai-content-generation",
+   638→   638→        "art-direction",
+   639→   639→        "cover-design",
+   640→   640→        "editorial-design",
+   641→   641→        "deterministic-layout",
+   642→   642→        "pdf-generation",
+   643→   643→        "visual-qa",
+   644→   644→        "repair-loop",
+   645→   645→      ],
+   646→   646→      "book-factory-streamlined": [
+   647→   647→        "zai-content-generation",
+   648→   648→        "art-direction",
+   649→   649→        "editorial-design",
+   650→   650→        "pdf-generation",
+   651→   651→        "visual-qa",
+   652→   652→      ],
+   653→   653→      "handoff-contract": [
+   654→   654→        "software-specification",
+   655→   655→        "architecture-design",
+   656→   656→        "acceptance-criteria",
+   657→   657→      ],
+   658→   658→      "hybrid": [
+   659→   659→        "zai-content-generation",
+   660→   660→        "art-direction",
+   661→   661→        "cover-design",
+   662→   662→        "editorial-design",
+   663→   663→        "deterministic-layout",
+   664→   664→        "pdf-generation",
+   665→   665→        "visual-qa",
+   666→   666→        "repair-loop",
+   667→   667→        "software-specification",
+   668→   668→        "architecture-design",
+   669→   669→      ],
+   670→   670→    };
+   671→   671→
+   672→   672→    return capabilities[path] ?? [];
+   673→   673→  }
+   674→   674→
+   675→   675→  /**
+   676→   676→   * Estimate production time in seconds.
+   677→   677→   */
+   678→   678→  private estimateProductionTime(
+   679→   679→    path: FitResult["production_path"],
+   680→   680→    opportunity: ProductOpportunity
+   681→   681→  ): number {
+   682→   682→    const baseTimes: Record<FitResult["production_path"], number> = {
+   683→   683→      "book-factory-full": 60,
+   684→   684→      "book-factory-streamlined": 30,
+   685→   685→      "handoff-contract": 5,
+   686→   686→      "hybrid": 65,
+   687→   687→    };
+   688→   688→
+   689→   689→    const base = baseTimes[path] ?? 60;
+   690→   690→    // Scale by section count (more sections = more time)
+   691→   691→    const scale = 1 + (opportunity.sectionCount / 10) * 0.5;
+   692→   692→    return Math.round(base * scale);
+   693→   693→  }
+   694→   694→
+   695→   695→  /**
+   696→   696→   * Infer features from opportunity (for software products).
+   697→   697→   */
+   698→   698→  private inferFeatures(
+   699→   699→    opportunity: ProductOpportunity
+   700→   700→  ): SoftwareSpecification["features"] {
+   701→   701→    return [
+   702→   702→      { name: "core-functionality", description: opportunity.purpose, priority: "must" },
+   703→   703→      { name: "user-auth", description: "User authentication and authorization", priority: "must" },
+   704→   704→      { name: "dashboard", description: "Main dashboard interface", priority: "should" },
+   705→   705→      { name: "analytics", description: "Usage analytics and reporting", priority: "nice" },
+   706→   706→    ];
+   707→   707→  }
+   708→   708→
+   709→   709→  /**
+   710→   710→   * Infer tech stack from opportunity.
+   711→   711→   */
+   712→   712→  private inferTechStack(opportunity: ProductOpportunity): string[] {
+   713→   713→    const stacks: Record<string, string[]> = {
+   714→   714→      simple: ["Next.js", "TypeScript", "Tailwind CSS", "Prisma"],
+   715→   715→      moderate: ["Next.js", "TypeScript", "Tailwind CSS", "Prisma", "Zustand"],
+   716→   716→      complex: ["Next.js", "TypeScript", "Tailwind CSS", "Prisma", "Zustand", "TanStack Query"],
+   717→   717→    };
+   718→   718→    return stacks[opportunity.complexity] ?? stacks["moderate"];
+   719→   719→  }
+   720→   720→
+   721→   721→  /**
+   722→   722→   * Infer acceptance criteria from opportunity.
+   723→   723→   */
+   724→   724→  private inferAcceptanceCriteria(opportunity: ProductOpportunity): string[] {
+   725→   725→    return [
+   726→   726→      `Product must serve ${opportunity.targetAudience} effectively`,
+   727→   727→      `Product must fulfill purpose: ${opportunity.purpose}`,
+   728→   728→      "All features classified as 'must' are implemented and working",
+   729→   729→      "No critical bugs in production deployment",
+   730→   730→      "Performance meets baseline thresholds (LCP < 2.5s, FID < 100ms)",
+   731→   731→    ];
+   732→   732→  }
+   733→   733→
+   734→   734→  /**
+   735→   735→   * Store product dossier in memory for traceability.
+   736→   736→   */
+   737→   737→  private async storeDossier(
+   738→   738→    opportunity: ProductOpportunity,
+   739→   739→    bookProduct: BookProduct,
+   740→   740→    dossierId: string
+   741→   741→  ): Promise<void> {
+   742→   742→    try {
+   743→   743→      await this.memory.store("krea", "product-dossier", "EPISODIC", {
+   744→   744→        dossierId,
+   745→   745→        topic: opportunity.topic,
+   746→   746→        productType: opportunity.productType,
+   747→   747→        pageCount: bookProduct.pdf.pageCount,
+   748→   748→        wordCount: bookProduct.content.total_word_count,
+   749→   749→        qaPassed: bookProduct.qa_result.passed,
+   750→   750→        pdfVerified: bookProduct.pdf_verification.overall,
+   751→   751→        productionTimeMs: bookProduct.production_time_ms,
+   752→   752→        repairIterations: bookProduct.repair_iterations_used,
+   753→   753→      }, {
+   754→   754→        source: "product-factory",
+   755→   755→        sourceType: "AGENT",
+   756→   756→        confidence: 0.95,
+   757→   757→        truthLevel: "OBSERVED",
+   758→   758→        scope: "agent",
+   759→   759→      });
+   760→   760→    } catch {
+   761→   761→      // Memory storage failure is non-critical
+   762→   762→    }
+   763→   763→  }
+   764→   764→}
+   765→   765→

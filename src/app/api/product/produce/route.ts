@@ -24,6 +24,9 @@ export async function POST(req: NextRequest) {
     if (!dossier) {
       return NextResponse.json({ error: "Dossier not found" }, { status: 404 });
     }
+    if (dossier.userId && dossier.userId !== user.id) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
 
     if (!dossier.specification) {
       return NextResponse.json(

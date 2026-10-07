@@ -31,6 +31,10 @@ export async function GET(
       return NextResponse.json({ error: "Dossier not found" }, { status: 404 });
     }
 
+    if (dossier.userId && dossier.userId !== user?.id) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+
     return NextResponse.json({ dossier });
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : "Error fetching dossier";
@@ -88,6 +92,11 @@ export async function PATCH(
         return NextResponse.json({ error: "Dossier not found" }, { status: 404 });
       }
 
+      // Ownership check
+      if (current.userId && current.userId !== user.id) {
+        return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+      }
+
       const changeEntry = {
         at: new Date().toISOString(),
         by: user.id,
@@ -129,6 +138,11 @@ export async function DELETE(
     const dossier = await db.productDossier.findUnique({ where: { id } });
     if (!dossier) {
       return NextResponse.json({ error: "Dossier not found" }, { status: 404 });
+    }
+
+    // Ownership check
+    if (dossier.userId && dossier.userId !== user.id) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
     // Set status to KILLED (soft delete via status change)

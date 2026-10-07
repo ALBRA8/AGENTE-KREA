@@ -9,13 +9,19 @@
  *            fonts_ok, images_ok, links_ok, index_ok, numbering_ok,
  *            no_broken_pages, no_cut_content, no_overflow, overall
  *
- * Implementation note: This module prepares the PDF spec/layout data
- * structure that can be rendered by the pdf skill or a downstream renderer.
- * The actual PDF bytes are generated via an API call to the pdf skill.
+ * FASE 9 hardening:
+ *   - renderToPDF() generates REAL PDF files via Python/ReportLab subprocess
+ *   - verify() checks the actual file on disk when filePath is set
+ *   - Unverifiable checks are marked "NOT_VERIFIED" instead of hardcoded true
  */
 
 import { randomUUID } from "crypto";
 import { createHash } from "crypto";
+import { existsSync, statSync, readFileSync } from "fs";
+import { execSync } from "child_process";
+import { join } from "path";
+import { tmpdir } from "os";
+import { writeFileSync, unlinkSync } from "fs";
 import type { LayoutResult, EditorialSpecification, BookContent } from "./editorial-design";
 import type { ArtDirectionSpec } from "./art-direction";
 import type { CoverSpecification } from "./cover-design";
@@ -139,43 +145,51 @@ export interface PDFFontSpec {
 // ─── PDF Verification (AC-042) ─────────────────────────────────────────
 
 /**
+ * Tri-state for verification: true (passed), false (failed), "NOT_VERIFIED" (could not check).
+ */
+export type VerificationStatus = boolean | "NOT_VERIFIED";
+
+/**
  * Comprehensive verification of a generated PDF.
  *
  * AC-042: Verifies opens, page_count, structure, fonts, images, links,
  *   index, numbering, broken pages, cut content, overflow.
+ *
+ * Each field may be true, false, or "NOT_VERIFIED" if the check
+ * could not be performed (e.g., no PDF file on disk, no PDF parser).
  */
 export interface PDFVerification {
   /** PDF opens without errors */
-  opens: boolean;
+  opens: VerificationStatus;
   /** Page count matches expected */
-  page_count_ok: boolean;
+  page_count_ok: VerificationStatus;
   /** PDF structure is valid (catalog, pages tree, etc.) */
-  structure_ok: boolean;
+  structure_ok: VerificationStatus;
   /** All fonts are embedded and valid */
-  fonts_ok: boolean;
+  fonts_ok: VerificationStatus;
   /** All images are embedded and not corrupted */
-  images_ok: boolean;
+  images_ok: VerificationStatus;
   /** All internal links resolve to valid pages */
-  links_ok: boolean;
+  links_ok: VerificationStatus;
   /** Index (if present) is correct */
-  index_ok: boolean;
+  index_ok: VerificationStatus;
   /** Page and chapter numbering is sequential and correct */
-  numbering_ok: boolean;
+  numbering_ok: VerificationStatus;
   /** No broken pages (blank, misformatted, etc.) */
-  no_broken_pages: boolean;
+  no_broken_pages: VerificationStatus;
   /** No content is cut off */
-  no_cut_content: boolean;
+  no_cut_content: VerificationStatus;
   /** No content overflows page boundaries */
-  no_overflow: boolean;
-  /** Overall pass/fail (all checks must pass) */
-  overall: boolean;
+  no_overflow: VerificationStatus;
+  /** Overall pass/fail (all critical checks must pass; NOT_VERIFIED is treated as inconclusive, not a fail) */
+  overall: VerificationStatus;
   /** Detailed results for each check */
   details: PDFVerificationDetail[];
 }
 
 export interface PDFVerificationDetail {
   check: string;
-  passed: boolean;
+  passed: VerificationStatus;
   message: string;
   severity: "critical" | "warning" | "info";
 }
@@ -197,19 +211,40 @@ export interface PDFGenerationOptions {
   compress: boolean;
 }
 
+// ─── RenderToPDF Result ────────────────────────────────────────────────
+
+export interface RenderToPDFResult {
+  /** Whether the render succeeded */
+  success: boolean;
+  /** Absolute path of the generated PDF file */
+  filePath: string;
+  /** Number of pages in the generated PDF */
+  pageCount: number;
+  /** Size of the PDF file in bytes */
+  sizeBytes: number;
+  /** Error message if render failed */
+  error?: string;
+}
+
 // ─── PDFFactory Class ──────────────────────────────────────────────────
 
 /**
  * PDFFactory — generates final PDF/EPUB artifacts.
  *
- * Two main operations:
+ * Three main operations:
  * 1. generatePDF() — produces the PDF spec and (optionally) the file
- * 2. verify() — validates the generated PDF against AC-042 criteria
- *
- * The actual PDF rendering is done by the pdf skill.
- * This module prepares the complete specification for rendering.
+ * 2. renderToPDF() — renders a PDFRenderSpec to a real PDF file via Python/ReportLab
+ * 3. verify() — validates the generated PDF against AC-042 criteria
  */
 export class PDFFactory {
+  /** Path to the render-pdf.py script */
+  private readonly renderScriptPath: string;
+
+  constructor() {
+    // Resolve the Python renderer script path relative to project root
+    this.renderScriptPath = join(process.cwd(), "scripts", "render-pdf.py");
+  }
+
   /**
    * Generate a PDF from layout, content, cover, and editorial specifications.
    *
@@ -263,7 +298,7 @@ export class PDFFactory {
 
       return {
         success: true,
-        filePath: null, // Actual file created by pdf skill
+        filePath: null, // Set by renderToPDF() after actual rendering
         fileName,
         pageCount: layout.page_count + (options.include_cover ? 1 : 0) + (options.include_toc ? 1 : 0),
         sizeBytes: estimatedSize,
@@ -291,9 +326,93 @@ export class PDFFactory {
   }
 
   /**
+   * Render a PDFRenderSpec to a real PDF file using the Python/ReportLab subprocess.
+   *
+   * This is the REAL PDF generation — it calls scripts/render-pdf.py which
+   * uses ReportLab to produce actual PDF bytes on disk.
+   *
+   * @param renderSpec - The complete PDF render specification
+   * @param outputPath - Where to write the PDF file (defaults to tmpdir)
+   * @returns RenderToPDFResult with file path, page count, and size
+   */
+  renderToPDF(
+    renderSpec: PDFRenderSpec,
+    outputPath?: string
+  ): RenderToPDFResult {
+    const outPath = outputPath ?? join(tmpdir(), `krea-${renderSpec.id}.pdf`);
+    let tempJsonPath = "";
+
+    try {
+      // 1. Write the renderSpec as JSON to a temp file
+      tempJsonPath = join(tmpdir(), `krea-spec-${renderSpec.id}.json`);
+      const specPayload = JSON.stringify({
+        spec: renderSpec,
+        outputPath: outPath,
+      });
+      writeFileSync(tempJsonPath, specPayload, "utf-8");
+
+      // 2. Call the Python script via subprocess
+      const result = execSync(
+        `python3 "${this.renderScriptPath}" < "${tempJsonPath}"`,
+        {
+          encoding: "utf-8",
+          timeout: 60_000, // 60s timeout for PDF rendering
+          maxBuffer: 10 * 1024 * 1024, // 10MB buffer
+        }
+      );
+
+      // 3. Parse the JSON result from the Python script
+      const parsed = JSON.parse(result.trim()) as {
+        success: boolean;
+        pageCount: number;
+        sizeBytes: number;
+        filePath: string | null;
+        error?: string;
+      };
+
+      // 4. Clean up temp file
+      try { unlinkSync(tempJsonPath); } catch { /* ignore */ }
+
+      if (!parsed.success) {
+        return {
+          success: false,
+          filePath: outPath,
+          pageCount: 0,
+          sizeBytes: 0,
+          error: parsed.error ?? "Python renderer returned success=false",
+        };
+      }
+
+      return {
+        success: true,
+        filePath: parsed.filePath ?? outPath,
+        pageCount: parsed.pageCount,
+        sizeBytes: parsed.sizeBytes,
+      };
+    } catch (error) {
+      // Clean up temp file on error
+      if (tempJsonPath) {
+        try { unlinkSync(tempJsonPath); } catch { /* ignore */ }
+      }
+
+      const message = error instanceof Error ? error.message : String(error);
+      return {
+        success: false,
+        filePath: outPath,
+        pageCount: 0,
+        sizeBytes: 0,
+        error: `renderToPDF subprocess failed: ${message}`,
+      };
+    }
+  }
+
+  /**
    * Verify a generated PDF against AC-042 criteria.
    *
    * AC-042: Comprehensive verification of PDF quality.
+   *
+   * HONESTY RULE: If a check cannot be performed (no file on disk, no PDF
+   * parser available), the status is "NOT_VERIFIED" — never fake a PASS.
    *
    * @param pdfResult - The PDF result to verify
    * @param expectedPageCount - Expected page count
@@ -307,17 +426,59 @@ export class PDFFactory {
   ): PDFVerification {
     const details: PDFVerificationDetail[] = [];
 
-    // Check: PDF opens
-    const opens = pdfResult.success && pdfResult.errors.length === 0;
-    details.push({
-      check: "opens",
-      passed: opens,
-      message: opens ? "PDF opens successfully" : `PDF has errors: ${pdfResult.errors.join(", ")}`,
-      severity: "critical",
-    });
+    // Determine if we have a real PDF file to inspect
+    const hasFile = pdfResult.filePath !== null && existsSync(pdfResult.filePath);
+    let fileSize = 0;
+    let canOpenFile = false;
 
-    // Check: Page count matches expected
-    const pageCountOk = pdfResult.pageCount === expectedPageCount;
+    if (hasFile) {
+      try {
+        const stat = statSync(pdfResult.filePath!);
+        fileSize = stat.size;
+        // Try to read the first bytes to confirm it's a PDF
+        const buf = readFileSync(pdfResult.filePath!);
+        const header = buf.subarray(0, 5).toString("utf-8");
+        canOpenFile = header.startsWith("%PDF");
+      } catch {
+        canOpenFile = false;
+      }
+    }
+
+    // ── Check: PDF opens ──────────────────────────────────────────────
+    let opens: VerificationStatus;
+    if (hasFile && canOpenFile) {
+      // Real file on disk that starts with %PDF — actually opens
+      opens = pdfResult.success && pdfResult.errors.length === 0;
+      details.push({
+        check: "opens",
+        passed: opens,
+        message: opens
+          ? `PDF file verified: ${pdfResult.filePath} (${fileSize} bytes, valid %PDF header)`
+          : `PDF has errors: ${pdfResult.errors.join(", ")}`,
+        severity: "critical",
+      });
+    } else if (hasFile && !canOpenFile) {
+      // File exists but doesn't have valid PDF header
+      opens = false;
+      details.push({
+        check: "opens",
+        passed: false,
+        message: `File exists at ${pdfResult.filePath} but is not a valid PDF (missing %PDF header)`,
+        severity: "critical",
+      });
+    } else {
+      // No file on disk — cannot verify
+      opens = "NOT_VERIFIED";
+      details.push({
+        check: "opens",
+        passed: "NOT_VERIFIED",
+        message: "No PDF file on disk to verify — renderToPDF() has not been called or filePath is null",
+        severity: "critical",
+      });
+    }
+
+    // ── Check: Page count matches expected ────────────────────────────
+    const pageCountOk: VerificationStatus = pdfResult.pageCount === expectedPageCount;
     details.push({
       check: "page_count",
       passed: pageCountOk,
@@ -327,100 +488,176 @@ export class PDFFactory {
       severity: "warning",
     });
 
-    // Check: Structure is valid
-    const structureOk = pdfResult.success && pdfResult.spec.pages.length > 0;
+    // ── Check: Structure is valid ─────────────────────────────────────
+    const structureOk: VerificationStatus = hasFile && canOpenFile
+      ? (pdfResult.success && pdfResult.spec.pages.length > 0)
+      : "NOT_VERIFIED";
     details.push({
       check: "structure",
       passed: structureOk,
-      message: structureOk ? "PDF structure is valid" : "PDF structure is invalid or empty",
+      message: structureOk === true
+        ? "PDF structure is valid (file on disk, spec has pages)"
+        : structureOk === false
+          ? "PDF structure is invalid or empty"
+          : "NOT_VERIFIED: Cannot verify structure without a rendered PDF file",
       severity: "critical",
     });
 
-    // Check: Fonts are specified
+    // ── Check: Fonts are specified ────────────────────────────────────
+    // Fonts are in the spec, so we CAN check this at spec level
     const fontsOk = pdfResult.spec.fonts.length > 0 &&
       pdfResult.spec.fonts.every((f) => f.name && f.family);
     details.push({
       check: "fonts",
       passed: fontsOk,
       message: fontsOk
-        ? `All ${pdfResult.spec.fonts.length} fonts are valid`
-        : "Some fonts are missing or invalid",
+        ? `All ${pdfResult.spec.fonts.length} fonts are valid in spec`
+        : "Some fonts are missing or invalid in spec",
       severity: "critical",
     });
 
-    // Check: Images (placeholder — real check would inspect PDF bytes)
-    const imagesOk = true; // Assume OK if we got this far
-    details.push({
-      check: "images",
-      passed: imagesOk,
-      message: "Image check passed (no corrupted images detected in spec)",
-      severity: "info",
-    });
+    // ── Check: Images ─────────────────────────────────────────────────
+    // HONEST: Without a PDF parser, we cannot verify embedded images
+    let imagesOk: VerificationStatus;
+    if (hasFile && canOpenFile) {
+      // We have a file but no PDF parser to inspect image objects
+      imagesOk = "NOT_VERIFIED";
+      details.push({
+        check: "images",
+        passed: "NOT_VERIFIED",
+        message: "NOT_VERIFIED: PDF file exists but no PDF parser available to inspect embedded images",
+        severity: "info",
+      });
+    } else {
+      imagesOk = "NOT_VERIFIED";
+      details.push({
+        check: "images",
+        passed: "NOT_VERIFIED",
+        message: "NOT_VERIFIED: No PDF file on disk to inspect for image integrity",
+        severity: "info",
+      });
+    }
 
-    // Check: Links (internal references are valid)
+    // ── Check: Links ──────────────────────────────────────────────────
+    // We can verify internal links from the spec (page references)
     const linksOk = this.verifyInternalLinks(pdfResult);
     details.push({
       check: "links",
       passed: linksOk,
-      message: linksOk ? "All internal links resolve" : "Some internal links are broken",
+      message: linksOk
+        ? "All internal links resolve (spec-level check)"
+        : "Some internal links are broken (spec-level check)",
       severity: "warning",
     });
 
-    // Check: Index (if configured)
-    const indexOk = true; // Placeholder
-    details.push({
-      check: "index",
-      passed: indexOk,
-      message: indexOk ? "Index check passed" : "Index has errors",
-      severity: "info",
-    });
+    // ── Check: Index ──────────────────────────────────────────────────
+    // HONEST: Without rendering the PDF and parsing it, we cannot verify the index
+    let indexOk: VerificationStatus;
+    if (hasFile && canOpenFile) {
+      indexOk = "NOT_VERIFIED";
+      details.push({
+        check: "index",
+        passed: "NOT_VERIFIED",
+        message: "NOT_VERIFIED: PDF file exists but no PDF parser to verify index correctness",
+        severity: "info",
+      });
+    } else {
+      indexOk = "NOT_VERIFIED";
+      details.push({
+        check: "index",
+        passed: "NOT_VERIFIED",
+        message: "NOT_VERIFIED: No PDF file on disk to verify index",
+        severity: "info",
+      });
+    }
 
-    // Check: Numbering
+    // ── Check: Numbering ──────────────────────────────────────────────
     const numberingOk = this.verifyNumbering(pdfResult);
     details.push({
       check: "numbering",
       passed: numberingOk,
-      message: numberingOk ? "Numbering is sequential" : "Numbering has gaps or errors",
+      message: numberingOk
+        ? "Numbering is sequential (spec-level check)"
+        : "Numbering has gaps or errors (spec-level check)",
       severity: "warning",
     });
 
-    // Check: No broken pages
+    // ── Check: No broken pages ────────────────────────────────────────
     const noBrokenPages = pdfResult.spec.pages.every(
       (p) => p.elements.length > 0 || p.is_chapter_opening
     );
     details.push({
       check: "no_broken_pages",
       passed: noBrokenPages,
-      message: noBrokenPages ? "No broken pages detected" : "Some pages are broken",
+      message: noBrokenPages
+        ? "No broken pages detected (spec-level check)"
+        : "Some pages are broken (spec-level check)",
       severity: "warning",
     });
 
-    // Check: No cut content (from QA result if available)
-    const noCutContent = qaResult
-      ? qaResult.by_category.cut_text === 0
-      : true;
-    details.push({
-      check: "no_cut_content",
-      passed: noCutContent,
-      message: noCutContent ? "No cut content detected" : "Some content appears cut off",
-      severity: "critical",
-    });
+    // ── Check: No cut content ─────────────────────────────────────────
+    let noCutContent: VerificationStatus;
+    if (qaResult) {
+      noCutContent = qaResult.by_category.cut_text === 0;
+      details.push({
+        check: "no_cut_content",
+        passed: noCutContent,
+        message: noCutContent
+          ? "No cut content detected (QA result)"
+          : "Some content appears cut off (QA result)",
+        severity: "critical",
+      });
+    } else {
+      noCutContent = "NOT_VERIFIED";
+      details.push({
+        check: "no_cut_content",
+        passed: "NOT_VERIFIED",
+        message: "NOT_VERIFIED: No QA result provided to check for cut content",
+        severity: "critical",
+      });
+    }
 
-    // Check: No overflow (from QA result if available)
-    const noOverflow = qaResult
-      ? qaResult.by_category.overflow === 0
-      : true;
-    details.push({
-      check: "no_overflow",
-      passed: noOverflow,
-      message: noOverflow ? "No overflow detected" : "Some content overflows page boundaries",
-      severity: "critical",
-    });
+    // ── Check: No overflow ────────────────────────────────────────────
+    let noOverflow: VerificationStatus;
+    if (qaResult) {
+      noOverflow = qaResult.by_category.overflow === 0;
+      details.push({
+        check: "no_overflow",
+        passed: noOverflow,
+        message: noOverflow
+          ? "No overflow detected (QA result)"
+          : "Some content overflows page boundaries (QA result)",
+        severity: "critical",
+      });
+    } else {
+      noOverflow = "NOT_VERIFIED";
+      details.push({
+        check: "no_overflow",
+        passed: "NOT_VERIFIED",
+        message: "NOT_VERIFIED: No QA result provided to check for overflow",
+        severity: "critical",
+      });
+    }
 
-    // Overall: all critical checks must pass
-    const overall = details
+    // ── Overall ───────────────────────────────────────────────────────
+    // Overall is true only if all critical checks pass (not NOT_VERIFIED).
+    // If any critical check is NOT_VERIFIED, overall is NOT_VERIFIED.
+    // If any critical check is false, overall is false.
+    const criticalResults = details
       .filter((d) => d.severity === "critical")
-      .every((d) => d.passed);
+      .map((d) => d.passed);
+
+    const anyFailed = criticalResults.some((r) => r === false);
+    const anyNotVerified = criticalResults.some((r) => r === "NOT_VERIFIED");
+
+    let overall: VerificationStatus;
+    if (anyFailed) {
+      overall = false;
+    } else if (anyNotVerified) {
+      overall = "NOT_VERIFIED";
+    } else {
+      overall = true;
+    }
 
     return {
       opens,

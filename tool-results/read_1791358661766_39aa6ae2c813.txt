@@ -1,0 +1,887 @@
+     1→/**
+     2→ * Product Dossier Manager — KREA V2 Product Brain (DB-Backed)
+     3→ *
+     4→ * Master repository for all product knowledge and lifecycle state.
+     5→ * Tracks a product from IDEA through LAUNCHED and beyond.
+     6→ *
+     7→ * All state is persisted to the Prisma ProductDossier model as the PRIMARY store.
+     8→ * No in-memory Map — every get/update operates directly on the database.
+     9→ * On server restart, all dossiers are automatically available from DB (rehydration).
+    10→ *
+    11→ * Acceptance Criteria satisfied:
+    12→ *   AC-023: Lifecycle states with validated transitions
+    13→ *   AC-053: Memory isolation — product memories don't contaminate other products
+    14→ *
+    15→ * Lifecycle states:
+    16→ *   IDEA → RESEARCHING → VALIDATING → APPROVED → ARCHITECTING → SPECIFIED →
+    17→ *   BUILDING → QA → READY → LAUNCHED → ITERATING → PAUSED → KILLED → ARCHIVED
+    18→ *
+    19→ * Each dossier is a self-contained product record with full version history.
+    20→ */
+    21→
+    22→import { db } from "@/lib/db";
+    23→import { randomUUID } from "crypto";
+    24→
+    25→// ─── Lifecycle States (AC-023) ────────────────────────────────────────────────
+    26→
+    27→/** Product lifecycle states */
+    28→export type DossierStatus =
+    29→  | "IDEA"
+    30→  | "RESEARCHING"
+    31→  | "VALIDATING"
+    32→  | "APPROVED"
+    33→  | "ARCHITECTING"
+    34→  | "SPECIFIED"
+    35→  | "BUILDING"
+    36→  | "QA"
+    37→  | "READY"
+    38→  | "LAUNCHED"
+    39→  | "ITERATING"
+    40→  | "PAUSED"
+    41→  | "KILLED"
+    42→  | "ARCHIVED";
+    43→
+    44→/** All valid lifecycle statuses for runtime validation */
+    45→export const ALL_STATUSES: DossierStatus[] = [
+    46→  "IDEA", "RESEARCHING", "VALIDATING", "APPROVED",
+    47→  "ARCHITECTING", "SPECIFIED", "BUILDING", "QA",
+    48→  "READY", "LAUNCHED", "ITERATING", "PAUSED",
+    49→  "KILLED", "ARCHIVED",
+    50→];
+    51→
+    52→/** Valid state transitions (AC-023) — strictly enforced */
+    53→const VALID_TRANSITIONS: Record<DossierStatus, DossierStatus[]> = {
+    54→  IDEA:         ["RESEARCHING"],
+    55→  RESEARCHING:  ["VALIDATING", "IDEA"],
+    56→  VALIDATING:   ["APPROVED", "IDEA", "RESEARCHING"],
+    57→  APPROVED:     ["ARCHITECTING", "KILLED"],
+    58→  ARCHITECTING: ["SPECIFIED", "APPROVED"],
+    59→  SPECIFIED:    ["BUILDING", "APPROVED"],
+    60→  BUILDING:     ["QA", "SPECIFIED"],
+    61→  QA:           ["READY", "BUILDING"],
+    62→  READY:        ["LAUNCHED", "BUILDING"],
+    63→  LAUNCHED:     ["ITERATING", "PAUSED"],
+    64→  ITERATING:    ["LAUNCHED", "PAUSED"],
+    65→  PAUSED:       ["ITERATING", "KILLED"],
+    66→  KILLED:       ["ARCHIVED"],
+    67→  ARCHIVED:     [],
+    68→};
+    69→
+    70→// ─── Dossier Types ────────────────────────────────────────────────────────────
+    71→
+    72→/** A change record in the dossier history */
+    73→export interface DossierChange {
+    74→  /** Change ID */
+    75→  id: string;
+    76→  /** What changed */
+    77→  field: string;
+    78→  /** Previous value */
+    79→  oldValue: unknown;
+    80→  /** New value */
+    81→  newValue: unknown;
+    82→  /** Who made the change */
+    83→  changedBy: string;
+    84→  /** When */
+    85→  timestamp: string;
+    86→  /** Reason for the change */
+    87→  reason: string;
+    88→}
+    89→
+    90→/** QA result */
+    91→export interface QAResult {
+    92→  /** Test/audit ID */
+    93→  id: string;
+    94→  /** What was tested */
+    95→  what: string;
+    96→  /** Result */
+    97→  result: "PASS" | "FAIL" | "PARTIAL";
+    98→  /** Details */
+    99→  details: string;
+   100→  /** Timestamp */
+   101→  timestamp: string;
+   102→}
+   103→
+   104→/** User feedback */
+   105→export interface ProductFeedback {
+   106→  /** Feedback ID */
+   107→  id: string;
+   108→  /** Feedback content */
+   109→  content: string;
+   110→  /** Source (user ID, channel, etc.) */
+   111→  source: string;
+   112→  /** Type */
+   113→  type: "praise" | "complaint" | "suggestion" | "bug_report" | "feature_request";
+   114→  /** Severity (for complaints/bugs) */
+   115→  severity?: "low" | "medium" | "high" | "critical";
+   116→  /** Timestamp */
+   117→  timestamp: string;
+   118→}
+   119→
+   120→/** Learning from the product */
+   121→export interface ProductLearning {
+   122→  /** Learning ID */
+   123→  id: string;
+   124→  /** What was learned */
+   125→  lesson: string;
+   126→  /** Context */
+   127→  context: string;
+   128→  /** Category */
+   129→  category: "market" | "user" | "technical" | "process" | "economic";
+   130→  /** Confidence in this learning */
+   131→  confidence: number;
+   132→  /** Timestamp */
+   133→  timestamp: string;
+   134→}
+   135→
+   136→/** Economics estimate */
+   137→export interface EconomicsEstimate {
+   138→  /** Estimated cost to produce */
+   139→  estimated_cost: number;
+   140→  /** Ongoing production cost per month */
+   141→  production_cost: number;
+   142→  /** Tools and services cost per month */
+   143→  tools_cost: number;
+   144→  /** Provider/API cost per month */
+   145→  provider_cost: number;
+   146→  /** Suggested price */
+   147→  suggested_price: number;
+   148→  /** Profit margin (0-1) */
+   149→  margin: number;
+   150→  /** Currency */
+   151→  currency: string;
+   152→}
+   153→
+   154→/** Product evidence (simplified to avoid cross-module coupling) */
+   155→export interface ProductEvidence {
+   156→  /** Evidence ID */
+   157→  id: string;
+   158→  /** What was observed */
+   159→  observation: string;
+   160→  /** Source */
+   161→  source: string;
+   162→  /** Confidence */
+   163→  confidence: number;
+   164→  /** Timestamp */
+   165→  timestamp: string;
+   166→}
+   167→
+   168→/** Fit result (simplified) */
+   169→export interface FitResult {
+   170→  /** Overall score */
+   171→  score: number;
+   172→  /** Verdict */
+   173→  verdict: "GO" | "NO_GO" | "MAYBE";
+   174→  /** Reasoning */
+   175→  reasoning: string;
+   176→  /** Timestamp */
+   177→  timestamp: string;
+   178→}
+   179→
+   180→/** Product decision (simplified) */
+   181→export interface ProductDecision {
+   182→  /** Decision ID */
+   183→  id: string;
+   184→  /** Decision text */
+   185→  decision: string;
+   186→  /** Rationale */
+   187→  rationale: string;
+   188→  /** Made by */
+   189→  decidedBy: string;
+   190→  /** Timestamp */
+   191→  timestamp: string;
+   192→}
+   193→
+   194→/** Product architecture (simplified) */
+   195→export interface ProductArchitecture {
+   196→  /** Architecture ID */
+   197→  id: string;
+   198→  /** Description */
+   199→  description: string;
+   200→  /** Components */
+   201→  components: string[];
+   202→  /** Timestamp */
+   203→  timestamp: string;
+   204→}
+   205→
+   206→/** Product specification (simplified) */
+   207→export interface ProductSpecification {
+   208→  /** Spec ID */
+   209→  id: string;
+   210→  /** Description */
+   211→  description: string;
+   212→  /** Requirements */
+   213→  requirements: string[];
+   214→  /** Timestamp */
+   215→  timestamp: string;
+   216→}
+   217→
+   218→/** Software specification (simplified) */
+   219→export interface SoftwareSpecification {
+   220→  /** Spec ID */
+   221→  id: string;
+   222→  /** Description */
+   223→  description: string;
+   224→  /** Tech stack */
+   225→  techStack: string[];
+   226→  /** Timestamp */
+   227→  timestamp: string;
+   228→}
+   229→
+   230→/** Handoff contract (simplified) */
+   231→export interface HandoffContract {
+   232→  /** Contract ID */
+   233→  id: string;
+   234→  /** From */
+   235→  from: string;
+   236→  /** To */
+   237→  to: string;
+   238→  /** Deliverables */
+   239→  deliverables: string[];
+   240→  /** Timestamp */
+   241→  timestamp: string;
+   242→}
+   243→
+   244→/** The opportunity a dossier addresses */
+   245→export interface ProductOpportunity {
+   246→  /** Name */
+   247→  name: string;
+   248→  /** Domain */
+   249→  domain: string;
+   250→  /** Problem statement */
+   251→  problem: string;
+   252→  /** Proposed solution */
+   253→  solution: string;
+   254→  /** Target audience */
+   255→  audience: string;
+   256→  /** Product format */
+   257→  format?: string;
+   258→}
+   259→
+   260→/** Complete product dossier (application-level type) */
+   261→export interface ProductDossier {
+   262→  /** Unique dossier ID */
+   263→  id: string;
+   264→  /** Product title */
+   265→  title: string;
+   266→  /** Description */
+   267→  description: string;
+   268→  /** Domain */
+   269→  domain: string;
+   270→  /** Product format */
+   271→  format?: string;
+   272→  /** Current lifecycle status */
+   273→  status: DossierStatus;
+   274→  /** Owner user ID */
+   275→  userId?: string;
+   276→  /** The opportunity this dossier addresses */
+   277→  opportunity: ProductOpportunity;
+   278→  /** Gathered evidence */
+   279→  evidence: ProductEvidence[];
+   280→  /** Fit evaluation result */
+   281→  fitResult: FitResult | null;
+   282→  /** Product decision */
+   283→  decision: ProductDecision | null;
+   284→  /** Product architecture */
+   285→  architecture: ProductArchitecture | null;
+   286→  /** Product specification */
+   287→  specification: ProductSpecification | null;
+   288→  /** Software specification */
+   289→  softwareSpecification: SoftwareSpecification | null;
+   290→  /** Handoff contracts */
+   291→  handoffs: HandoffContract[];
+   292→  /** Production status */
+   293→  productionStatus: string;
+   294→  /** QA results */
+   295→  qaResults: QAResult[];
+   296→  /** User feedback */
+   297→  feedback: ProductFeedback[];
+   298→  /** Learnings */
+   299→  learnings: ProductLearning[];
+   300→  /** Economics */
+   301→  economics: EconomicsEstimate | null;
+   302→  /** Version number */
+   303→  version: number;
+   304→  /** Change history */
+   305→  changes: DossierChange[];
+   306→  /** Priority */
+   307→  priority: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
+   308→  /** Creation timestamp */
+   309→  createdAt: string;
+   310→  /** Last update timestamp */
+   311→  updatedAt: string;
+   312→}
+   313→
+   314→/** Filter options for listing dossiers */
+   315→export interface DossierFilters {
+   316→  status?: DossierStatus;
+   317→  domain?: string;
+   318→  format?: string;
+   319→  userId?: string;
+   320→  nameContains?: string;
+   321→  createdAfter?: string;
+   322→  createdBefore?: string;
+   323→  limit?: number;
+   324→  offset?: number;
+   325→}
+   326→
+   327→/** Fields that can be updated on a dossier */
+   328→export interface DossierUpdates {
+   329→  title?: string;
+   330→  description?: string;
+   331→  domain?: string;
+   332→  format?: string;
+   333→  opportunity?: ProductOpportunity;
+   334→  fitResult?: FitResult;
+   335→  decision?: ProductDecision;
+   336→  architecture?: ProductArchitecture;
+   337→  specification?: ProductSpecification;
+   338→  softwareSpecification?: SoftwareSpecification;
+   339→  economics?: EconomicsEstimate;
+   340→  productionStatus?: string;
+   341→  priority?: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
+   342→}
+   343→
+   344→// ─── JSON Field Helpers ───────────────────────────────────────────────────────
+   345→
+   346→/** Safely parse a JSON field from DB, returning fallback on failure */
+   347→function parseJsonField<T>(raw: string | null | undefined, fallback: T): T {
+   348→  if (!raw) return fallback;
+   349→  try {
+   350→    return JSON.parse(raw) as T;
+   351→  } catch {
+   352→    return fallback;
+   353→  }
+   354→}
+   355→
+   356→/** Safely stringify a value for DB storage */
+   357→function stringifyField(value: unknown): string | null {
+   358→  if (value === null || value === undefined) return null;
+   359→  return JSON.stringify(value);
+   360→}
+   361→
+   362→// ─── DB Row ↔ Application Object Mapping ──────────────────────────────────────
+   363→
+   364→/**
+   365→ * Convert a Prisma ProductDossier row to the application-level ProductDossier object.
+   366→ * All JSON fields are parsed from their string representations.
+   367→ */
+   368→function rowToDossier(row: {
+   369→  id: string;
+   370→  title: string;
+   371→  description: string;
+   372→  domain: string | null;
+   373→  status: string;
+   374→  userId: string | null;
+   375→  opportunity: string | null;
+   376→  evidence: string | null;
+   377→  fitResult: string | null;
+   378→  decision: string | null;
+   379→  architecture: string | null;
+   380→  specification: string | null;
+   381→  handoffs: string | null;
+   382→  productionData: string | null;
+   383→  qaResults: string | null;
+   384→  feedback: string | null;
+   385→  learnings: string | null;
+   386→  economics: string | null;
+   387→  version: number;
+   388→  changes: string | null;
+   389→  format: string | null;
+   390→  priority: string;
+   391→  createdAt: Date;
+   392→  updatedAt: Date;
+   393→}): ProductDossier {
+   394→  return {
+   395→    id: row.id,
+   396→    title: row.title,
+   397→    description: row.description,
+   398→    domain: row.domain ?? "",
+   399→    format: row.format ?? undefined,
+   400→    status: row.status as DossierStatus,
+   401→    userId: row.userId ?? undefined,
+   402→    opportunity: parseJsonField<ProductOpportunity>(row.opportunity, {
+   403→      name: row.title,
+   404→      domain: row.domain ?? "",
+   405→      problem: "",
+   406→      solution: "",
+   407→      audience: "",
+   408→    }),
+   409→    evidence: parseJsonField<ProductEvidence[]>(row.evidence, []),
+   410→    fitResult: parseJsonField<FitResult | null>(row.fitResult, null),
+   411→    decision: parseJsonField<ProductDecision | null>(row.decision, null),
+   412→    architecture: parseJsonField<ProductArchitecture | null>(row.architecture, null),
+   413→    specification: parseJsonField<ProductSpecification | null>(row.specification, null),
+   414→    softwareSpecification: null, // stored within specification JSON or separately
+   415→    handoffs: parseJsonField<HandoffContract[]>(row.handoffs, []),
+   416→    productionStatus: parseJsonField<string>(row.productionData, "not_started"),
+   417→    qaResults: parseJsonField<QAResult[]>(row.qaResults, []),
+   418→    feedback: parseJsonField<ProductFeedback[]>(row.feedback, []),
+   419→    learnings: parseJsonField<ProductLearning[]>(row.learnings, []),
+   420→    economics: parseJsonField<EconomicsEstimate | null>(row.economics, null),
+   421→    version: row.version,
+   422→    changes: parseJsonField<DossierChange[]>(row.changes, []),
+   423→    priority: row.priority as "LOW" | "MEDIUM" | "HIGH" | "CRITICAL",
+   424→    createdAt: row.createdAt.toISOString(),
+   425→    updatedAt: row.updatedAt.toISOString(),
+   426→  };
+   427→}
+   428→
+   429→/**
+   430→ * Build the Prisma update payload from application-level updates.
+   431→ * Only non-undefined fields are included in the update.
+   432→ */
+   433→function buildUpdatePayload(
+   434→  updates: DossierUpdates,
+   435→  changes: DossierChange[],
+   436→  version: number
+   437→): Record<string, unknown> {
+   438→  const payload: Record<string, unknown> = {
+   439→    version: version + 1,
+   440→    changes: stringifyField(changes),
+   441→  };
+   442→
+   443→  if (updates.title !== undefined) payload.title = updates.title;
+   444→  if (updates.description !== undefined) payload.description = updates.description;
+   445→  if (updates.domain !== undefined) payload.domain = updates.domain;
+   446→  if (updates.format !== undefined) payload.format = updates.format;
+   447→  if (updates.opportunity !== undefined) payload.opportunity = stringifyField(updates.opportunity);
+   448→  if (updates.fitResult !== undefined) payload.fitResult = stringifyField(updates.fitResult);
+   449→  if (updates.decision !== undefined) payload.decision = stringifyField(updates.decision);
+   450→  if (updates.architecture !== undefined) payload.architecture = stringifyField(updates.architecture);
+   451→  if (updates.specification !== undefined) payload.specification = stringifyField(updates.specification);
+   452→  if (updates.softwareSpecification !== undefined) payload.specification = stringifyField(updates.softwareSpecification);
+   453→  if (updates.economics !== undefined) payload.economics = stringifyField(updates.economics);
+   454→  if (updates.productionStatus !== undefined) payload.productionData = stringifyField(updates.productionStatus);
+   455→  if (updates.priority !== undefined) payload.priority = updates.priority;
+   456→
+   457→  return payload;
+   458→}
+   459→
+   460→// ─── Product Dossier Manager ──────────────────────────────────────────────────
+   461→
+   462→/**
+   463→ * ProductDossierManager — Master product lifecycle manager (DB-backed).
+   464→ *
+   465→ * AC-023: Lifecycle transitions are validated — only valid state changes allowed.
+   466→ * AC-053: Each dossier's memory domain is `product:{id}:dossier` for isolation.
+   467→ *
+   468→ * All operations read/write directly to the Prisma ProductDossier model.
+   469→ * No in-memory state — fully durable across process restarts.
+   470→ */
+   471→export class ProductDossierManager {
+   472→  /**
+   473→   * create — Start a new product dossier.
+   474→   *
+   475→   * Creates a dossier in IDEA status with the given opportunity.
+   476→   * Persists directly to DB. Returns the created dossier.
+   477→   */
+   478→  async create(
+   479→    title: string,
+   480→    description: string,
+   481→    domain: string,
+   482→    format?: string,
+   483→    userId?: string
+   484→  ): Promise<ProductDossier> {
+   485→    const now = new Date();
+   486→
+   487→    const opportunity: ProductOpportunity = {
+   488→      name: title,
+   489→      domain,
+   490→      problem: description,
+   491→      solution: "",
+   492→      audience: "",
+   493→      format,
+   494→    };
+   495→
+   496→    const row = await db.productDossier.create({
+   497→      data: {
+   498→        title,
+   499→        description,
+   500→        domain,
+   501→        format: format ?? null,
+   502→        status: "IDEA",
+   503→        userId: userId ?? null,
+   504→        opportunity: stringifyField(opportunity),
+   505→        evidence: stringifyField([]),
+   506→        fitResult: null,
+   507→        decision: null,
+   508→        architecture: null,
+   509→        specification: null,
+   510→        handoffs: stringifyField([]),
+   511→        productionData: stringifyField("not_started"),
+   512→        qaResults: stringifyField([]),
+   513→        feedback: stringifyField([]),
+   514→        learnings: stringifyField([]),
+   515→        economics: null,
+   516→        version: 1,
+   517→        changes: stringifyField([]),
+   518→        priority: "MEDIUM",
+   519→        createdAt: now,
+   520→        updatedAt: now,
+   521→      },
+   522→    });
+   523→
+   524→    return rowToDossier(row);
+   525→  }
+   526→
+   527→  /**
+   528→   * get — Retrieve a complete dossier from DB.
+   529→   *
+   530→   * Reads directly from the database. No in-memory cache.
+   531→   */
+   532→  async get(id: string): Promise<ProductDossier | null> {
+   533→    const row = await db.productDossier.findUnique({ where: { id } });
+   534→    if (!row) return null;
+   535→    return rowToDossier(row);
+   536→  }
+   537→
+   538→  /**
+   539→   * update — Update dossier fields.
+   540→   *
+   541→   * Reads from DB, records each changed field in the version history,
+   542→   * then writes the updated dossier back to DB.
+   543→   */
+   544→  async update(
+   545→    id: string,
+   546→    updates: DossierUpdates,
+   547→    changedBy: string = "krea",
+   548→    reason: string = "Update"
+   549→  ): Promise<ProductDossier | null> {
+   550→    const row = await db.productDossier.findUnique({ where: { id } });
+   551→    if (!row) return null;
+   552→
+   553→    const dossier = rowToDossier(row);
+   554→    const now = new Date().toISOString();
+   555→
+   556→    // Build change records for each updated field
+   557→    const newChanges: DossierChange[] = [];
+   558→    for (const [field, newValue] of Object.entries(updates)) {
+   559→      if (newValue === undefined) continue;
+   560→      const oldValue = (dossier as Record<string, unknown>)[field];
+   561→      newChanges.push({
+   562→        id: randomUUID(),
+   563→        field,
+   564→        oldValue,
+   565→        newValue,
+   566→        changedBy,
+   567→        timestamp: now,
+   568→        reason,
+   569→      });
+   570→    }
+   571→
+   572→    // Merge with existing changes
+   573→    const allChanges = [...dossier.changes, ...newChanges];
+   574→
+   575→    // Build and execute DB update
+   576→    const payload = buildUpdatePayload(updates, allChanges, dossier.version);
+   577→    const updatedRow = await db.productDossier.update({
+   578→      where: { id },
+   579→      data: payload,
+   580→    });
+   581→
+   582→    return rowToDossier(updatedRow);
+   583→  }
+   584→
+   585→  /**
+   586→   * transition — Transition dossier to a new lifecycle status.
+   587→   *
+   588→   * AC-023: Only valid transitions are allowed. Invalid transitions
+   589→   * throw an error with the list of valid next states.
+   590→   */
+   591→  async transition(
+   592→    id: string,
+   593→    newStatus: DossierStatus,
+   594→    changedBy: string = "krea",
+   595→    reason: string = ""
+   596→  ): Promise<ProductDossier | null> {
+   597→    const row = await db.productDossier.findUnique({ where: { id } });
+   598→    if (!row) return null;
+   599→
+   600→    const currentStatus = row.status as DossierStatus;
+   601→
+   602→    // Validate transition (AC-023)
+   603→    if (!VALID_TRANSITIONS[currentStatus].includes(newStatus)) {
+   604→      throw new Error(
+   605→        `Invalid transition: ${currentStatus} → ${newStatus}. ` +
+   606→        `Valid transitions from ${currentStatus}: ${VALID_TRANSITIONS[currentStatus].join(", ")}`
+   607→      );
+   608→    }
+   609→
+   610→    const now = new Date().toISOString();
+   611→    const existingChanges = parseJsonField<DossierChange[]>(row.changes, []);
+   612→
+   613→    existingChanges.push({
+   614→      id: randomUUID(),
+   615→      field: "status",
+   616→      oldValue: currentStatus,
+   617→      newValue: newStatus,
+   618→      changedBy,
+   619→      timestamp: now,
+   620→      reason: reason || `Transition from ${currentStatus} to ${newStatus}`,
+   621→    });
+   622→
+   623→    const updatedRow = await db.productDossier.update({
+   624→      where: { id },
+   625→      data: {
+   626→        status: newStatus,
+   627→        version: row.version + 1,
+   628→        changes: stringifyField(existingChanges),
+   629→      },
+   630→    });
+   631→
+   632→    return rowToDossier(updatedRow);
+   633→  }
+   634→
+   635→  /**
+   636→   * addEvidence — Append evidence to the dossier.
+   637→   *
+   638→   * Reads current evidence array from DB, appends new items, writes back.
+   639→   */
+   640→  async addEvidence(
+   641→    id: string,
+   642→    evidence: ProductEvidence[]
+   643→  ): Promise<ProductDossier | null> {
+   644→    const row = await db.productDossier.findUnique({ where: { id } });
+   645→    if (!row) return null;
+   646→
+   647→    const existing = parseJsonField<ProductEvidence[]>(row.evidence, []);
+   648→    existing.push(...evidence);
+   649→
+   650→    const existingChanges = parseJsonField<DossierChange[]>(row.changes, []);
+   651→    existingChanges.push({
+   652→      id: randomUUID(),
+   653→      field: "evidence",
+   654→      oldValue: existing.length - evidence.length,
+   655→      newValue: existing.length,
+   656→      changedBy: "krea",
+   657→      timestamp: new Date().toISOString(),
+   658→      reason: `Added ${evidence.length} evidence item(s)`,
+   659→    });
+   660→
+   661→    const updatedRow = await db.productDossier.update({
+   662→      where: { id },
+   663→      data: {
+   664→        evidence: stringifyField(existing),
+   665→        version: row.version + 1,
+   666→        changes: stringifyField(existingChanges),
+   667→      },
+   668→    });
+   669→
+   670→    return rowToDossier(updatedRow);
+   671→  }
+   672→
+   673→  /**
+   674→   * addDecision — Record a product decision.
+   675→   *
+   676→   * Sets the decision JSON field and records the change in history.
+   677→   */
+   678→  async addDecision(
+   679→    id: string,
+   680→    decision: ProductDecision
+   681→  ): Promise<ProductDossier | null> {
+   682→    const row = await db.productDossier.findUnique({ where: { id } });
+   683→    if (!row) return null;
+   684→
+   685→    const now = new Date().toISOString();
+   686→    const existingChanges = parseJsonField<DossierChange[]>(row.changes, []);
+   687→
+   688→    existingChanges.push({
+   689→      id: randomUUID(),
+   690→      field: "decision",
+   691→      oldValue: null,
+   692→      newValue: decision.decision,
+   693→      changedBy: "krea",
+   694→      timestamp: now,
+   695→      reason: `Decision: ${decision.decision}`,
+   696→    });
+   697→
+   698→    const updatedRow = await db.productDossier.update({
+   699→      where: { id },
+   700→      data: {
+   701→        decision: stringifyField(decision),
+   702→        version: row.version + 1,
+   703→        changes: stringifyField(existingChanges),
+   704→      },
+   705→    });
+   706→
+   707→    return rowToDossier(updatedRow);
+   708→  }
+   709→
+   710→  /**
+   711→   * addFeedback — Add user feedback to the dossier.
+   712→   *
+   713→   * Appends to the feedback JSON array in DB.
+   714→   */
+   715→  async addFeedback(
+   716→    id: string,
+   717→    feedback: Omit<ProductFeedback, "id" | "timestamp">
+   718→  ): Promise<ProductDossier | null> {
+   719→    const row = await db.productDossier.findUnique({ where: { id } });
+   720→    if (!row) return null;
+   721→
+   722→    const existing = parseJsonField<ProductFeedback[]>(row.feedback, []);
+   723→    const now = new Date().toISOString();
+   724→
+   725→    existing.push({
+   726→      ...feedback,
+   727→      id: randomUUID(),
+   728→      timestamp: now,
+   729→    });
+   730→
+   731→    const existingChanges = parseJsonField<DossierChange[]>(row.changes, []);
+   732→    existingChanges.push({
+   733→      id: randomUUID(),
+   734→      field: "feedback",
+   735→      oldValue: existing.length - 1,
+   736→      newValue: existing.length,
+   737→      changedBy: feedback.source || "krea",
+   738→      timestamp: now,
+   739→      reason: `Feedback added: ${feedback.type}`,
+   740→    });
+   741→
+   742→    const updatedRow = await db.productDossier.update({
+   743→      where: { id },
+   744→      data: {
+   745→        feedback: stringifyField(existing),
+   746→        version: row.version + 1,
+   747→        changes: stringifyField(existingChanges),
+   748→      },
+   749→    });
+   750→
+   751→    return rowToDossier(updatedRow);
+   752→  }
+   753→
+   754→  /**
+   755→   * getVersionHistory — Get all changes made to the dossier.
+   756→   *
+   757→   * Reads the changes JSON array directly from DB.
+   758→   */
+   759→  async getVersionHistory(id: string): Promise<DossierChange[]> {
+   760→    const row = await db.productDossier.findUnique({
+   761→      where: { id },
+   762→      select: { changes: true },
+   763→    });
+   764→    if (!row) return [];
+   765→    return parseJsonField<DossierChange[]>(row.changes, []);
+   766→  }
+   767→
+   768→  /**
+   769→   * list — List dossiers with optional filters.
+   770→   *
+   771→   * Queries DB with Prisma where clauses. Supports status, domain,
+   772→   * format, userId, name search, date ranges, and pagination.
+   773→   */
+   774→  async list(filters: DossierFilters = {}): Promise<ProductDossier[]> {
+   775→    const where: Record<string, unknown> = {};
+   776→
+   777→    if (filters.status) where.status = filters.status;
+   778→    if (filters.domain) where.domain = filters.domain;
+   779→    if (filters.format) where.format = filters.format;
+   780→    if (filters.userId) where.userId = filters.userId;
+   781→    if (filters.nameContains) {
+   782→      where.title = { contains: filters.nameContains, mode: "insensitive" };
+   783→    }
+   784→    if (filters.createdAfter || filters.createdBefore) {
+   785→      const createdAt: Record<string, Date> = {};
+   786→      if (filters.createdAfter) createdAt.gte = new Date(filters.createdAfter);
+   787→      if (filters.createdBefore) createdAt.lte = new Date(filters.createdBefore);
+   788→      where.createdAt = createdAt;
+   789→    }
+   790→
+   791→    const offset = filters.offset || 0;
+   792→    const limit = filters.limit || 50;
+   793→
+   794→    const rows = await db.productDossier.findMany({
+   795→      where,
+   796→      orderBy: { updatedAt: "desc" },
+   797→      skip: offset,
+   798→      take: limit,
+   799→    });
+   800→
+   801→    return rows.map(rowToDossier);
+   802→  }
+   803→
+   804→  /**
+   805→   * Get valid next statuses for a dossier.
+   806→   *
+   807→   * Reads current status from DB, returns allowed transitions.
+   808→   */
+   809→  async getValidTransitions(id: string): Promise<DossierStatus[]> {
+   810→    const row = await db.productDossier.findUnique({
+   811→      where: { id },
+   812→      select: { status: true },
+   813→    });
+   814→    if (!row) return [];
+   815→    return VALID_TRANSITIONS[row.status as DossierStatus] || [];
+   816→  }
+   817→
+   818→  /**
+   819→   * Get dossier statistics across all dossiers in DB.
+   820→   */
+   821→  async getStats(): Promise<{
+   822→    total: number;
+   823→    byStatus: Record<DossierStatus, number>;
+   824→    byDomain: Record<string, number>;
+   825→  }> {
+   826→    const all = await db.productDossier.findMany({
+   827→      select: { status: true, domain: true },
+   828→    });
+   829→
+   830→    const byStatus: Record<DossierStatus, number> = {
+   831→      IDEA: 0, RESEARCHING: 0, VALIDATING: 0, APPROVED: 0,
+   832→      ARCHITECTING: 0, SPECIFIED: 0, BUILDING: 0, QA: 0,
+   833→      READY: 0, LAUNCHED: 0, ITERATING: 0, PAUSED: 0,
+   834→      KILLED: 0, ARCHIVED: 0,
+   835→    };
+   836→    const byDomain: Record<string, number> = {};
+   837→
+   838→    for (const d of all) {
+   839→      const status = d.status as DossierStatus;
+   840→      if (status in byStatus) byStatus[status]++;
+   841→      const domain = d.domain ?? "unknown";
+   842→      byDomain[domain] = (byDomain[domain] || 0) + 1;
+   843→    }
+   844→
+   845→    return { total: all.length, byStatus, byDomain };
+   846→  }
+   847→
+   848→  /**
+   849→   * Delete a dossier from DB.
+   850→   *
+   851→   * Only allowed if the dossier is in KILLED or ARCHIVED status.
+   852→   */
+   853→  async delete(id: string): Promise<boolean> {
+   854→    const row = await db.productDossier.findUnique({
+   855→      where: { id },
+   856→      select: { status: true },
+   857→    });
+   858→    if (!row) return false;
+   859→
+   860→    const status = row.status as DossierStatus;
+   861→    if (status !== "KILLED" && status !== "ARCHIVED") {
+   862→      throw new Error(
+   863→        `Cannot delete dossier in ${status} status. ` +
+   864→        `Must be KILLED or ARCHIVED.`
+   865→      );
+   866→    }
+   867→
+   868→    await db.productDossier.delete({ where: { id } });
+   869→    return true;
+   870→  }
+   871→
+   872→  /**
+   873→   * Get the memory domain for a product dossier.
+   874→   *
+   875→   * AC-053: Each product is stored in its own isolated memory domain
+   876→   * (`product:{id}:dossier`) to prevent cross-contamination.
+   877→   */
+   878→  static getMemoryDomain(dossierId: string): string {
+   879→    return `product:${dossierId}:dossier`;
+   880→  }
+   881→}
+   882→
+   883→// ─── Singleton Export ─────────────────────────────────────────────────────────
+   884→
+   885→/** Default manager instance for convenience */
+   886→export const dossierManager = new ProductDossierManager();
+   887→

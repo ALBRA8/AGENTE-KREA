@@ -33,7 +33,7 @@ import type {
   SectionContent,
 } from "./editorial-design";
 import { PDFFactory } from "./pdf-factory";
-import type { PDFResult, PDFVerification, PDFGenerationOptions } from "./pdf-factory";
+import type { PDFResult, PDFVerification, PDFGenerationOptions, VerificationStatus } from "./pdf-factory";
 import { VisualQA } from "./visual-qa";
 import type { QAResult, Diagnosis, RepairedContent } from "./visual-qa";
 import { MemoryManager } from "./memory";
@@ -324,7 +324,7 @@ export class BookFactory {
         started_at: new Date().toISOString(),
         completed_at: new Date().toISOString(),
         duration_ms: 0,
-        success: pdfVerification.overall,
+        success: pdfVerification.overall === true,
         output_id: randomUUID(),
       });
 
@@ -335,7 +335,7 @@ export class BookFactory {
       await this.tracer.succeed(executionId, {
         pageCount: layout.page_count,
         qaPassed: qaResult.passed,
-        pdfVerified: pdfVerification.overall,
+        pdfVerified: pdfVerification.overall === true,
       });
 
     } catch (error) {
@@ -346,7 +346,7 @@ export class BookFactory {
     }
 
     return {
-      success: pdfVerification?.overall ?? false,
+      success: pdfVerification?.overall === true,
       title: bookArchitecture?.title ?? opportunity.topic,
       subtitle: bookArchitecture?.subtitle ?? "",
       author: opportunity.author,
