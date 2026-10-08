@@ -63,6 +63,15 @@ export interface ProductSpecification {
 
 // ─── Zod Schemas ──────────────────────────────────────────────────────────────
 
+/**
+ * Flexible string-or-object schema that normalizes to string.
+ * LLMs may return structured objects where the schema expects strings.
+ * This accepts both and JSON.stringifies objects for consistency.
+ */
+const stringOrObjectToString = z
+  .union([z.string(), z.record(z.any())])
+  .transform((val) => (typeof val === "string" ? val : JSON.stringify(val)));
+
 const acceptanceCriterionSchema = z.object({
   description: z.string(),
   priority: z.enum(["MUST", "SHOULD", "NICE_TO_HAVE"]),
@@ -76,7 +85,7 @@ const chapterSpecSchema = z.object({
   targetWordCount: z.number().int().positive(),
   keyTopics: z.array(z.string()),
   outline: z.array(z.string()),
-  acceptanceCriteria: z.array(z.string()),
+  acceptanceCriteria: z.array(stringOrObjectToString),
 });
 
 const moduleSpecSchema = z.object({
@@ -84,7 +93,7 @@ const moduleSpecSchema = z.object({
   responsibility: z.string(),
   interfaces: z.array(z.string()),
   dependencies: z.array(z.string()),
-  acceptanceCriteria: z.array(z.string()),
+  acceptanceCriteria: z.array(stringOrObjectToString),
   testStrategy: z.string(),
 });
 

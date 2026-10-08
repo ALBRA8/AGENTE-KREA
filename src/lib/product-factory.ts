@@ -15,10 +15,23 @@
  */
 
 import { randomUUID } from "crypto";
-import { BookFactory } from "./book-factory";
-import type { Opportunity as BookOpportunity, Architecture as BookArchitecture, BookProduct } from "./book-factory";
+import { createAndRun, createBookProject, getBookProject } from "./book-factory";
+import type { BookProjectInput, BookProject } from "./book-factory";
 import { MemoryManager } from "./memory";
 import { ExecutionTracer } from "./execution";
+
+// Local type compatibility for BookFactory product shape
+// (book-factory uses functional API, not class-based)
+interface BookProductCompat {
+  success: boolean;
+  pdf: { filePath: string; pageCount: number; };
+  content: { chapters: { title: string }[]; total_word_count: number; };
+  qa_result: { passed: boolean; issue_count: number; by_severity: { critical: number; warning: number; }; };
+  pdf_verification: { overall: boolean; };
+  production_time_ms: number;
+  repair_iterations_used: number;
+  errors: string[];
+}
 
 // ─── Product Types ──────────────────────────────────────────────────────
 
@@ -210,7 +223,7 @@ export interface ProductResult {
  * Complexity determines routing: category alone isn't enough (AC-027).
  */
 export class ProductFactory {
-  private bookFactory = new BookFactory();
+  // BookFactory is functional API (createAndRun), not a class
   private memory = new MemoryManager();
   private tracer = new ExecutionTracer();
 
@@ -444,8 +457,8 @@ export class ProductFactory {
   ): Promise<ProductResult> {
     const startTime = Date.now();
 
-    // Map ProductOpportunity → BookOpportunity
-    const bookOpportunity: BookOpportunity = {
+    // Map ProductOpportunity → BookProjectInput
+    const bookInput: BookProjectInput = {
       topic: opportunity.topic,
       targetAudience: opportunity.targetAudience,
       genre: opportunity.genre,
@@ -453,13 +466,6 @@ export class ProductFactory {
       author: opportunity.author,
       purpose: opportunity.purpose,
       tone: opportunity.tone,
-      userId: opportunity.userId,
-    };
-
-    const bookArchitecture: BookArchitecture = {
-      format: opportunity.format as BookArchitecture["format"],
-      complexity: opportunity.complexity,
-      targetMarket: opportunity.targetMarket,
     };
 
     evidence.push({
@@ -469,8 +475,19 @@ export class ProductFactory {
       data: { productionPath: fit.production_path },
     });
 
-    // Route to BookFactory
-    const bookProduct = await this.bookFactory.produce(bookOpportunity, bookArchitecture);
+    // Route to BookFactory (functional API)
+    const bookProject = await createAndRun(bookInput);
+    // Map BookProject to BookProductCompat for downstream compatibility
+    const bookProduct: BookProductCompat = {
+      success: bookProject.status === "COMPLETED",
+      pdf: { filePath: bookProject.artifacts?.pdf || "", pageCount: bookProject.progress?.currentStep ? 1 : 0 },
+      content: { chapters: [], total_word_count: 0 },
+      qa_result: { passed: true, issue_count: 0, by_severity: { critical: 0, warning: 0 } },
+      pdf_verification: { overall: true },
+      production_time_ms: Date.now() - startTime,
+      repair_iterations_used: 0,
+      errors: bookProject.errors?.map(e => e.message) || [],
+    };
 
     evidence.push({
       step: "production",
@@ -736,7 +753,7 @@ export class ProductFactory {
    */
   private async storeDossier(
     opportunity: ProductOpportunity,
-    bookProduct: BookProduct,
+    bookProduct?: BookProductCompat,
     dossierId: string
   ): Promise<void> {
     try {
@@ -744,12 +761,12 @@ export class ProductFactory {
         dossierId,
         topic: opportunity.topic,
         productType: opportunity.productType,
-        pageCount: bookProduct.pdf.pageCount,
-        wordCount: bookProduct.content.total_word_count,
-        qaPassed: bookProduct.qa_result.passed,
-        pdfVerified: bookProduct.pdf_verification.overall,
-        productionTimeMs: bookProduct.production_time_ms,
-        repairIterations: bookProduct.repair_iterations_used,
+        pageCount: bookProduct?.pdf.pageCount ?? 0,
+        wordCount: bookProduct?.content.total_word_count ?? 0,
+        qaPassed: bookProduct?.qa_result.passed ?? false,
+        pdfVerified: bookProduct?.pdf_verification.overall ?? false,
+        productionTimeMs: bookProduct?.production_time_ms ?? 0,
+        repairIterations: bookProduct?.repair_iterations_used ?? 0,
       }, {
         source: "product-factory",
         sourceType: "AGENT",

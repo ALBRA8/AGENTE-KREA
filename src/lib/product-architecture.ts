@@ -114,6 +114,15 @@ export interface KitComponent {
 
 // ─── Zod Schemas ──────────────────────────────────────────────────────────────
 
+/**
+ * Flexible string-or-object schema that normalizes to string.
+ * LLMs may return structured objects where the schema expects strings.
+ * This accepts both and JSON.stringifies objects for consistency.
+ */
+const stringOrObjectToString = z
+  .union([z.string(), z.record(z.any())])
+  .transform((val) => (typeof val === "string" ? val : JSON.stringify(val)));
+
 const architectureComponentSchema = z.object({
   name: z.string(),
   type: z.string(),
@@ -161,8 +170,8 @@ const apiDefinitionSchema = z.object({
 
 const dataModelSchema = z.object({
   name: z.string(),
-  fields: z.array(z.string()),
-  relationships: z.array(z.string()),
+  fields: z.array(stringOrObjectToString),
+  relationships: z.array(stringOrObjectToString),
 });
 
 const softwareArchitectureResponseSchema = baseArchitectureResponseSchema.extend({
