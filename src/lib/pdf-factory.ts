@@ -31,7 +31,7 @@ export type EvidenceTag =
 // ─── Configuration ────────────────────────────────────────────────────────────
 
 export const DEFAULT_OUTPUT_DIR =
-  process.env.KREA_PDF_OUTPUT_DIR || "/home/z/my-project/download";
+  process.env.KREA_PDF_OUTPUT_DIR || path.join(process.cwd(), "download");
 
 export interface PdfConfig {
   title: string;
@@ -96,20 +96,42 @@ const PAGE_SIZES: Record<
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
+/** Sanitize text to only contain characters encodable in WinAnsi (pdf-lib Helvetica). */
+function sanitizeWinAnsi(text: string): string {
+  return text
+    .replace(/[\u2018\u2019]/g, "'") // smart single quotes
+    .replace(/[\u201C\u201D]/g, '"') // smart double quotes
+    .replace(/[\u2013\u2014]/g, "--") // em/en dash
+    .replace(/\u2022/g, "-") // bullet
+    .replace(/\u2026/g, "...") // ellipsis
+    .replace(/\u2248/g, "~") // ≈ (approximately)
+    .replace(/\u2260/g, "!=") // ≠
+    .replace(/\u2264/g, "<=") // ≤
+    .replace(/\u2265/g, ">=") // ≥
+    .replace(/\u00D7/g, "x") // ×
+    .replace(/\u00F7/g, "/") // ÷
+    .replace(/\u2192/g, "->") // →
+    .replace(/\u2190/g, "<-") // ←
+    // Final fallback: strip any remaining non-WinAnsi characters
+    .replace(/[^\x20-\x7E\xA0-\xFF]/g, "?");
+}
+
 /** Strip basic markdown to plain text */
 function stripMarkdown(md: string): string {
-  return md
-    .replace(/^#{1,6}\s+/gm, "") // headings
-    .replace(/\*\*(.+?)\*\*/g, "$1") // bold
-    .replace(/\*(.+?)\*/g, "$1") // italic
-    .replace(/_(.+?)_/g, "$1") // italic underscore
-    .replace(/`(.+?)`/g, "$1") // inline code
-    .replace(/^\s*[-*+]\s+/gm, "• ") // unordered list
-    .replace(/^\s*\d+\.\s+/gm, "") // ordered list numbers
-    .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1") // links → text
-    .replace(/^---+$/gm, "—") // hr
-    .replace(/!\[([^\]]*)\]\([^)]+\)/g, "") // images removed
-    .trim();
+  return sanitizeWinAnsi(
+    md
+      .replace(/^#{1,6}\s+/gm, "") // headings
+      .replace(/\*\*(.+?)\*\*/g, "$1") // bold
+      .replace(/\*(.+?)\*/g, "$1") // italic
+      .replace(/_(.+?)_/g, "$1") // italic underscore
+      .replace(/`(.+?)`/g, "$1") // inline code
+      .replace(/^\s*[-*+]\s+/gm, "- ") // unordered list (ASCII dash)
+      .replace(/^\s*\d+\.\s+/gm, "") // ordered list numbers
+      .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1") // links → text
+      .replace(/^---+$/gm, "--") // hr
+      .replace(/!\[([^\]]*)\]\([^)]+\)/g, "") // images removed
+      .trim()
+  );
 }
 
 /** Split text into lines that fit within maxWidth */
@@ -119,7 +141,9 @@ function wrapText(
   fontSize: number,
   maxWidth: number
 ): string[] {
-  const rawLines = text.split("\n");
+  // Sanitize text for WinAnsi encoding first
+  const safeText = sanitizeWinAnsi(text);
+  const rawLines = safeText.split("\n");
   const wrapped: string[] = [];
 
   for (const rawLine of rawLines) {
@@ -132,12 +156,18 @@ function wrapText(
 
     for (const word of words) {
       const test = current ? `${current} ${word}` : word;
-      const testWidth = font.widthOfTextAtSize(test, fontSize);
-      if (testWidth > maxWidth && current) {
-        wrapped.push(current);
-        current = word;
-      } else {
-        current = test;
+      try {
+        const testWidth = font.widthOfTextAtSize(test, fontSize);
+        if (testWidth > maxWidth && current) {
+          wrapped.push(current);
+          current = word;
+        } else {
+          current = test;
+        }
+      } catch {
+        // If encoding fails even after sanitization, push what we have and skip the word
+        if (current) wrapped.push(current);
+        current = word.replace(/[^\x20-\x7E\xA0-\xFF]/g, "");
       }
     }
     if (current) wrapped.push(current);

@@ -1611,7 +1611,7 @@ async function main() {
   const doc = buildDocument();
   const buffer = await Packer.toBuffer(doc);
   
-  const outputPath = "/home/z/my-project/download/KREA_ALBRA_Audit_V1.docx";
+  const outputPath = path.join(process.cwd(), "download", "KREA_ALBRA_Audit_V1.docx");
   fs.writeFileSync(outputPath, buffer);
   
   const stats = fs.statSync(outputPath);

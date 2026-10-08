@@ -46,9 +46,23 @@ local-*
 *.log
 dev.log
 dev.out.log
-test
+/test
 prompt
 
 server.log
 # Skills directory
 /skills/
+
+# Database files
+*.db
+*.db-journal
+
+# Tool results / agent artifacts
+tool-results/
+
+# Upload and download directories (user/generated content)
+upload/
+download/
+
+# Agent context files
+agent-ctx/
