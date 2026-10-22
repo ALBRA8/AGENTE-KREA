@@ -296,3 +296,29 @@ Stage Summary:
 - 32 knowledge modules, 3 bridges (ZAI SDK + 2 Python), 1 skill (infoproductos)
 - AGENTE-GENERAL montado como cajero activo
 - Si el agente falla → modo degradado, conocimiento nunca se pierde
+
+---
+Task ID: migration-doc
+Agent: Super Z (main)
+Task: Generar PROMPT MAESTRO de migración Proyecto → Arnés
+
+Work Log:
+- Created comprehensive migration guide document (19KB docx)
+- 11 sections covering the complete methodology:
+  1. El Problema (agente encarnado vs arnés)
+  2. La Arquitectura (4 capas: AgentAdapter, Bridges, Skills, Knowledge)
+  3. FASE 0: Auditoría del proyecto (detectar stack, mapear agente vs conocimiento)
+  4. FASE 1: Diseñar contrato del adaptador (TS + Python examples)
+  5. FASE 2: Implementar bridges (ZAI SDK, Python, HTTP)
+  6. FASE 3: Separar conocimiento del agente (romper acoplamientos)
+  7. FASE 4: Crear bootstrap (Next.js + FastAPI examples)
+  8. FASE 5: Cleanup y verificación (LIPO, integridad, clean-room)
+  9. Checklist de verificación final
+  10. Referencia: Código KREA (estructura, métricas, qué cambió vs qué no)
+- Stack-agnostic: incluye ejemplos para TypeScript y Python
+- AGENTE-GENERAL como constante que se conecta a cada proyecto
+
+Stage Summary:
+- Documento generado: /home/z/my-project/download/PROMPT-MAESTRO-Migracion-Proyecto-Arnes.docx
+- Postcheck: 7/9 passed, 0 errors
+- Basado en la migración real de KREA V2.1
