@@ -147,7 +147,7 @@ export class FeedbackManager {
 
       case "PARTIAL_SUCCESS":
         analysis.isRecoverable = true;
-        analysis.rootCause = this.identifyPartialSuccessCause(feedback);
+        analysis.rootCause = this.identifyPartialSuccessCause(feedback as any);
         analysis.recommendations = [
           "Review which steps succeeded and which failed",
           "Consider adjusting parameters for the failing steps",
@@ -156,8 +156,8 @@ export class FeedbackManager {
 
       case "FAILURE":
         analysis.isRecoverable = false;
-        analysis.rootCause = this.identifyFailureRootCause(feedback);
-        analysis.contributingFactors = this.identifyContributingFactors(feedback);
+        analysis.rootCause = this.identifyFailureRootCause(feedback as any);
+        analysis.contributingFactors = this.identifyContributingFactors(feedback as any);
         analysis.recommendations = [
           "Review execution trace for error details",
           "Consider alternative approaches",
@@ -495,7 +495,7 @@ export class FeedbackManager {
           await this.skillManager.improve(skillId, {
             success: learning.content.pattern === "successful_execution",
             partialSuccess: learning.content.pattern === "partial_success",
-            actualResult: learning.feedbackText,
+            actualResult: (learning.content.feedbackText as string) ?? undefined,
           });
           skillsUpdated.push(skillId);
         } catch {
@@ -722,8 +722,9 @@ export class FeedbackManager {
   /**
    * Identify decision patterns from feedback.
    */
-  private identifyDecisionPatterns(feedback: { feedbackText: string }): string[] {
+  private identifyDecisionPatterns(feedback: { feedbackText: string | null }): string[] {
     const patterns: string[] = [];
+    if (!feedback.feedbackText) return patterns;
     const text = feedback.feedbackText.toLowerCase();
 
     if (text.includes("timeout") || text.includes("too slow")) patterns.push("timeout_prone");
@@ -751,7 +752,7 @@ export class FeedbackManager {
   /**
    * Extract what failed from partial success feedback.
    */
-  private extractWhatFailed(feedback: { result: string | null; feedbackText: string }): string | null {
+  private extractWhatFailed(feedback: { result: string | null; feedbackText: string | null }): string | null {
     if (feedback.feedbackText) return feedback.feedbackText;
     if (!feedback.result) return null;
     try {

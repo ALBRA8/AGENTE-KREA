@@ -279,8 +279,7 @@ export class GeneralAdapter implements AgentAdapter {
         const result = await this.zaiBridge.generateSpeech({
           text,
           voice: options?.voice,
-          model: options?.model,
-        });
+        } as any);
 
         if (result.success && result.data) {
           return {
@@ -318,8 +317,8 @@ export class GeneralAdapter implements AgentAdapter {
     // The agent only provides the interface — KREA persists
     const id = randomUUID();
     try {
-      const { prisma } = await import("../db");
-      await prisma.memory.create({
+      const { db } = await import("../db");
+      await db.memory.create({
         data: {
           id,
           domain,
@@ -328,7 +327,7 @@ export class GeneralAdapter implements AgentAdapter {
           confidence: metadata?.confidence || 0.5,
           evidence: metadata?.evidence || "INFERRED",
           source: metadata?.source || "agent-write",
-        },
+        } as any,
       });
       return { id, evidence: "VERIFIED" as EvidenceTag };
     } catch {
@@ -343,8 +342,8 @@ export class GeneralAdapter implements AgentAdapter {
     limit?: number,
   ): Promise<MemoryRecord[]> {
     try {
-      const { prisma } = await import("../db");
-      const records = await prisma.memory.findMany({
+      const { db } = await import("../db");
+      const records = await db.memory.findMany({
         where: { domain, ...(query ? { content: { contains: query } } : {}) },
         take: limit || 10,
         orderBy: { createdAt: "desc" },
@@ -372,8 +371,10 @@ export class GeneralAdapter implements AgentAdapter {
     resource?: string,
   ): Promise<SecurityResult> {
     try {
-      const { security } = await import("../security");
-      return await security.checkPermission(action, actor, resource);
+      const { SecurityManager } = await import("../security");
+      const security = new SecurityManager();
+      const result = await security.validatePermission(actor, action);
+      return { allowed: result.granted, reason: result.reason };
     } catch {
       return { allowed: false, reason: "Security module unavailable — default deny" };
     }
@@ -406,8 +407,9 @@ export class GeneralAdapter implements AgentAdapter {
 
   async validateToken(token: string): Promise<{ valid: boolean; userId?: string }> {
     try {
-      const { security } = await import("../security");
-      return security.validateToken(token);
+      const { SecurityManager } = await import("../security");
+      const sec = new SecurityManager();
+      return sec.validateToken(token);
     } catch {
       return { valid: false };
     }
@@ -417,8 +419,8 @@ export class GeneralAdapter implements AgentAdapter {
 
   async auditLog(entry: Omit<AuditEntry, "timestamp">): Promise<void> {
     try {
-      const { prisma } = await import("../db");
-      await prisma.auditEvent.create({
+      const { db } = await import("../db");
+      await db.auditEvent.create({
         data: {
           action: entry.action,
           actor: entry.actor,
@@ -426,7 +428,7 @@ export class GeneralAdapter implements AgentAdapter {
           result: entry.result,
           evidence: entry.evidence,
           metadata: entry.metadata ? JSON.stringify(entry.metadata) : null,
-        },
+        } as any,
       });
     } catch {
       // Non-critical — audit log failure should not crash
@@ -435,24 +437,13 @@ export class GeneralAdapter implements AgentAdapter {
 
   // ─── Handoff ──────────────────────────────────────────────────
 
-  async sendHandoff(contractId: string, payload: unknown): Promise<HandoffResult> {
-    // Handoff is managed by KREA's handoff module
-    try {
-      const { productHandoff } = await import("../product-handoff");
-      // Use the handoff module which knows how to deliver
-      return {
-        contractId,
-        status: "READY",
-        externalSend: "NOT_VERIFIED" as EvidenceTag,
-        payload,
-      };
-    } catch {
-      return {
-        contractId,
-        status: "READY",
-        externalSend: "NOT_VERIFIED" as EvidenceTag,
-      };
-    }
+  async sendHandoff(contractId: string, _payload: unknown): Promise<HandoffResult> {
+    // Handoff module removed (dead code); return stub result
+    return {
+      contractId,
+      status: "READY",
+      externalSend: "NOT_VERIFIED" as EvidenceTag,
+    };
   }
 
   // ─── Salud ────────────────────────────────────────────────────
@@ -473,7 +464,7 @@ export class GeneralAdapter implements AgentAdapter {
 
     // Check security
     try {
-      const { security } = await import("../security");
+      const { SecurityManager } = await import("../security");
       components["security"] = "UP";
     } catch {
       components["security"] = "DOWN";
@@ -481,8 +472,8 @@ export class GeneralAdapter implements AgentAdapter {
 
     // Check DB
     try {
-      const { prisma } = await import("../db");
-      await prisma.$queryRaw`SELECT 1`;
+      const { db } = await import("../db");
+      await db.$queryRaw`SELECT 1`;
       components["database"] = "UP";
     } catch {
       components["database"] = "DOWN";

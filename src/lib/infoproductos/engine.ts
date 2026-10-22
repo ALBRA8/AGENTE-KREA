@@ -206,7 +206,8 @@ export class InfoproductosEngine {
       const result = await this.runScript("revisar_infoproducto.py", [jsonPath]);
       return this.parseReviewResults(result);
     } catch {
-      return { errors: ["Review script unavailable>   }
+      return { errors: ["Review script unavailable"], warnings: [], ok: [] };
+    }
   }
 
   // ─── Paso 5: Generar portada ─────────────────────────────────

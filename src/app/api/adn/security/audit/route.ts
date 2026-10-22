@@ -1,9 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getSessionUser } from "@/lib/auth";
-import { SecurityManager } from "@/lib/security";
+import { getSessionUser, security } from "@/lib/auth";
 import { db } from "@/lib/db";
-
-const securityManager = new SecurityManager();
 
 /**
  * GET /api/adn/security/audit
@@ -33,8 +30,8 @@ export async function GET(req: NextRequest) {
     });
 
     // Also get security summary
-    const permissionRules = securityManager.getPermissionRules();
-    const toolAccessRules = securityManager.getToolAccessRules();
+    const permissionRules = security.getPermissionRules();
+    const toolAccessRules = security.getToolAccessRules();
 
     return NextResponse.json({
       auditEvents,

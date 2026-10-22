@@ -93,7 +93,6 @@ export class ZAIImageAdapter implements IGenerationProvider {
       model: "flux-krea-v2",
       prompt: params.prompt,
       size: size as any,
-      n: 1,
     });
 
     const base64 = response.data[0]?.base64 || "";

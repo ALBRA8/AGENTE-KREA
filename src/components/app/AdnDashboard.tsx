@@ -799,7 +799,7 @@ export default function AdnDashboard({ user }: { user: User }) {
                       <div
                         className="h-full rounded-full bg-gradient-to-r from-[#3b82f6] to-[#7c3aed]"
                         style={{
-                          width: `${Math.min(100, (p.calls / Math.max(...observability.provider_usage!.map((x) => x.calls))) * 100)}%`,
+                          width: `${Math.min(100, (p.calls / Math.max(...(observability.provider_usage?.map((x) => x.calls) ?? [1]))) * 100)}%`,
                         }}
                       />
                     </div>

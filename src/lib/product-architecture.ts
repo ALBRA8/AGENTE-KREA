@@ -120,7 +120,7 @@ export interface KitComponent {
  * This accepts both and JSON.stringifies objects for consistency.
  */
 const stringOrObjectToString = z
-  .union([z.string(), z.record(z.any())])
+  .union([z.string(), z.record(z.string(), z.any())])
   .transform((val) => (typeof val === "string" ? val : JSON.stringify(val)));
 
 const architectureComponentSchema = z.object({

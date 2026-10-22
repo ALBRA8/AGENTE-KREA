@@ -141,11 +141,10 @@ export class ZaiSdkBridge implements IBridge {
         model: (params.model || "flux-krea-v2") as any,
         prompt: params.prompt,
         size: (params.size || "1024x1024") as any,
-        n: params.n || 1,
       });
 
-      const base64 = response.data?.[0]?.base64 || "";
-      const url = response.data?.[0]?.url;
+      const base64 = (response.data?.[0] as any)?.base64 || "";
+      const url = (response.data?.[0] as any)?.url;
 
       return {
         success: true,

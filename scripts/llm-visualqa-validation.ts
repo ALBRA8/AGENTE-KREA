@@ -302,7 +302,7 @@ async function runPhase5(): Promise<PhaseResult> {
 
       const content = response.choices?.[0]?.message?.content || "";
       const hasContent = content.trim().length > 0;
-      const wordCount = content.split(/\s+/).filter((w) => w.length > 0).length;
+      const wordCount = content.split(/\s+/).filter((w: string) => w.length > 0).length;
       const isSubstantial = wordCount >= 200; // Allow some leeway from 300 target
 
       checks.push({

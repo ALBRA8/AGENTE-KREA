@@ -68,7 +68,7 @@ class MockAdapter implements AgentAdapter {
   }
 
   async memoryRead() { return []; }
-  async checkPermission() { return { allowed: true }; }
+  async checkPermission(action?: string, actor?: string, resource?: string) { return { allowed: true }; }
   async hashPassword(p: string) { return `hash:${p}`; }
   async verifyPassword(p: string, h: string) { return h === `hash:${p}`; }
   async validateToken(t: string) { return { valid: true, userId: "mock-user" }; }
@@ -241,7 +241,7 @@ describe("AgentAdapter contract", () => {
     const memResult = await adapter.memoryWrite("test", { data: "hello" });
     expect(memResult.evidence).toBe("VERIFIED");
 
-    const permResult = await adapter.checkPermission("test.action", "user");
+    const permResult = await adapter.checkPermission("test.action", "user", undefined as any);
     expect(permResult.allowed).toBe(true);
 
     await adapter.shutdown();

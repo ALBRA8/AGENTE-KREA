@@ -2,7 +2,18 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { security } from "@/lib/auth";
 
+/** Demo password – must be set via env in production */
+const DEMO_PASSWORD = process.env.DEMO_PASSWORD || "demo123";
+
 export async function POST(req: NextRequest) {
+  // Block auto-login in production unless DEMO_PASSWORD is explicitly configured
+  if (process.env.NODE_ENV === "production" && !process.env.DEMO_PASSWORD) {
+    return NextResponse.json(
+      { error: "Auto-login deshabilitado en producción sin DEMO_PASSWORD configurado" },
+      { status: 403 }
+    );
+  }
+
   try {
     // Rate limit by IP
     const ip = req.headers.get("x-forwarded-for") || req.headers.get("x-real-ip") || "unknown";
@@ -19,7 +30,7 @@ export async function POST(req: NextRequest) {
 
     if (!user) {
       // Hash the demo password before storing
-      const hashedPassword = security.hashPassword("demo123");
+      const hashedPassword = security.hashPassword(DEMO_PASSWORD);
       user = await db.user.create({
         data: {
           name: "Usuario Demo",
@@ -54,16 +65,10 @@ export async function POST(req: NextRequest) {
       },
     });
   } catch {
-    // If DB is unavailable, return fallback user (no session token in fallback)
-    return NextResponse.json({
-      token: null,
-      user: {
-        id: "demo-fallback",
-        name: "Usuario Demo",
-        email: "demo@p360.com",
-        credits: 50,
-        plan: "starter",
-      },
-    });
+    // DB unavailable – return 503 Service Unavailable (no fake user)
+    return NextResponse.json(
+      { error: "Servicio no disponible. Inténtalo de nuevo más tarde." },
+      { status: 503 }
+    );
   }
 }

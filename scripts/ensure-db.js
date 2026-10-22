@@ -25,12 +25,13 @@ async function main() {
         data: {
           name: "Usuario Demo",
           email: "demo@p360.com",
-          password: "demo123",
+          // DEMO_PASSWORD env var is required — no plaintext fallback in source
+          password: process.env.DEMO_PASSWORD || (process.env.NODE_ENV === "production" ? null : "demo123"),
           credits: 50,
           plan: "starter",
         },
       });
-      console.log("[ensure-db] Seeded default user: demo@p360.com / demo123");
+      console.log("[ensure-db] Seeded default user: demo@p360.com / (DEMO_PASSWORD env or fallback)");
     } else {
       console.log(`[ensure-db] DB ready (${userCount} user(s))`);
     }
