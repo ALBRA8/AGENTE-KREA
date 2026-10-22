@@ -278,3 +278,21 @@ Stage Summary:
 - 29 knowledge modules formally registered with health checks
 - 6 superseded modules cleaned up (LIPO DELETE)
 - 278 tests passing, build clean, 57 API routes
+
+---
+Task ID: bootstrap
+Agent: Super Z (main)
+Task: Ponerle el chaleco al agente — Bootstrap de KREA al arrancar la app
+
+Work Log:
+- Created src/lib/bootstrap.ts: bootstrapKrea() function that mounts GeneralAdapter with real bridges
+- Created /api/bootstrap endpoint for manual initialization
+- Connected bootstrap to RootLayout (server-side) — runs once on app start
+- Added bootstrap.test.ts with 6 tests (idempotency, knowledge preservation, cajero analogy)
+- Build passes, 284 tests passing (20 test files)
+
+Stage Summary:
+- El chaleco ESTÁ PUESTO: al arrancar la app, KREA se inicializa automáticamente
+- 32 knowledge modules, 3 bridges (ZAI SDK + 2 Python), 1 skill (infoproductos)
+- AGENTE-GENERAL montado como cajero activo
+- Si el agente falla → modo degradado, conocimiento nunca se pierde
