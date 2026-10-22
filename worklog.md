@@ -241,3 +241,40 @@ Stage Summary:
 - Security module with PBKDF2 hashing, prompt injection detection, SSRF protection, rate limiting
 - MCP Server (7 tools) + MCP Client (6 ecosystem agents)
 - Build passes, pushed to GitHub
+
+---
+Task ID: arnes-2-through-6
+Agent: Super Z (main)
+Task: FASE 2-6: Bridge TS→Python, Infoproductos Skill, KnowledgeRegistry, LIPO cleanup, Verification
+
+Work Log:
+- FASE 2: Created formal Bridge architecture
+  - src/lib/bridges/types.ts: IBridge interface, BridgeRegistry, bridge result types (ZAI/Python/HTTP)
+  - src/lib/bridges/zai-sdk-bridge.ts: ZaiSdkBridge — wraps z-ai-web-dev-sdk (chat, image, voice)
+  - src/lib/bridges/python-bridge.ts: PythonBridge — subprocess bridge with infoproductos + agente-general instances
+  - src/lib/bridges/index.ts: barrel export
+  - Updated GeneralAdapter to use ZaiSdkBridge (primary) + PythonBridge (fallback) instead of stub subprocess calls
+- FASE 3: Created Skill Plugin architecture
+  - src/lib/harness/types.ts: ISkillPlugin interface, SkillRegistry, SkillContext
+  - src/lib/harness/infoproductos-plugin.ts: InfoproductosPlugin — 8 operations (recommend-format, validate-demand, build-index, etc.)
+  - src/lib/harness/index.ts: barrel export
+- FASE 4: Created formal Knowledge Registry
+  - src/lib/harness/knowledge-registry.ts: IKnowledgeModule interface, KnowledgeRegistry, 29 built-in modules registered
+  - Updated KreaHarness to integrate BridgeRegistry, SkillRegistry, KnowledgeRegistry
+  - Enhanced harness status() to report bridges, skills, knowledgeStats
+  - Enhanced healthCheck() to check bridges, skills, and knowledge modules
+  - Updated /api/harness route with new operations (list-bridges, list-skills, list-knowledge, knowledge-health, execute-skill)
+- FASE 5: LIPO Cleanup
+  - Deleted 6 superseded modules: product-intelligence.ts, product-factory.ts, product-validation-loop.ts, cover-design.ts, editorial-design.ts, art-direction.ts
+- FASE 6: Verification
+  - Build: passes (0 errors, 57 API routes)
+  - Tests: 278 passing (19 test files) — +37 new tests for bridges, skills, knowledge registry
+  - File count: 40 lib modules, 4 bridge files, 4 harness files, 1 adapter, 19 test files
+
+Stage Summary:
+- KREA ARNÉS v2.1 architecture complete with 4 formal layers: AgentAdapter → Bridges → SkillPlugins → KnowledgeRegistry
+- Real ZAI SDK bridge replaces stub subprocess calls for LLM/image/voice
+- Infoproductos registered as ISkillPlugin with 8 operations
+- 29 knowledge modules formally registered with health checks
+- 6 superseded modules cleaned up (LIPO DELETE)
+- 278 tests passing, build clean, 57 API routes

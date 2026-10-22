@@ -1,10 +1,13 @@
 import { NextResponse } from "next/server";
 import { kreaHarness, getAgent } from "@/lib/krea-harness";
 import { adapterRegistry } from "@/lib/agent-adapter";
+import { bridgeRegistry } from "@/lib/bridges/types";
+import { skillRegistry } from "@/lib/harness/types";
+import { knowledgeRegistry } from "@/lib/harness/knowledge-registry";
 
 /**
  * GET /api/harness — Status del arnés KREA
- * POST /api/harness — Operaciones: mount, swap, health
+ * POST /api/harness — Operaciones: mount, swap, health, list-adapters, list-skills, list-bridges, list-knowledge
  */
 export async function GET() {
   try {
@@ -16,7 +19,6 @@ export async function GET() {
       version: "2.1",
       ...status,
       health,
-      philosophy: "El agente es intercambiable. El conocimiento queda en KREA.",
     });
   } catch (error) {
     return NextResponse.json({
@@ -45,12 +47,38 @@ export async function POST(request: Request) {
 
       case "swap": {
         const { agentName } = body;
-        // In production, this would load the adapter dynamically
         return NextResponse.json({
           message: `Swap to "${agentName}" requested. Use kreaHarness.swapAgent() programmatically.`,
           currentAgent: adapterRegistry.activeName,
           targetAgent: agentName,
         });
+      }
+
+      case "list-bridges": {
+        const bridges = bridgeRegistry.list();
+        return NextResponse.json({ bridges });
+      }
+
+      case "list-skills": {
+        const skills = skillRegistry.list();
+        return NextResponse.json({ skills });
+      }
+
+      case "list-knowledge": {
+        const knowledge = knowledgeRegistry.list();
+        const stats = knowledgeRegistry.stats();
+        return NextResponse.json({ knowledge, stats });
+      }
+
+      case "knowledge-health": {
+        const health = await knowledgeRegistry.healthCheckAll();
+        return NextResponse.json({ knowledgeHealth: health });
+      }
+
+      case "execute-skill": {
+        const { skillId, skillOperation, skillParams } = body;
+        const result = await kreaHarness.executeSkill(skillId, skillOperation, skillParams);
+        return NextResponse.json({ result });
       }
 
       default:

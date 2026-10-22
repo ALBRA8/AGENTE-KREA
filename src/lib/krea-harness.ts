@@ -1,5 +1,5 @@
 /**
- * KREA ARNÉS — The Harness Orchestrator
+ * KREA ARNÉS — The Harness Orchestrator (v2.1)
  *
  * KREA es un ARNÉS (harness) que se le pone a cualquier agente.
  * El conocimiento queda en KREA. El agente es intercambiable.
@@ -9,16 +9,18 @@
  * permanece. El cajero nuevo solo necesita saber operar la caja.
  *
  * Arquitectura:
- *   KREA (arnés) → AgentAdapter → [AGENTE-GENERAL | HERMES | ...]
- *                     ↑
- *               intercambiable
+ *   KREA (arnés)
+ *     ├── AgentAdapter → [AGENTE-GENERAL | HERMES | ...]  (intercambiable)
+ *     ├── BridgeRegistry → [ZAI-SDK | Python | HTTP]       (conexiones formales)
+ *     ├── SkillRegistry → [Infoproductos | ...]            (conocimiento plugin)
+ *     └── KnowledgeRegistry → [29+ modules]                (conocimiento core)
  *
- * El arnés proporciona:
- *   1. Product Brain (Fit, Decision, Architecture, Specification)
+ * El arnés proporciona 7 dominios de conocimiento (29+ módulos):
+ *   1. Product Brain (Fit, Decision, Architecture, Specification, Economics)
  *   2. Commercial Engine (Blueprint, Packaging, Offer)
  *   3. Product Factory (BookFactory, Orchestrator, ContentEngine)
  *   4. QA Engine (6-layer Product QA, Visual QA)
- *   5. Commercial Readiness + Launch Package
+ *   5. Commercial Readiness + Launch Package + Feedback
  *   6. Product Lifecycle (Dossier, Versioning, Assets, Handoff)
  *   7. Infoproductos (validation, copy, cover, sales page)
  *
@@ -26,20 +28,38 @@
  */
 
 import { adapterRegistry, type AgentAdapter } from "./agent-adapter";
+import { bridgeRegistry, type IBridge } from "./bridges/types";
+import { skillRegistry, type ISkillPlugin, type SkillContext } from "./harness/types";
+import { knowledgeRegistry, registerBuiltinKnowledge, type IKnowledgeModule, type KnowledgeHealth } from "./harness/knowledge-registry";
 
 // ─── KreaHarness ───────────────────────────────────────────────────
 
 export class KreaHarness {
   private initialized = false;
+  private knowledgeRegistered = false;
+
+  // ─── Lifecycle ────────────────────────────────────────────────
 
   /**
    * Inicializar el arnés con un agente.
    * El agente se registra en el AdapterRegistry y se activa.
+   * Los bridges y skills se inicializan con contexto del agente.
    */
   async mount(adapter: AgentAdapter): Promise<void> {
+    // 1. Register built-in knowledge (idempotent)
+    if (!this.knowledgeRegistered) {
+      registerBuiltinKnowledge();
+      this.knowledgeRegistered = true;
+    }
+
+    // 2. Register and activate agent
     adapterRegistry.register(adapter.adapterName, adapter);
     adapterRegistry.setActive(adapter.adapterName);
     await adapter.initialize();
+
+    // 3. Set skill context so skills can use the agent
+    skillRegistry.setContext(this.createSkillContext());
+
     this.initialized = true;
   }
 
@@ -51,6 +71,7 @@ export class KreaHarness {
     previousAgent: string;
     newAgent: string;
     knowledgePreserved: boolean;
+    skillsAffected: number;
   }> {
     const previousName = adapterRegistry.activeName;
 
@@ -65,12 +86,18 @@ export class KreaHarness {
     adapterRegistry.setActive(newAdapter.adapterName);
     await newAdapter.initialize();
 
+    // Update skill context with new agent
+    skillRegistry.setContext(this.createSkillContext());
+
     return {
       previousAgent: previousName || "none",
       newAgent: newAdapter.adapterName,
       knowledgePreserved: true, // KREA knowledge never leaves
+      skillsAffected: skillRegistry.list().length,
     };
   }
+
+  // ─── Agent Access ─────────────────────────────────────────────
 
   /**
    * Obtener el agente activo (para uso interno del conocimiento KREA).
@@ -81,6 +108,42 @@ export class KreaHarness {
     return adapterRegistry.getActive();
   }
 
+  // ─── Bridge Management ────────────────────────────────────────
+
+  /** Register a bridge */
+  registerBridge(bridge: IBridge): void {
+    bridgeRegistry.register(bridge);
+  }
+
+  /** Get a bridge by ID */
+  getBridge(id: string): IBridge | undefined {
+    return bridgeRegistry.get(id);
+  }
+
+  // ─── Skill Management ─────────────────────────────────────────
+
+  /** Register a skill plugin */
+  async registerSkill(skill: ISkillPlugin): Promise<void> {
+    if (!this.initialized) {
+      throw new Error("Harness not initialized. Call mount() first.");
+    }
+    await skillRegistry.register(skill);
+  }
+
+  /** Execute a skill operation */
+  async executeSkill(skillId: string, operation: string, params: unknown) {
+    return skillRegistry.execute(skillId, operation, params);
+  }
+
+  // ─── Knowledge ────────────────────────────────────────────────
+
+  /** Get the knowledge registry */
+  getKnowledge(): typeof knowledgeRegistry {
+    return knowledgeRegistry;
+  }
+
+  // ─── Status ───────────────────────────────────────────────────
+
   /**
    * Estado del arnés.
    */
@@ -89,47 +152,20 @@ export class KreaHarness {
     activeAgent: string | null;
     availableAgents: { name: string; active: boolean }[];
     knowledgeModules: string[];
+    knowledgeStats: { total: number; byCategory: Record<string, number> };
+    bridges: { id: string; type: string; connected: boolean }[];
+    skills: { id: string; name: string; ready: boolean }[];
+    philosophy: string;
   } {
     return {
       initialized: this.initialized,
       activeAgent: adapterRegistry.activeName,
       availableAgents: adapterRegistry.list().map(a => ({ name: a.name, active: a.active })),
-      knowledgeModules: [
-        // Product Brain
-        "product-fit",
-        "product-decision",
-        "product-architecture",
-        "product-specification",
-        "product-economics",
-        // Commercial Engine
-        "commercial-product",
-        "product-blueprint",
-        "product-packaging",
-        "offer-architecture",
-        // Factory
-        "book-factory",
-        "pdf-factory",
-        "factory-orchestrator",
-        "product-content-engine",
-        // QA
-        "product-qa",
-        "visual-qa",
-        "product-validation-loop",
-        // Commercial Readiness
-        "commercial-readiness",
-        "launch-package",
-        "commercial-feedback",
-        // Lifecycle
-        "product-dossier",
-        "product-handoff",
-        "product-versioning",
-        "asset-manager",
-        // Infoproductos
-        "infoproductos-pipeline",
-        "demand-validation",
-        "premium-style",
-        "sales-page",
-      ],
+      knowledgeModules: knowledgeRegistry.listIds(),
+      knowledgeStats: knowledgeRegistry.stats(),
+      bridges: bridgeRegistry.list().map(b => ({ id: b.id, type: b.type, connected: b.connected })),
+      skills: skillRegistry.list().map(s => ({ id: s.id, name: s.name, ready: s.ready })),
+      philosophy: "El agente es intercambiable. El conocimiento queda en KREA.",
     };
   }
 
@@ -140,20 +176,47 @@ export class KreaHarness {
     harness: "UP" | "DEGRADED" | "DOWN";
     agent: "UP" | "DOWN";
     knowledge: "UP";
+    bridges: Record<string, "UP" | "DOWN" | "DEGRADED">;
+    skills: Record<string, "READY" | "DEGRADED" | "DOWN">;
+    knowledgeHealth: Record<string, KnowledgeHealth>;
     details: Record<string, unknown>;
   }> {
     try {
       const agent = adapterRegistry.getActive();
       const agentHealth = await agent.healthCheck();
 
+      // Bridge health
+      const bridgeHealth: Record<string, "UP" | "DOWN" | "DEGRADED"> = {};
+      for (const bridge of bridgeRegistry.list()) {
+        const b = bridgeRegistry.get(bridge.id);
+        if (b) {
+          const h = await b.healthCheck();
+          bridgeHealth[bridge.id] = h.status === "CONNECTED" ? "UP" : h.status === "DEGRADED" ? "DEGRADED" : "DOWN";
+        }
+      }
+
+      // Skill health
+      const skillHealths = await skillRegistry.healthCheckAll();
+      const skillStatus: Record<string, "READY" | "DEGRADED" | "DOWN"> = {};
+      for (const [id, h] of Object.entries(skillHealths)) {
+        skillStatus[id] = h.status;
+      }
+
+      // Knowledge health
+      const knowledgeHealth = await knowledgeRegistry.healthCheckAll();
+
       return {
         harness: agentHealth.healthy ? "UP" : "DEGRADED",
         agent: agentHealth.healthy ? "UP" : "DOWN",
         knowledge: "UP", // Knowledge is ALWAYS up — it's in KREA
+        bridges: bridgeHealth,
+        skills: skillStatus,
+        knowledgeHealth,
         details: {
           agentIdentity: agent.getIdentity(),
           agentHealth,
           adaptersAvailable: adapterRegistry.list().length,
+          knowledgeModules: knowledgeRegistry.listIds().length,
         },
       };
     } catch {
@@ -161,9 +224,46 @@ export class KreaHarness {
         harness: "DEGRADED",
         agent: "DOWN",
         knowledge: "UP",
+        bridges: {},
+        skills: {},
+        knowledgeHealth: {},
         details: { error: "No active agent — KREA works in degraded mode" },
       };
     }
+  }
+
+  // ─── Internal ────────────────────────────────────────────────
+
+  private createSkillContext(): SkillContext {
+    return {
+      agent: {
+        reason: async (prompt: string, options?: unknown) => {
+          const agent = adapterRegistry.getActive();
+          return agent.reason(prompt, options as any);
+        },
+        reasonStructured: async <T>(prompt: string, schema: unknown, options?: unknown) => {
+          const agent = adapterRegistry.getActive();
+          const result = await agent.reasonStructured<T>(prompt, schema, options as any);
+          return result.structured;
+        },
+        generateImage: async (prompt: string, options?: unknown) => {
+          const agent = adapterRegistry.getActive();
+          if (agent.generateImage) return agent.generateImage(prompt, options as any);
+          throw new Error("Agent does not support image generation");
+        },
+        generateSpeech: async (text: string, options?: unknown) => {
+          const agent = adapterRegistry.getActive();
+          if (agent.generateSpeech) return agent.generateSpeech(text, options as any);
+          throw new Error("Agent does not support speech generation");
+        },
+      },
+      bridges: {
+        get: (id: string) => bridgeRegistry.get(id),
+      },
+      skills: {
+        get: (id: string) => skillRegistry.get(id),
+      },
+    };
   }
 }
 

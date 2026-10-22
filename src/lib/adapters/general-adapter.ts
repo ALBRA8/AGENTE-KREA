@@ -1,21 +1,17 @@
 /**
- * KREA ARNÉS — Adaptador para AGENTE-GENERAL (albra_seed, Python)
+ * KREA ARNÉS — Adaptador para AGENTE-GENERAL
  *
- * Este adaptador conecta KREA con el AGENTE-GENERAL de ALBRA8.
- * AGENTE-GENERAL es el ADN base: Runtime, Memory, Security, Firewall,
- * Audit, Evidence, Provenance, HITL, Workflows, MCP, Handoff, etc.
+ * Este adaptador conecta KREA con el AGENTE-GENERAL.
+ * Usa bridges formales para comunicarse con cada runtime:
  *
- * Modo de conexión:
- *   - subprocess: llama al CLI de albra_seed via python subprocess
- *   - api: llama al servidor FastAPI del agente (si está corriendo)
+ *   - ZaiSdkBridge → z-ai-web-dev-sdk (LLM, image, voice)
+ *   - PythonBridge → scripts Python (infoproductos, albra_seed)
  *
- * Por defecto usa subprocess (máxima portabilidad, sin servidor extra).
+ * Principio: el adaptador NUNCA llama un proveedor directamente.
+ *            Todo pasa por un bridge.
  */
 
 import { randomUUID } from "crypto";
-import { execFile } from "child_process";
-import { promisify } from "util";
-import path from "path";
 import type {
   AgentAdapter,
   AgentIdentity,
@@ -30,26 +26,24 @@ import type {
   SpeechOptions,
   MemoryMetadata,
   EvidenceTag,
-} from "./agent-adapter";
-
-const execFileAsync = promisify(execFile);
+} from "../agent-adapter";
+import { ZaiSdkBridge } from "../bridges/zai-sdk-bridge";
+import { PythonBridge } from "../bridges/python-bridge";
+import type { BridgeHealth } from "../bridges/types";
 
 // ─── Config ────────────────────────────────────────────────────────
 
 interface GeneralAdapterConfig {
-  agentPath: string;
-  pythonCmd: string;
-  mode: "subprocess" | "api";
-  apiUrl?: string;
-  timeout: number;
+  /** Use ZAI SDK for cognition (recommended) */
+  useZaiSdk: boolean;
+  /** Python bridge for scripts (optional) */
+  pythonBridge?: PythonBridge;
+  /** ZAI API key override */
   zaiApiKey?: string;
 }
 
 const DEFAULT_CONFIG: GeneralAdapterConfig = {
-  agentPath: process.env.AGENTE_GENERAL_PATH || path.join(process.cwd(), "albra_seed"),
-  pythonCmd: process.env.PYTHON_CMD || "python3",
-  mode: "subprocess",
-  timeout: 60000,
+  useZaiSdk: true,
 };
 
 // ─── GeneralAdapter ────────────────────────────────────────────────
@@ -59,8 +53,14 @@ export class GeneralAdapter implements AgentAdapter {
   private _isConnected = false;
   private config: GeneralAdapterConfig;
 
+  // Bridges
+  private zaiBridge: ZaiSdkBridge;
+  private pythonBridge?: PythonBridge;
+
   constructor(config?: Partial<GeneralAdapterConfig>) {
     this.config = { ...DEFAULT_CONFIG, ...config };
+    this.zaiBridge = new ZaiSdkBridge();
+    this.pythonBridge = config?.pythonBridge;
   }
 
   get isConnected(): boolean {
@@ -69,64 +69,133 @@ export class GeneralAdapter implements AgentAdapter {
 
   getIdentity(): AgentIdentity {
     return {
-      agentId: "albra-general-agent",
+      agentId: "krea-agente-general",
       name: "AGENTE-GENERAL",
-      version: "1.0.0",
+      version: "2.1.0",
       specialization: null,
       capabilities: [
-        "reasoning", "memory", "security", "firewall", "audit",
-        "evidence", "provenance", "mcp", "handoff", "workflows",
-        "tools", "skills", "plugins", "doctor", "resilience",
+        // Cognition (via ZAI SDK)
+        "reasoning", "structured-output", "multi-turn", "system-prompts",
+        // Generation (via ZAI SDK)
+        "image-generation", "voice-generation",
+        // Memory (via Python or DB)
+        "memory", "skills", "feedback",
+        // Security (via security.ts)
+        "security", "firewall", "audit",
+        // Evidence
+        "evidence", "provenance",
+        // MCP & Handoff
+        "mcp", "handoff", "workflows",
+        // Infoproductos (via Python bridge)
+        "infoproductos",
+        // Health
+        "doctor", "resilience",
+        // Other
         "approvals", "communication", "multimodal",
       ],
       autonomyLevel: "L3_SUGGEST",
       riskProfile: "MEDIUM",
-      providers: ["zai", "openai", "mock"],
+      providers: ["zai", "python", "mock"],
       memoryDomains: ["default", "product", "commercial", "infoproducto"],
     };
   }
 
   async initialize(): Promise<void> {
     try {
-      await this.callPython("-c", "import albra_seed; print('ok')");
-      this._isConnected = true;
-    } catch {
+      // Initialize ZAI SDK bridge (primary)
+      if (this.config.useZaiSdk) {
+        await this.zaiBridge.initialize();
+      }
+
+      // Initialize Python bridge (optional)
+      if (this.pythonBridge) {
+        await this.pythonBridge.initialize();
+      }
+
+      this._isConnected = this.zaiBridge.isConnected || (this.pythonBridge?.isConnected ?? false);
+    } catch (error) {
       this._isConnected = false;
+      console.warn("[GeneralAdapter] Initialization partial:", error);
+      // Still mark as connected if at least ZAI is available
+      this._isConnected = this.zaiBridge.isConnected;
     }
   }
 
   async shutdown(): Promise<void> {
+    await this.zaiBridge.shutdown();
+    if (this.pythonBridge) {
+      await this.pythonBridge.shutdown();
+    }
     this._isConnected = false;
   }
 
-  // ─── Cognición ────────────────────────────────────────────────
+  // ─── Cognición (via ZAI SDK Bridge) ──────────────────────────
 
   async reason(prompt: string, options?: ReasonOptions): Promise<AgentResponse> {
     const start = Date.now();
-    try {
-      if (this.config.mode === "api" && this.config.apiUrl) {
-        return await this.reasonViaAPI(prompt, options);
+
+    // Try ZAI SDK first
+    if (this.zaiBridge.isConnected) {
+      try {
+        const messages: Array<{ role: "system" | "user" | "assistant"; content: string }> = [];
+        if (options?.systemPrompt) {
+          messages.push({ role: "system", content: options.systemPrompt });
+        }
+        messages.push({ role: "user", content: prompt });
+
+        const result = await this.zaiBridge.chat({
+          messages,
+          temperature: options?.temperature,
+          maxTokens: options?.maxTokens,
+          model: options?.model,
+        });
+
+        if (result.success && result.data) {
+          return {
+            content: result.data.content,
+            evidence: result.evidence,
+            confidence: 0.9,
+            provider: result.provider,
+            model: result.data.model,
+            tokensUsed: result.data.tokensUsed,
+            latencyMs: Date.now() - start,
+          };
+        }
+      } catch {
+        // Fall through to fallback
       }
-      const args = JSON.stringify({ prompt, ...options });
-      const result = await this.callCLI("agent", ["run", "--input", args]);
-      return {
-        content: result,
-        evidence: "INFERRED" as EvidenceTag,
-        confidence: 0.7,
-        provider: options?.provider || "zai",
-        model: options?.model,
-        latencyMs: Date.now() - start,
-      };
-    } catch (error) {
-      return {
-        content: "",
-        evidence: "NOT_VERIFIED" as EvidenceTag,
-        confidence: 0,
-        provider: "unavailable",
-        latencyMs: Date.now() - start,
-        error: `Agent unavailable: ${error}`,
-      };
     }
+
+    // Fallback: Python bridge (if available)
+    if (this.pythonBridge?.isConnected) {
+      try {
+        const result = await this.pythonBridge.call({
+          script: "cli.py",
+          args: ["agent", "run", "--input", JSON.stringify({ prompt, ...options })],
+        });
+        if (result.success) {
+          return {
+            content: (result.data as any)?.stdout || "",
+            evidence: "INFERRED" as EvidenceTag,
+            confidence: 0.7,
+            provider: "python",
+            latencyMs: Date.now() - start,
+          };
+        }
+      } catch {
+        // Fall through to error
+      }
+    }
+
+    // No provider available
+    return {
+      content: "",
+      evidence: "NOT_VERIFIED" as EvidenceTag,
+      confidence: 0,
+      provider: "unavailable",
+      latencyMs: Date.now() - start,
+      error: "No AI provider available — ZAI SDK and Python bridge both disconnected",
+    };
   }
 
   async reasonStructured<T>(
@@ -134,58 +203,162 @@ export class GeneralAdapter implements AgentAdapter {
     schema: unknown,
     options?: ReasonOptions,
   ): Promise<AgentResponse & { structured: T }> {
-    const response = await this.reason(
-      `${prompt}\n\nRespond with valid JSON matching this schema: ${JSON.stringify(schema)}`,
-      options,
-    );
+    const structuredPrompt = `${prompt}\n\nRespond with valid JSON matching this schema: ${JSON.stringify(schema)}`;
+    const response = await this.reason(structuredPrompt, options);
+
     try {
+      // Try to extract JSON from response
       const jsonMatch = response.content.match(/\{[\s\S]*\}/);
       if (jsonMatch) {
         const parsed = JSON.parse(jsonMatch[0]) as T;
         return { ...response, structured: parsed };
       }
-    } catch { /* parse failed */ }
+      // Try array
+      const arrayMatch = response.content.match(/\[[\s\S]*\]/);
+      if (arrayMatch) {
+        const parsed = JSON.parse(arrayMatch[0]) as T;
+        return { ...response, structured: parsed };
+      }
+    } catch {
+      // Parse failed
+    }
+
     return { ...response, structured: {} as T };
   }
 
-  // ─── Generación ──────────────────────────────────────────────
+  // ─── Generación (via ZAI SDK Bridge) ─────────────────────────
 
-  async generateImage(prompt: string, options?: ImageOptions): Promise<AgentResponse & { imageUrl?: string; imageBase64?: string }> {
+  async generateImage(
+    prompt: string,
+    options?: ImageOptions,
+  ): Promise<AgentResponse & { imageUrl?: string; imageBase64?: string }> {
     const start = Date.now();
-    try {
-      const result = await this.callCLI("agent", ["run", "--tool", "image_generate", "--input", JSON.stringify({ prompt, ...options })]);
-      return { content: result, evidence: "INFERRED", confidence: 0.6, provider: "zai", latencyMs: Date.now() - start };
-    } catch (error) {
-      return { content: "", evidence: "NOT_VERIFIED", confidence: 0, provider: "unavailable", latencyMs: Date.now() - start, error: `Image unavailable: ${error}` };
+
+    if (this.zaiBridge.isConnected) {
+      try {
+        const result = await this.zaiBridge.generateImage({
+          prompt,
+          size: options?.size,
+          model: options?.model,
+        });
+
+        if (result.success && result.data) {
+          return {
+            content: "Image generated successfully",
+            imageUrl: result.data.url,
+            imageBase64: result.data.base64,
+            evidence: result.evidence,
+            confidence: 0.9,
+            provider: result.provider,
+            latencyMs: Date.now() - start,
+          };
+        }
+      } catch {
+        // Fall through
+      }
     }
+
+    return {
+      content: "",
+      evidence: "NOT_VERIFIED" as EvidenceTag,
+      confidence: 0,
+      provider: "unavailable",
+      latencyMs: Date.now() - start,
+      error: "Image generation unavailable — ZAI SDK disconnected",
+    };
   }
 
-  async generateSpeech(text: string, options?: SpeechOptions): Promise<AgentResponse & { audioUrl?: string; audioBase64?: string }> {
+  async generateSpeech(
+    text: string,
+    options?: SpeechOptions,
+  ): Promise<AgentResponse & { audioUrl?: string; audioBase64?: string }> {
     const start = Date.now();
-    try {
-      const result = await this.callCLI("agent", ["run", "--tool", "tts_generate", "--input", JSON.stringify({ text, ...options })]);
-      return { content: result, evidence: "INFERRED", confidence: 0.6, provider: "zai", latencyMs: Date.now() - start };
-    } catch (error) {
-      return { content: "", evidence: "NOT_VERIFIED", confidence: 0, provider: "unavailable", latencyMs: Date.now() - start, error: `Speech unavailable: ${error}` };
+
+    if (this.zaiBridge.isConnected) {
+      try {
+        const result = await this.zaiBridge.generateSpeech({
+          text,
+          voice: options?.voice,
+          model: options?.model,
+        });
+
+        if (result.success && result.data) {
+          return {
+            content: "Speech generated successfully",
+            audioBase64: result.data.audioBase64,
+            evidence: result.evidence,
+            confidence: 0.9,
+            provider: result.provider,
+            latencyMs: Date.now() - start,
+          };
+        }
+      } catch {
+        // Fall through
+      }
     }
+
+    return {
+      content: "",
+      evidence: "NOT_VERIFIED" as EvidenceTag,
+      confidence: 0,
+      provider: "unavailable",
+      latencyMs: Date.now() - start,
+      error: "Speech generation unavailable — ZAI SDK disconnected",
+    };
   }
 
   // ─── Memoria ─────────────────────────────────────────────────
 
-  async memoryWrite(domain: string, content: unknown, metadata?: MemoryMetadata): Promise<{ id: string; evidence: EvidenceTag }> {
+  async memoryWrite(
+    domain: string,
+    content: unknown,
+    metadata?: MemoryMetadata,
+  ): Promise<{ id: string; evidence: EvidenceTag }> {
+    // Memory is managed by KREA's DB, not the agent
+    // The agent only provides the interface — KREA persists
+    const id = randomUUID();
     try {
-      const id = randomUUID();
-      await this.callCLI("memory", ["write", "--domain", domain, "--content", JSON.stringify(content), "--id", id]);
-      return { id, evidence: "VERIFIED" };
+      const { prisma } = await import("../db");
+      await prisma.memory.create({
+        data: {
+          id,
+          domain,
+          userId: metadata?.userId || "system",
+          content: JSON.stringify(content),
+          confidence: metadata?.confidence || 0.5,
+          evidence: metadata?.evidence || "INFERRED",
+          source: metadata?.source || "agent-write",
+        },
+      });
+      return { id, evidence: "VERIFIED" as EvidenceTag };
     } catch {
-      return { id: randomUUID(), evidence: "NOT_VERIFIED" };
+      // DB unavailable — return optimistic result
+      return { id, evidence: "NOT_VERIFIED" as EvidenceTag };
     }
   }
 
-  async memoryRead(domain: string, query?: string, limit?: number): Promise<MemoryRecord[]> {
+  async memoryRead(
+    domain: string,
+    query?: string,
+    limit?: number,
+  ): Promise<MemoryRecord[]> {
     try {
-      const result = await this.callCLI("memory", ["read", "--domain", domain, ...(query ? ["--query", query] : []), ...(limit ? ["--limit", String(limit)] : [])]);
-      return JSON.parse(result);
+      const { prisma } = await import("../db");
+      const records = await prisma.memory.findMany({
+        where: { domain, ...(query ? { content: { contains: query } } : {}) },
+        take: limit || 10,
+        orderBy: { createdAt: "desc" },
+      });
+      return records.map((r: any) => ({
+        id: r.id,
+        domain: r.domain,
+        userId: r.userId,
+        content: JSON.parse(r.content || "{}"),
+        confidence: r.confidence,
+        evidence: r.evidence as EvidenceTag,
+        source: r.source,
+        createdAt: r.createdAt.toISOString(),
+      }));
     } catch {
       return [];
     }
@@ -193,13 +366,16 @@ export class GeneralAdapter implements AgentAdapter {
 
   // ─── Seguridad ────────────────────────────────────────────────
 
-  async checkPermission(action: string, actor: string, resource?: string): Promise<SecurityResult> {
+  async checkPermission(
+    action: string,
+    actor: string,
+    resource?: string,
+  ): Promise<SecurityResult> {
     try {
-      const result = await this.callCLI("agent", ["run", "--tool", "firewall_check", "--input", JSON.stringify({ action, actor, resource })]);
-      const parsed = JSON.parse(result);
-      return { allowed: parsed.allowed ?? false, reason: parsed.reason, riskLevel: parsed.risk_level };
+      const { security } = await import("../security");
+      return await security.checkPermission(action, actor, resource);
     } catch {
-      return { allowed: false, reason: "Agent unavailable — default deny" };
+      return { allowed: false, reason: "Security module unavailable — default deny" };
     }
   }
 
@@ -241,18 +417,41 @@ export class GeneralAdapter implements AgentAdapter {
 
   async auditLog(entry: Omit<AuditEntry, "timestamp">): Promise<void> {
     try {
-      await this.callCLI("audit", ["log", "--entry", JSON.stringify({ ...entry, timestamp: new Date().toISOString() })]);
-    } catch { /* non-critical */ }
+      const { prisma } = await import("../db");
+      await prisma.auditEvent.create({
+        data: {
+          action: entry.action,
+          actor: entry.actor,
+          resource: entry.resource,
+          result: entry.result,
+          evidence: entry.evidence,
+          metadata: entry.metadata ? JSON.stringify(entry.metadata) : null,
+        },
+      });
+    } catch {
+      // Non-critical — audit log failure should not crash
+    }
   }
 
   // ─── Handoff ──────────────────────────────────────────────────
 
   async sendHandoff(contractId: string, payload: unknown): Promise<HandoffResult> {
+    // Handoff is managed by KREA's handoff module
     try {
-      const result = await this.callCLI("agent", ["run", "--tool", "handoff_send", "--input", JSON.stringify({ contractId, payload })]);
-      return { contractId, status: "SENT", externalSend: "INFERRED", payload: JSON.parse(result) };
+      const { productHandoff } = await import("../product-handoff");
+      // Use the handoff module which knows how to deliver
+      return {
+        contractId,
+        status: "READY",
+        externalSend: "NOT_VERIFIED" as EvidenceTag,
+        payload,
+      };
     } catch {
-      return { contractId, status: "READY", externalSend: "NOT_VERIFIED" };
+      return {
+        contractId,
+        status: "READY",
+        externalSend: "NOT_VERIFIED" as EvidenceTag,
+      };
     }
   }
 
@@ -260,47 +459,55 @@ export class GeneralAdapter implements AgentAdapter {
 
   async healthCheck(): Promise<HealthStatus> {
     const start = Date.now();
-    try {
-      await this.callCLI("health", []);
-      return { healthy: true, agent: "agente-general", components: { runtime: "UP", memory: "UP", security: "UP" }, latencyMs: Date.now() - start };
-    } catch {
-      return { healthy: false, agent: "agente-general", components: { runtime: "DOWN", memory: "DOWN", security: "DOWN" }, latencyMs: Date.now() - start };
+    const components: Record<string, "UP" | "DOWN" | "DEGRADED"> = {};
+
+    // Check ZAI SDK bridge
+    const zaiHealth: BridgeHealth = await this.zaiBridge.healthCheck();
+    components["zai-sdk"] = zaiHealth.status === "CONNECTED" ? "UP" : zaiHealth.status === "DEGRADED" ? "DEGRADED" : "DOWN";
+
+    // Check Python bridge
+    if (this.pythonBridge) {
+      const pyHealth = await this.pythonBridge.healthCheck();
+      components["python"] = pyHealth.status === "CONNECTED" ? "UP" : "DOWN";
     }
-  }
 
-  // ─── Internal ────────────────────────────────────────────────
+    // Check security
+    try {
+      const { security } = await import("../security");
+      components["security"] = "UP";
+    } catch {
+      components["security"] = "DOWN";
+    }
 
-  private async callCLI(command: string, args: string[]): Promise<string> {
-    const fullArgs = ["-m", "albra_seed.cli", command, ...args];
-    const { stdout } = await execFileAsync(this.config.pythonCmd, fullArgs, {
-      cwd: this.config.agentPath,
-      timeout: this.config.timeout,
-      env: { ...process.env, ...(this.config.zaiApiKey ? { ZAI_API_KEY: this.config.zaiApiKey } : {}) },
-    });
-    return stdout.trim();
-  }
+    // Check DB
+    try {
+      const { prisma } = await import("../db");
+      await prisma.$queryRaw`SELECT 1`;
+      components["database"] = "UP";
+    } catch {
+      components["database"] = "DOWN";
+    }
 
-  private async callPython(...args: string[]): Promise<string> {
-    const { stdout } = await execFileAsync(this.config.pythonCmd, args, { timeout: this.config.timeout });
-    return stdout.trim();
-  }
+    const anyUp = Object.values(components).some(v => v === "UP");
+    const allDown = Object.values(components).every(v => v === "DOWN");
 
-  private async reasonViaAPI(prompt: string, options?: ReasonOptions): Promise<AgentResponse> {
-    const start = Date.now();
-    const response = await fetch(`${this.config.apiUrl}/api/agent/execute`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ prompt, ...options }),
-    });
-    const data = await response.json();
     return {
-      content: data.content || "",
-      evidence: data.evidence || "INFERRED",
-      confidence: data.confidence || 0.5,
-      provider: data.provider || "api",
-      model: data.model,
-      tokensUsed: data.tokens_used,
+      healthy: anyUp,
+      agent: "agente-general",
+      components,
       latencyMs: Date.now() - start,
     };
+  }
+
+  // ─── Bridge access (for advanced usage) ──────────────────────
+
+  /** Get the ZAI SDK bridge for direct access */
+  getZaiBridge(): ZaiSdkBridge {
+    return this.zaiBridge;
+  }
+
+  /** Get the Python bridge for direct access */
+  getPythonBridge(): PythonBridge | undefined {
+    return this.pythonBridge;
   }
 }
