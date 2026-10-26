@@ -79,6 +79,13 @@ export interface ZaiImageParams {
   n7?: number;
 }
 
+export interface ZaiImageEditParams {
+  image: string;       // URL or base64 of the source image
+  prompt: string;     // Edit instruction
+  size?: string;
+  model?: string;
+}
+
 export interface ZaiVoiceParams {
   text: string;
   voice?: string;
@@ -90,6 +97,10 @@ export interface ZaiChatResult extends BridgeCallResult {
 }
 
 export interface ZaiImageResult extends BridgeCallResult {
+  data?: { base64: string; url?: string; size: string };
+}
+
+export interface ZaiImageEditResult extends BridgeCallResult {
   data?: { base64: string; url?: string; size: string };
 }
 

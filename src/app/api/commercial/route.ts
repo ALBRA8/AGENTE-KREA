@@ -3,8 +3,8 @@ import { NextResponse } from "next/server";
 /**
  * GET /api/commercial
  * List all available commercial creative capabilities,
- * including supported platforms, section types, mockup types,
- * creative angles, and pricing information.
+ * including all AGENTE-KREA capabilities from both
+ * the base engine and the extended commercial module.
  */
 export async function GET() {
   try {
@@ -13,17 +13,41 @@ export async function GET() {
       "@/lib/commercial-creative-engine"
     );
     const engine = CommercialCreativeEngine.getInstance();
+    const baseCapabilities = engine.getCapabilities();
 
-    const capabilities = engine.getCapabilities();
+    // Extended capabilities from the commercial module
+    const { KREA_AGENT_IDENTITY, getSupportedPlatforms, getTemplateGallery } = await import(
+      "@/lib/commercial"
+    );
 
     return NextResponse.json({
       success: true,
       data: {
-        platforms: capabilities.platforms,
-        sectionTypes: capabilities.sectionTypes,
-        mockupTypes: capabilities.mockupTypes,
-        angles: capabilities.angles,
-        pricing: capabilities.pricing,
+        agent: KREA_AGENT_IDENTITY,
+        // Base engine
+        platforms: baseCapabilities.platforms,
+        sectionTypes: baseCapabilities.sectionTypes,
+        mockupTypes: baseCapabilities.mockupTypes,
+        angles: baseCapabilities.angles,
+        pricing: baseCapabilities.pricing,
+        // Extended capabilities
+        logoStyles: ["wordmark", "iconic", "abstract", "monogram", "emblem", "mascot"],
+        logoVariants: ["primary", "icon-only", "horizontal", "stacked", "dark-bg", "light-bg"],
+        bannerFormats: [
+          "website-hero", "website-strip", "email-header", "social-cover",
+          "youtube-banner", "promo-popup", "sidebar", "print-flyer",
+        ],
+        emailCreativeTypes: [
+          "header", "promo-block", "product-showcase",
+          "cta-button", "footer", "newsletter-hero",
+        ],
+        catalogFormats: [
+          "digital-catalog", "single-page-flyer", "product-sheet", "lookbook", "price-list",
+        ],
+        ecommercePlatforms: getSupportedPlatforms(),
+        templateCount: getTemplateGallery().length,
+        allCapabilities: KREA_AGENT_IDENTITY.capabilities,
+        excludedCapabilities: KREA_AGENT_IDENTITY.excludedCapabilities,
       },
     });
   } catch (e: unknown) {

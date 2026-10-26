@@ -22,6 +22,8 @@ import {
 } from "./bridges/python-bridge";
 import { bridgeRegistry } from "./bridges/types";
 import { InfoproductosPlugin } from "./harness/infoproductos-plugin";
+import { adapterRegistry } from "./agent-adapter";
+import { getKreaAdapter } from "./commercial/krea-agent";
 
 let bootstrapped = false;
 
@@ -80,6 +82,18 @@ export async function bootstrapKrea(): Promise<{
     });
 
     await kreaHarness.mount(adapter);
+
+    // ─── 2b. Registrar AGENTE-KREA como adaptador adicional ────
+    // AGENTE-KREA is registered in the adapter registry but does NOT
+    // replace the active agent. It's available for commercial-specific
+    // operations via adapterRegistry.get("agente-krea").
+    try {
+      const kreaAgent = getKreaAdapter();
+      await kreaAgent.initialize();
+      adapterRegistry.register("agente-krea", kreaAgent);
+    } catch (error) {
+      console.warn("[Bootstrap] AGENTE-KREA registration failed:", error);
+    }
 
     // ─── 3. Registrar skill plugins ───────────────────────────
     const infoproductosPlugin = new InfoproductosPlugin();

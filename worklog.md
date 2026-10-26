@@ -322,3 +322,30 @@ Stage Summary:
 - Documento generado: /home/z/my-project/download/PROMPT-MAESTRO-Migracion-Proyecto-Arnes.docx
 - Postcheck: 7/9 passed, 0 errors
 - Basado en la migración real de KREA V2.1
+---
+Task ID: commercial-extension
+Agent: main
+Task: Analyze ecom-magic.ai/y and adapt commercial production capabilities to KREA as AGENTE-KREA
+
+Work Log:
+- Fetched and analyzed https://ecom-magic.ai/y — identified all features, capabilities, and pricing
+- Mapped ecom-magic.ai capabilities to KREA gaps: Logo, Banner, Email, Catalog generators, NL editing, Template gallery, Batch pipeline, Ecommerce export
+- Explicitly excluded research functions (Product Research, Sales Angles, Avatar Research, Ads Spy)
+- Created src/lib/commercial/ module with 10 new files: types.ts, logo-generator.ts, banner-generator.ts, email-creative.ts, catalog-generator.ts, nl-editor.ts, template-gallery.ts, batch-pipeline.ts, ecom-export.ts, krea-agent.ts, index.ts
+- Created AGENTE-KREA adapter (KreaAdapter) implementing full AgentAdapter interface
+- Added editImage method to ZaiSdkBridge and ZaiImageEditParams/ZaiImageEditResult types
+- Created 7 new API routes: /api/commercial/logo, banner, email, catalog, edit, batch, templates
+- Updated /api/commercial to list all AGENTE-KREA capabilities
+- Registered AGENTE-KREA in bootstrap.ts alongside AGENTE-GENERAL
+- Added 8 new capabilities to KREA_CAPABILITIES in contracts/capability.ts
+- Fixed pre-existing build errors in skills/image-edit and skills/stock-analysis-skill
+- Exported LANG_STRINGS from commercial-creative-engine.ts for reuse
+
+Stage Summary:
+- Build: ✓ Compiled successfully (0 type errors)
+- Tests: 174 passed, 0 failed
+- New capabilities: logo_generation, banner_generation, email_creative_generation, catalog_generation, nl_creative_editing, batch_generation, ecom_export, template_gallery
+- New API routes: 7
+- New modules: 10 files in src/lib/commercial/
+- AGENTE-KREA registered in harness adapter registry
+- Ecom-magic.ai research functions explicitly excluded (per user requirement)

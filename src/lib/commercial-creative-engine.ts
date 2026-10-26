@@ -181,7 +181,7 @@ const AD_DIMENSIONS: Record<AdPlatform, Record<AdFormat, string>> = {
 // LANGUAGE-LOCALIZED STRINGS
 // ═══════════════════════════════════════════════════════════════════
 
-const LANG_STRINGS: Record<Language, Record<string, string>> = {
+export const LANG_STRINGS: Record<Language, Record<string, string>> = {
   es: {
     systemRole:
       "Eres un copywriter experto en direct response marketing para e-commerce. Escribes en español. Usas principios AIDA y PAS. Generas headlines pegajosos, descripciones que venden y CTAs urgentes. Siempre incluyes el beneficio principal del producto.",

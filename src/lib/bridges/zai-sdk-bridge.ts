@@ -19,9 +19,11 @@ import type {
   BridgeCallResult,
   ZaiChatParams,
   ZaiImageParams,
+  ZaiImageEditParams,
   ZaiVoiceParams,
   ZaiChatResult,
   ZaiImageResult,
+  ZaiImageEditResult,
   ZaiVoiceResult,
 } from "./types";
 
@@ -33,6 +35,7 @@ export class ZaiSdkBridge implements IBridge {
   readonly capabilities = [
     "chat.completions",
     "images.generations",
+    "images.edits",
     "audio.tts",
     "multi-turn",
     "system-prompts",
@@ -164,6 +167,41 @@ export class ZaiSdkBridge implements IBridge {
     }
   }
 
+  // ─── Image Editing ───────────────────────────────────────────
+
+  async editImage(params: ZaiImageEditParams): Promise<ZaiImageEditResult> {
+    const start = Date.now();
+    try {
+      const zai = await this.ensureConnected();
+
+      const response = await zai.images.generations.edit({
+        model: (params.model || "flux-krea-v2") as any,
+        image: params.image as any,
+        prompt: params.prompt,
+        size: (params.size || "1024x1024") as any,
+      });
+
+      const base64 = (response.data?.[0] as any)?.base64 || "";
+      const url = (response.data?.[0] as any)?.url;
+
+      return {
+        success: true,
+        data: { base64, url, size: params.size || "1024x1024" },
+        evidence: "VERIFIED" as EvidenceTag,
+        latencyMs: Date.now() - start,
+        provider: "zai",
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error: `ZAI image edit failed: ${error}`,
+        evidence: "NOT_VERIFIED" as EvidenceTag,
+        latencyMs: Date.now() - start,
+        provider: "zai",
+      };
+    }
+  }
+
   // ─── Voice (TTS) ─────────────────────────────────────────────
 
   async generateSpeech(params: ZaiVoiceParams): Promise<ZaiVoiceResult> {
@@ -210,6 +248,8 @@ export class ZaiSdkBridge implements IBridge {
         return this.generateImage(params as ZaiImageParams);
       case "generateSpeech":
         return this.generateSpeech(params as ZaiVoiceParams);
+      case "editImage":
+        return this.editImage(params as ZaiImageEditParams);
       default:
         return {
           success: false,
