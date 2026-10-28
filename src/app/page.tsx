@@ -1034,9 +1034,11 @@ export default function Home() {
   // Auto-login on first visit (no token in localStorage)
   useEffect(() => {
     if (view === "landing") {
-      onEnterApp();
+      // Defer to a macrotask: avoids synchronous setState during the effect pass
+      const timer = setTimeout(() => { onEnterApp(); }, 0);
+      return () => clearTimeout(timer);
     }
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []);
 
   if (view === "app") {
     return (

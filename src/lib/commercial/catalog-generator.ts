@@ -50,7 +50,8 @@ export async function generateCatalog(params: CatalogParams): Promise<CatalogRes
   } = params;
 
   const ls = LANG_STRINGS[language];
-  const formatInfo = CATALOG_FORMATS[catalogFormat];
+  // Fallback to "digital-catalog" when catalogFormat is invalid/unknown
+  const formatInfo = CATALOG_FORMATS[catalogFormat] ?? CATALOG_FORMATS["digital-catalog"];
 
   const promptParts: string[] = [];
 
@@ -58,8 +59,10 @@ export async function generateCatalog(params: CatalogParams): Promise<CatalogRes
   promptParts.push(`Layout: ${formatInfo.layout}`);
   promptParts.push(`Products per row: ${columns}.`);
 
-  // Build product list
-  const productNames = products.map((p, i) => `${i + 1}. ${p.name} (${p.description})${p.price ? ` — ${p.price}` : ""}`).join("\n");
+  // Build product list — defensive: name/description may be missing at runtime
+  const productNames = products
+    .map((p, i) => `${i + 1}. ${p?.name ?? "Producto"} (${p?.description ?? "sin descripción"})${p?.price ? ` — ${p.price}` : ""}`)
+    .join("\n");
   promptParts.push(`Products:\n${productNames}`);
 
   if (title) promptParts.push(`Title: "${title}".`);

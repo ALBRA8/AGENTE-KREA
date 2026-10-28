@@ -45,7 +45,7 @@ export interface LogoParams {
   style?: LogoStyle;
   brandColors?: string;       // e.g. "#FF6600,#333333"
   mood?: string;              // e.g. "premium", "playful", "minimal", "bold"
-  variants?: LogoVariant[];   // which versions to generate
+  variants?: LogoVariant[] | number;  // which versions to generate; a number N generates the first N default variants
   language?: Language;
 }
 

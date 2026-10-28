@@ -211,7 +211,7 @@ describe("KnowledgeRegistry", () => {
   });
 
   it("registers and lists knowledge modules", () => {
-    const module: IKnowledgeModule = {
+    const mod: IKnowledgeModule = {
       moduleId: "test-module",
       name: "Test Module",
       version: "1.0",
@@ -220,7 +220,7 @@ describe("KnowledgeRegistry", () => {
       sourceFiles: ["test.ts"],
       healthCheck: async () => ({ status: "AVAILABLE" }),
     };
-    registry.register(module);
+    registry.register(mod);
     expect(registry.listIds()).toContain("test-module");
     expect(registry.list()).toHaveLength(1);
   });
@@ -253,19 +253,19 @@ describe("KnowledgeRegistry", () => {
   });
 
   it("health checks all modules", async () => {
-    const module: IKnowledgeModule = {
+    const mod: IKnowledgeModule = {
       moduleId: "test", name: "Test", version: "1.0", category: "product-brain" as KnowledgeCategory, capabilities: [], sourceFiles: [], healthCheck: async () => ({ status: "AVAILABLE" }),
     };
-    registry.register(module);
+    registry.register(mod);
     const health = await registry.healthCheckAll();
     expect(health["test"].status).toBe("AVAILABLE");
   });
 
   it("unregisters a module", () => {
-    const module: IKnowledgeModule = {
+    const mod: IKnowledgeModule = {
       moduleId: "test", name: "Test", version: "1.0", category: "product-brain" as KnowledgeCategory, capabilities: [], sourceFiles: [], healthCheck: async () => ({ status: "AVAILABLE" }),
     };
-    registry.register(module);
+    registry.register(mod);
     registry.unregister("test");
     expect(registry.listIds()).toHaveLength(0);
   });

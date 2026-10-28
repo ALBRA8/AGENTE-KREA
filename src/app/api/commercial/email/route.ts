@@ -1,5 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 
+/** Valid email creative types (must match EmailCreativeType in lib/commercial/types.ts) */
+const VALID_CREATIVE_TYPES = [
+  "header", "promo-block", "product-showcase", "cta-button", "footer", "newsletter-hero",
+] as const;
+
 /**
  * POST /api/commercial/email
  * Generate an email marketing creative.
@@ -16,6 +21,12 @@ export async function POST(req: NextRequest) {
     }
     if (!creativeType) {
       return NextResponse.json({ error: "Missing required field: creativeType" }, { status: 400 });
+    }
+    if (!VALID_CREATIVE_TYPES.includes(creativeType)) {
+      return NextResponse.json(
+        { error: `Invalid creativeType: "${creativeType}". Valid values: ${VALID_CREATIVE_TYPES.join(", ")}` },
+        { status: 400 }
+      );
     }
 
     const { generateEmailCreative } = await import("@/lib/commercial/email-creative");

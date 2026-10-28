@@ -114,8 +114,8 @@ export class KnowledgeRegistry {
   /** Count modules by category */
   stats(): { total: number; byCategory: Record<string, number> } {
     const byCategory: Record<string, number> = {};
-    for (const module of this.modules.values()) {
-      byCategory[module.category] = (byCategory[module.category] || 0) + 1;
+    for (const mod of this.modules.values()) {
+      byCategory[mod.category] = (byCategory[mod.category] || 0) + 1;
     }
     return { total: this.modules.size, byCategory };
   }
@@ -190,7 +190,7 @@ export function registerBuiltinKnowledge(): void {
     { moduleId: "doctor", name: "Doctor V2", version: "2.1", category: "infrastructure" as KnowledgeCategory, capabilities: ["15-health-checks", "diagnostics"], sourceFiles: ["doctor-v2.ts"], healthCheck: async () => ({ status: "AVAILABLE" }) },
   ];
 
-  for (const module of modules) {
-    knowledgeRegistry.register(module);
+  for (const mod of modules) {
+    knowledgeRegistry.register(mod);
   }
 }

@@ -7,7 +7,7 @@ import SupportPage from "./SupportPage";
 import MetricsTracker from "./MetricsTracker";
 import ProductDashboard from "./ProductDashboard";
 import {
-  Image, FileText, Mic, BookOpen, Subtitles, LayoutDashboard,
+  Image as ImageIcon, FileText, Mic, BookOpen, Subtitles, LayoutDashboard,
   Library as LibraryIcon, LogOut, Menu, X, Coins, Sparkles, ChevronRight, Loader2,
   Copy, MessageSquare, Video, Wand2, Download, Trash2, Clock,
   RefreshCw, Volume2, Type, Settings, HelpCircle, Headphones, BarChart3,
@@ -33,7 +33,7 @@ const NAV_SECTIONS: { title: string | null; items: NavItem[] }[] = [
   { title: null, items: [{ id: "dashboard", label: "Panel de control", icon: LayoutDashboard }] },
   { title: "PRODUCCIÓN", items: [
     { id: "prompts", label: "Generador de Prompts IA", icon: Wand2, cost: 2, badge: "🔥" },
-    { id: "images", label: "Generador de Imágenes", icon: Image, cost: 3 },
+    { id: "images", label: "Generador de Imágenes", icon: ImageIcon, cost: 3 },
     { id: "copy", label: "Copywriting", icon: Copy, cost: 2 },
     { id: "social", label: "Contenido Redes", icon: MessageSquare, cost: 2 },
     { id: "script", label: "Scripts de Video", icon: Video, cost: 2 },
@@ -138,7 +138,7 @@ function Dashboard({ user, generations, onNav }: { user: User; generations: Gene
   const quickTools = [
     { id: "prompts", label: "Generador de Prompts IA", desc: "Elige lo que quieres crear ahora — te lo entrego listo para usar.", icon: Wand2, badge: "🔥" },
     { id: "metrics", label: "360 Metrics", desc: "Seguimiento de campana con ROAS, beneficio y ventas en tiempo real.", icon: BarChart3, badge: "NUEVO" },
-    { id: "images", label: "Generador de Imágenes", desc: "Crea imágenes profesionales con inteligencia artificial.", icon: Image },
+    { id: "images", label: "Generador de Imágenes", desc: "Crea imágenes profesionales con inteligencia artificial.", icon: ImageIcon },
     { id: "ebook", label: "Generador de eBooks IA Pro", desc: "eBooks completos y profesionales con IA.", icon: BookOpen },
     { id: "library", label: "Biblioteca de Proyectos", desc: "Historial de todas tus creaciones.", icon: LibraryIcon },
   ];
@@ -170,7 +170,7 @@ function Dashboard({ user, generations, onNav }: { user: User; generations: Gene
       <h2 className="text-base font-bold mb-3">Tu Actividad</h2>
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-8">
         {[
-          { label: "Imágenes", value: generations.filter(g => g.type === "image").length, icon: Image, color: "from-blue-500 to-blue-700", suffix: "creadas" },
+          { label: "Imágenes", value: generations.filter(g => g.type === "image").length, icon: ImageIcon, color: "from-blue-500 to-blue-700", suffix: "creadas" },
           { label: "Textos", value: generations.filter(g => g.type === "text" || g.type === "prompt").length, icon: FileText, color: "from-purple-500 to-purple-700", suffix: "creados" },
           { label: "Voces", value: generations.filter(g => g.type === "voice").length, icon: Mic, color: "from-emerald-500 to-emerald-700", suffix: "creadas" },
           { label: "eBooks", value: generations.filter(g => g.type === "ebook").length, icon: BookOpen, color: "from-orange-500 to-orange-700", suffix: "creados" },
@@ -193,7 +193,7 @@ function Dashboard({ user, generations, onNav }: { user: User; generations: Gene
             {generations.slice(0, 5).map((g) => (
               <div key={g.id} className="flex items-center gap-3 p-3 rounded-xl bg-[#0f1629] border border-white/[0.06]">
                 <div className="w-8 h-8 rounded-lg bg-white/5 flex items-center justify-center">
-                  {g.type === "image" ? <Image className="w-4 h-4 text-blue-400" /> : g.type === "voice" ? <Mic className="w-4 h-4 text-emerald-400" /> : g.type === "ebook" ? <BookOpen className="w-4 h-4 text-orange-400" /> : g.type === "prompt" ? <Wand2 className="w-4 h-4 text-purple-400" /> : <FileText className="w-4 h-4 text-purple-400" />}
+                  {g.type === "image" ? <ImageIcon className="w-4 h-4 text-blue-400" /> : g.type === "voice" ? <Mic className="w-4 h-4 text-emerald-400" /> : g.type === "ebook" ? <BookOpen className="w-4 h-4 text-orange-400" /> : g.type === "prompt" ? <Wand2 className="w-4 h-4 text-purple-400" /> : <FileText className="w-4 h-4 text-purple-400" />}
                 </div>
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium truncate">{g.title}</p>
@@ -272,7 +272,7 @@ function ImageGenerator({ user, onUpdateCredits }: { user: User; onUpdateCredits
           ) : (
             <div className="aspect-square rounded-2xl border border-dashed border-white/10 flex items-center justify-center bg-white/[0.02]">
               <div className="text-center text-white/20">
-                <Image className="w-12 h-12 mx-auto mb-3 opacity-50" />
+                <ImageIcon className="w-12 h-12 mx-auto mb-3 opacity-50" />
                 <p className="text-sm">Tu imagen aparecerá aquí</p>
               </div>
             </div>
@@ -554,7 +554,11 @@ function Library({ user }: { user: User }) {
     setLoading(false);
   };
 
-  useEffect(() => { load(); }, [filter]);
+  useEffect(() => {
+    // Defer to a macrotask: avoids synchronous setState during the effect pass
+    const timer = setTimeout(load, 0);
+    return () => clearTimeout(timer);
+  }, [filter]);
 
   const typeFilters = [
     { id: "all", label: "Todos" },

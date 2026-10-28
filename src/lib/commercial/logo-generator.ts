@@ -74,14 +74,32 @@ export async function generateLogo(params: LogoParams): Promise<LogoResult> {
   const ls = LANG_STRINGS[language];
   const generatedVariants: LogoResult["variants"] = [];
 
-  for (const variant of variants) {
+  // Defensive normalization of `variants`:
+  //  - number N  → first N default variants (ecom-magic style count)
+  //  - array     → keep only valid LogoVariant values
+  //  - anything else / empty → full default set
+  const DEFAULT_VARIANTS: LogoVariant[] = ["primary", "icon-only", "horizontal"];
+  const VALID_VARIANTS: LogoVariant[] = [
+    "primary", "icon-only", "horizontal", "stacked", "dark-bg", "light-bg",
+  ];
+  let variantList: LogoVariant[];
+  if (typeof variants === "number" && Number.isFinite(variants) && variants > 0) {
+    variantList = DEFAULT_VARIANTS.slice(0, Math.min(variants, DEFAULT_VARIANTS.length));
+  } else if (Array.isArray(variants)) {
+    variantList = variants.filter((v): v is LogoVariant => VALID_VARIANTS.includes(v));
+    if (variantList.length === 0) variantList = DEFAULT_VARIANTS;
+  } else {
+    variantList = DEFAULT_VARIANTS;
+  }
+
+  for (const variant of variantList) {
     // Build the prompt
     const promptParts: string[] = [];
 
     promptParts.push(`Create a professional ${style} logo for the brand "${brandName}".`);
     if (tagline) promptParts.push(`Tagline: "${tagline}".`);
-    promptParts.push(LOGO_STYLE_PROMPTS[style]);
-    promptParts.push(LOGO_VARIANT_INSTRUCTIONS[variant]);
+    promptParts.push(LOGO_STYLE_PROMPTS[style] ?? LOGO_STYLE_PROMPTS["iconic"]);
+    promptParts.push(LOGO_VARIANT_INSTRUCTIONS[variant] ?? LOGO_VARIANT_INSTRUCTIONS["primary"]);
 
     if (industry && INDUSTRY_MOOD_MAP[industry]) {
       promptParts.push(`Industry context: ${INDUSTRY_MOOD_MAP[industry]}`);

@@ -74,6 +74,15 @@ function ProfileSection({ user }: { user: User }) {
   );
 }
 
+function PassInput({ value, onChange, show, onToggle, placeholder }: { value: string; onChange: (v: string) => void; show: boolean; onToggle: () => void; placeholder: string }) {
+  return (
+    <div className="relative">
+      <input type={show ? "text" : "password"} value={value} onChange={e => onChange(e.target.value)} required minLength={6} className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm placeholder:text-white/30 focus:outline-none focus:border-[#3b82f6] transition-colors pr-12" placeholder={placeholder} />
+      <button type="button" onClick={onToggle} className="absolute right-3 top-1/2 -translate-y-1/2 text-white/30 hover:text-white/60">{show ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}</button>
+    </div>
+  );
+}
+
 function PasswordSection({ userId }: { userId: string }) {
   const [current, setCurrent] = useState("");
   const [newPass, setNewPass] = useState("");
@@ -99,13 +108,6 @@ function PasswordSection({ userId }: { userId: string }) {
     } catch { setMsg({ type: "error", text: "Error de conexión" }); }
     setLoading(false);
   };
-
-  const PassInput = ({ value, onChange, show, onToggle, placeholder }: { value: string; onChange: (v: string) => void; show: boolean; onToggle: () => void; placeholder: string }) => (
-    <div className="relative">
-      <input type={show ? "text" : "password"} value={value} onChange={e => onChange(e.target.value)} required minLength={6} className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm placeholder:text-white/30 focus:outline-none focus:border-[#3b82f6] transition-colors pr-12" placeholder={placeholder} />
-      <button type="button" onClick={onToggle} className="absolute right-3 top-1/2 -translate-y-1/2 text-white/30 hover:text-white/60">{show ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}</button>
-    </div>
-  );
 
   return (
     <div className="rounded-2xl border border-white/[0.06] bg-[#0f1629] p-6">

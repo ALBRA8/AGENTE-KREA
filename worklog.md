@@ -349,3 +349,29 @@ Stage Summary:
 - New modules: 10 files in src/lib/commercial/
 - AGENTE-KREA registered in harness adapter registry
 - Ecom-magic.ai research functions explicitly excluded (per user requirement)
+
+---
+Task ID: general-test-1
+Agent: main
+Task: Prueba general de todas las funciones del proyecto KREA (build, tests, lint, seguridad, endpoints API, módulos comerciales)
+
+Work Log:
+- PRUEBA 1 (Build): detectó 2 errores TypeScript latentes en skills/ — corregidos image-edit.ts (images→image) y stock-analysis analyzer.ts (createVision con formato image_url). Build final: ✓ 53 rutas, 0 errores.
+- PRUEBA 2 (Tests unitarios): 174/174 pasados en 8 archivos (security 65, harness 37, decisiones 20, structured-output 17, visual-qa 15, pdf-factory 14, bootstrap 6). Sin cambios necesarios.
+- PRUEBA 3 (Lint): 16 errores + 3 advertencias → 0/0. Corregidos: no-assign-module-variable (knowledge-registry, harness-v2.test), setState-sync-in-effect (dashboard, studio, page, AppShell Library, carousel, use-mobile), componente creado en render (SettingsPage PassInput), falsos positivos alt-text (Image→ImageIcon alias).
+- PRUEBA 4 (Endpoints, bloques 1-6): 32/32. Hallazgos y fixes:
+  * doctor-v2: umbral de heap 0.9 generaba UNHEALTHY falso en arranque frío → dos niveles (0.95 unhealthy / 0.85 degraded)
+  * doctor-v2 checkDependencies: require.resolve() falla dentro del bundle de Next → fs.existsSync sobre node_modules (devolvería "missing" para TODOs)
+  * doctor-v2 checkCriticalWorkflows: auto-llamada HTTP a /api/doctor sin token = 401 autoinfligido → verificación in-process con KreaDoctor.checkDatabase()
+  * doctor-v2 checkConfiguration: NEXTAUTH_* no se usa en KREA → recommended = DEMO_PASSWORD, CORS_ORIGINS
+  * Verificados: health, metrics, harness (con/sin token), auth completo (auto-login, login ok/401, me), generations, ADN completo (capabilities, identity, skills, tools, memory, mission, observability, security/audit, doctor), headers de seguridad, validaciones 400 de las 5 rutas comerciales
+- PRUEBA 5 (Módulos comerciales, bloque 7): 7/7 con generación REAL vía ZAI SDK:
+  * templates ✓, logo (2 variantes, imagen generada) ✓, banner ✓, email ✓, catalog ✓, edit NL ✓, batch (3/3 items, totalAssets=3) ✓
+  * Fixes de robustez: logo-generator normaliza variants number|array y filtra inválidos; email-creative fallback layout→header; catalog-generator fallback format→digital-catalog y mapeo defensivo de productos; rutas email/catalog validan enums y devuelven 400 con lista de valores válidos
+- Infra de pruebas creada: scripts/test-endpoints.sh, test-commercial.sh, run-with-server.sh, diagnose-*.sh, check-doctor.sh, check-batch.sh
+- Nota: servidor next-server huérfano (setsid) sirvió código viejo durante parte de las pruebas → detectado vía ps + BUILD_ID y eliminado; runner ahora mata puerto 3000 antes de arrancar.
+
+Stage Summary:
+- RESULTADO FINAL: build ✓ 0 errores | 174/174 tests ✓ | lint 0/0 | endpoints 32/32 ✓ | comerciales 7/7 ✓ (39/39)
+- 2 errores TS latentes corregidos, 4 bugs reales del doctor corregidos, 3 fallos de robustez comercial corregidos, validación de enums añadida
+- Estado: LISTO PARA PRODUCCIÓN a nivel funcional; pendiente externo: credenciales OAuth para export ecom (PARTIAL) y env vars reales en despliegue

@@ -90,17 +90,22 @@ function Carousel({
 
   React.useEffect(() => {
     if (!api || !setApi) return
-    setApi(api)
+    // Defer to a macrotask (avoids sync setState in effect)
+    const timer = setTimeout(() => setApi(api), 0)
+    return () => clearTimeout(timer)
   }, [api, setApi])
 
   React.useEffect(() => {
     if (!api) return
-    onSelect(api)
+    // Defer initial sync to a macrotask (avoids sync setState in effect)
+    const timer = setTimeout(() => onSelect(api), 0)
     api.on("reInit", onSelect)
     api.on("select", onSelect)
 
     return () => {
       api?.off("select", onSelect)
+      api?.off("reInit", onSelect)
+      clearTimeout(timer)
     }
   }, [api, onSelect])
 

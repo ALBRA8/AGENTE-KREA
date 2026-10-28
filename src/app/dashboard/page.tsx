@@ -9,36 +9,48 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Try existing session first
-    const savedUser = localStorage.getItem("p360_user");
-    const savedToken = localStorage.getItem("p360_token");
+    let cancelled = false;
 
-    if (savedToken && savedUser) {
+    async function autoLogin() {
       try {
-        const parsed = JSON.parse(savedUser);
-        setUser(parsed);
-        setLoading(false);
-      } catch {
-        autoLogin();
-        return;
-      }
-    } else {
-      autoLogin();
+        const res = await fetch("/api/auth/auto-login", { method: "POST" });
+        if (res.ok) {
+          const data = await res.json();
+          localStorage.setItem("p360_token", data.id);
+          localStorage.setItem("p360_user", JSON.stringify(data));
+          if (!cancelled) setUser(data);
+        }
+      } catch {}
+      if (!cancelled) setLoading(false);
     }
-  }, []);
 
-  async function autoLogin() {
-    try {
-      const res = await fetch("/api/auth/auto-login", { method: "POST" });
-      if (res.ok) {
-        const data = await res.json();
-        localStorage.setItem("p360_token", data.id);
-        localStorage.setItem("p360_user", JSON.stringify(data));
-        setUser(data);
+    async function restoreSession() {
+      // Yield a microtask so setState never runs synchronously inside the effect
+      await Promise.resolve();
+      if (cancelled) return;
+
+      const savedUser = localStorage.getItem("p360_user");
+      const savedToken = localStorage.getItem("p360_token");
+
+      if (savedToken && savedUser) {
+        try {
+          const parsed = JSON.parse(savedUser);
+          setUser(parsed);
+          setLoading(false);
+        } catch {
+          await autoLogin();
+        }
+      } else {
+        await autoLogin();
       }
-    } catch {}
-    setLoading(false);
-  }
+    }
+
+    restoreSession();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   if (loading) {
     return (

@@ -60,11 +60,13 @@ export async function generateEmailCreative(params: EmailCreativeParams): Promis
   } = params;
 
   const ls = LANG_STRINGS[language];
-  const layout = EMAIL_LAYOUTS[creativeType];
+  // Fallback to "header" layout when creativeType is invalid/unknown
+  const layout = EMAIL_LAYOUTS[creativeType] ?? EMAIL_LAYOUTS["header"];
+  const effectiveType: EmailCreativeType = EMAIL_LAYOUTS[creativeType] ? creativeType : "header";
 
   const promptParts: string[] = [];
 
-  promptParts.push(`Create an email marketing creative: ${creativeType} (${layout.dimensions}).`);
+  promptParts.push(`Create an email marketing creative: ${effectiveType} (${layout.dimensions}).`);
   promptParts.push(layout.description);
   promptParts.push(`Product: "${productInfo.name}" — ${productInfo.description}.`);
 
@@ -93,7 +95,7 @@ export async function generateEmailCreative(params: EmailCreativeParams): Promis
       success: true,
       imageBase64: imageData?.base64 ?? undefined,
       imageUrl: imageData?.url ?? undefined,
-      creativeType,
+      creativeType: effectiveType,
       dimensions: layout.dimensions,
       prompt,
       generatedAt: new Date().toISOString(),
@@ -101,7 +103,7 @@ export async function generateEmailCreative(params: EmailCreativeParams): Promis
   } catch {
     return {
       success: false,
-      creativeType,
+      creativeType: effectiveType,
       dimensions: layout.dimensions,
       prompt,
       generatedAt: new Date().toISOString(),
