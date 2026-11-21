@@ -64,9 +64,9 @@ start_mini_services() {
 		(
 			cd "$service_dir"
 			echo "[$service_name] Installing dependencies..."
-			bun install
-			echo "[$service_name] Running bun run dev..."
-			exec bun run dev
+			npm install
+			echo "[$service_name] Running npm run dev..."
+			exec npm run dev
 		) >"$PROJECT_DIR/.zscripts/mini-service-${service_name}.log" 2>&1 &
 
 		local service_pid=$!
@@ -115,24 +115,24 @@ trap cleanup EXIT INT TERM
 
 cd "$PROJECT_DIR"
 
-if ! command -v bun >/dev/null 2>&1; then
-	echo "ERROR: bun is not installed or not in PATH"
+if ! command -v npm >/dev/null 2>&1; then
+	echo "ERROR: npm is not installed or not in PATH"
 	exit 1
 fi
 
-log_step_start "bun install"
-echo "[BUN] Installing dependencies..."
-bun install
-log_step_end "bun install"
+log_step_start "npm install"
+echo "[NPM] Installing dependencies..."
+npm install
+log_step_end "npm install"
 
-log_step_start "bun run db:push"
+log_step_start "npm run db:push"
 echo "[BUN] Setting up database..."
-bun run db:push
-log_step_end "bun run db:push"
+npm run db:push
+log_step_end "npm run db:push"
 
 log_step_start "Starting Next.js dev server"
 echo "[BUN] Starting development server..."
-bun run dev &
+npm run dev &
 DEV_PID=$!
 log_step_end "Starting Next.js dev server"
 

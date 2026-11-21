@@ -79,8 +79,8 @@ if [ -f "./next-service-dist/server.js" ]; then
         echo "🗄️  当前使用外部指定数据库: $DATABASE_URL"
     fi
     
-    # 后台启动 Next.js
-    bun server.js &
+    # 后台启动 Next.js (npm)
+    npm run start &
     NEXT_PID=$!
     pids="$NEXT_PID"
     

@@ -33,11 +33,11 @@ mkdir -p "$BUILD_DIR"
 
 # 安装依赖
 echo "📦 安装依赖..."
-bun install
+npm install
 
 # 构建 Next.js 应用
 echo "🔨 构建 Next.js 应用..."
-bun run build
+npm run build
 
 # 构建 mini-services
 # 检查 Next.js 项目目录下是否有 mini-services 目录
@@ -84,7 +84,7 @@ if [ -f "./db/custom.db" ]; then
     cp -r ./db/. "$BUILD_DIR/db/"
 
     echo "🗄️  同步构建产物中的数据库结构..."
-    DATABASE_URL="file:$BUILD_DIR/db/custom.db" bun run db:push
+    DATABASE_URL="file:$BUILD_DIR/db/custom.db" npm run db:push
     echo "✅ 构建产物数据库已准备完成"
     ls -lah "$BUILD_DIR/db"
 else

@@ -44,7 +44,23 @@ const eslintConfig = [...nextCoreWebVitals, ...nextTypescript, {
     "no-useless-escape": "off",
   },
 }, {
-  ignores: ["node_modules/**", ".next/**", "out/**", "build/**", "next-env.d.ts", "examples/**", "skills"]
+  // Solo lint del código de la app (src/, configs raíz).
+  // scripts/: utilidades CommonJS operativas. upload/download/: contenido del usuario.
+  // skills/: tooling del entorno, no es código del repo. examples/: fuera del alcance.
+  ignores: [
+    "node_modules/**",
+    ".next/**",
+    "out/**",
+    "build/**",
+    "next-env.d.ts",
+    "examples/**",
+    "skills/**",
+    "scripts/**",
+    "upload/**",
+    "download/**",
+    "mini-services/**",
+    "src/_product-factory/**",
+  ]
 }];
 
 export default eslintConfig;
