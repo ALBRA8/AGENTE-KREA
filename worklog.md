@@ -375,3 +375,19 @@ Stage Summary:
 - RESULTADO FINAL: build ✓ 0 errores | 174/174 tests ✓ | lint 0/0 | endpoints 32/32 ✓ | comerciales 7/7 ✓ (39/39)
 - 2 errores TS latentes corregidos, 4 bugs reales del doctor corregidos, 3 fallos de robustez comercial corregidos, validación de enums añadida
 - Estado: LISTO PARA PRODUCCIÓN a nivel funcional; pendiente externo: credenciales OAuth para export ecom (PARTIAL) y env vars reales en despliegue
+
+---
+Task ID: cierre-proyecto-fases
+Agent: main
+Task: Cierre del proyecto AGENTE-KREA en 5 fases con verificación real por fase
+
+Work Log:
+- FASE 1 (commit 8d1ab55): gestor único npm (bun.lock eliminado, .zscripts alineados); 45 componentes ui sin uso borrados (quedan accordion/skeleton/toast); deps 49→17 a importadores reales + docx en devDeps; product-factory.ts borrado (0 importadores, grep); tsconfig excluye examples/, skills/, _product-factory; tests obsoletos: auth e isolation reescritos contra API actual, book-factory/golden-flows archivados, duplicados (security/product-decision/product-fit) borrados; .env fuera del índice. Verificación clon limpio: install→generate→db push→tsc(0)→lint(0)→test(298)→build ✓
+- FASE 2 (commit 6089290): .env.example; auto-login gated DEMO_MODE (default 403), contraseña efímera random, sin reset de créditos, 503 en fallo DB; demo-fallback eliminado; getClientIp compartido con TRUST_PROXY; deductCredits atómico (updateMany condicional); refundCredits en 8 puntos de 6 rutas; fix data.id→data.token en page.tsx; cleanup:generated con retención
+- FASE 3 (commit b12429e): provider-registry único (inyección de mocks); 6 rutas refactorizadas (0 imports SDK directo); mission-routes.test.ts 33 tests (401/402/400/éxito/reembolso + metrics); doctor reporta credenciales explicit/implicit/missing; smoke:providers REAL 3/3 (text 527ms, image 46.7s/145KB, voice 1.2s/174KB)
+- FASE 4 (commit f413198): _product-factory/ con 20 lib + 12 tests + 20 rutas + dashboard archivados y documentados; borrados con grep 0 importadores: product-intelligence, product-validation-loop, cover-design, editorial-design, art-direction; schemas→archivado; doctor.ts se conserva (check shallow, decisión documentada); golden-flow scripts archivados; AppShell sin Product Factory; knowledge-registry 36→16; README.md único; VERIFICATION-REPORT/KREA_FINAL_VERIFICATION eliminados; mission/identity JSONs 1.1.0 alineados; tests de conteo actualizados
+- FASE 5: INFORME-ESTADO.md con tabla VERIFIED/NOT_VERIFIED por capacidad; cadena completa re-verificada en clon limpio final: tsc 0, lint 0, 203/203 tests, build ✓ 49 rutas, smoke 3/3 (text 393ms, image 31s/85KB, voice 3.8s/174KB)
+
+Stage Summary:
+- NOT_VERIFIED honesto: export ecommerce (OAuth), ZAI_API_KEY explícito (entorno usaba implícitas), despliegue real
+- Seguridad: rotar el GitHub PAT usado en el push (pegado en chat)
