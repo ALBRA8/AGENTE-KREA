@@ -183,9 +183,10 @@ describe("KreaHarness", () => {
 
   it("reports all knowledge modules", async () => {
     const status = harness.status();
-    expect(status.knowledgeModules.length).toBeGreaterThan(20);
-    expect(status.knowledgeModules).toContain("product-fit");
-    expect(status.knowledgeModules).toContain("commercial-readiness");
+    // 16 módulos tras archivar el Product Factory (ver src/_product-factory/README.md)
+    expect(status.knowledgeModules.length).toBe(16);
+    expect(status.knowledgeModules).toContain("pdf-factory");
+    expect(status.knowledgeModules).toContain("commercial-creative-engine");
     expect(status.knowledgeModules).toContain("infoproductos-pipeline");
   });
 

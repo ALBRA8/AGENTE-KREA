@@ -74,7 +74,8 @@ describe("KREA Bootstrap", () => {
     // The global harness should have knowledge registered
     // (tested through the return value since singletons are shared)
     const result = await bootstrapKrea();
-    expect(result.knowledge).toBeGreaterThan(20);
+    // 16 módulos tras archivar el Product Factory (ver src/_product-factory/README.md)
+    expect(result.knowledge).toBe(16);
   });
 
   it("bootstrap is idempotent — calling twice returns same state", async () => {

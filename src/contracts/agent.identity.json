@@ -1,9 +1,9 @@
 {
   "agent_id": "krea",
   "name": "AGENTE-KREA",
-  "version": "1.0.0",
-  "domain": "visual_creative_production",
-  "mission": "Producir assets visuales y creativos mediante generación con IA, incluyendo imágenes, prompts, copy, voz, ebooks y métricas de campaña",
+  "version": "1.1.0",
+  "domain": "creative_production_factory",
+  "mission": "Producir assets creativos mediante generación con IA: imágenes, prompts, copy, voz, subtítulos, eBooks con PDF real, logos, banners, creatividades de email, catálogos y métricas de campaña",
   "owner": "ALBRA",
   "status": "active",
   "ecosystem": "ALBRA",
@@ -17,13 +17,24 @@
   "capabilities": [
     "prompt_generation",
     "image_generation",
+    "image_nl_editing",
     "voice_generation",
     "text_generation",
-    "ebook_generation",
+    "ebook_generation_pdf",
     "subtitle_generation",
-    "campaign_metrics"
+    "campaign_metrics",
+    "logo_generation",
+    "banner_generation",
+    "email_creative_generation",
+    "catalog_generation",
+    "template_gallery",
+    "batch_generation",
+    "ad_creative_generation",
+    "landing_sections",
+    "mockup_generation"
   ],
   "providers": ["z-ai-web-dev-sdk"],
+  "provider_access": "registry (src/contracts/provider-registry.ts) — única vía, con inyección de mocks para tests",
   "integration_protocol": "contract",
   "autonomy_level": "L3"
 }

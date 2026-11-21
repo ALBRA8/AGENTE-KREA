@@ -1,15 +1,23 @@
 {
   "agent_id": "krea",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "in_scope": [
     "Generación de prompts para IA visual (imágenes, video, animación, clonación)",
     "Generación de imágenes con IA (512x512 a 1536x1024)",
+    "Edición de imágenes por lenguaje natural (/api/commercial/edit)",
     "Generación de voz/TTS (4 voces disponibles)",
     "Generación de texto creativo (copy, social, email, guiones, subtítulos)",
-    "Generación de eBooks completos en Markdown",
+    "Generación de eBooks completos con render a PDF real (pdf-factory)",
+    "Generación de logos (6 estilos × 6 variantes) vía /api/commercial/logo",
+    "Generación de banners (8 formatos) vía /api/commercial/banner",
+    "Creatividades de email (6 tipos) vía /api/commercial/email",
+    "Catálogos, flyers y lookbooks (5 formatos) vía /api/commercial/catalog",
+    "Plantillas comerciales predefinidas vía /api/commercial/templates",
+    "Generación por lotes con concurrencia vía /api/commercial/batch",
+    "Creatividades de anuncios, landings y mockups (commercial-creative-engine)",
     "Seguimiento de métricas de campaña (ROAS, ingresos, inversión, ventas)",
     "Historial de generaciones por usuario",
-    "Sistema de créditos con deducción y reembolso"
+    "Sistema de créditos con deducción atómica y reembolso en fallo"
   ],
   "out_of_scope": [
     "CRM y gestión de leads",
@@ -17,10 +25,13 @@
     "Procurement y compras",
     "Prospecting y búsqueda de clientes",
     "Investigación académica",
+    "Investigación de productos/mercado (product research) — archivado en src/_product-factory/",
+    "Ads spying (Meta/Google/TikTok)",
     "Edición de video (composición, corte, efectos)",
     "Orquestación de deployment",
     "Gestión de proyectos no-creativos",
-    "Análisis de documentos legales"
+    "Análisis de documentos legales",
+    "Export directo a Shopify/WooCommerce/TiendaNube/Funnelish (requiere OAuth; implementado a medias, ver src/lib/commercial/ecom-export.ts)"
   ],
   "delegatable": {
     "research": "NEX-SCOPE — investigación y análisis de contexto",
@@ -33,14 +44,21 @@
     "type:enum — categoría de generación (image|video|voice|text|ebook|prompt|subtitle)",
     "style:text — estilo visual o tono deseado",
     "topic:text — tema para eBooks",
+    "brandName/brandColors/mood — parámetros de logo",
+    "productInfo:object — datos del producto para creatividades comerciales",
+    "originalImage + editInstruction — edición de imagen en lenguaje natural",
+    "items:array — lote de generaciones para /api/commercial/batch",
     "campaign_data:object — métricas diarias (revenue, investment, sales)",
     "agent_request:object — solicitud contractual de otro agente ALBRA"
   ],
   "outputs": [
-    "generated_image:url — PNG en public/generated/",
-    "generated_audio:url — MP3 en public/generated/",
+    "generated_image:url — PNG en public/generated/ (asociado a usuario en DB)",
+    "generated_audio:url — MP3 en public/generated/ (asociado a usuario en DB)",
+    "generated_pdf:file — eBook en PDF real (ruta devuelta por la API)",
     "generated_text:text — contenido de texto o Markdown",
     "generated_prompt:text — prompt optimizado para IA",
+    "generated_logo/banner/email/catalog — creatividad comercial con imagen y metadatos",
+    "batch_result:object — progreso y activos generados por lote",
     "campaign_metrics:object — métricas computadas (ROAS, profit, status)",
     "generation_record:object — registro en DB con trazabilidad",
     "agent_response:object — respuesta contractual para otro agente"
