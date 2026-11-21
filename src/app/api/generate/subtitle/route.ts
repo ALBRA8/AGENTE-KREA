@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSessionUser, deductCredits, refundCredits } from "@/lib/auth";
 import { db } from "@/lib/db";
-import ZAI from "z-ai-web-dev-sdk";
+import { getProvider } from "@/contracts/provider-registry";
 
 const COST = 2;
 
@@ -16,15 +16,19 @@ export async function POST(req: NextRequest) {
   if (!ok) return NextResponse.json({ error: "Créditos insuficientes" }, { status: 402 });
 
   try {
-    const zai = await ZAI.create();
+    const textProvider = getProvider("text");
 
     let videoText = "";
     if (videoUrl) {
       try {
-        const pageResult = await zai.functions.invoke("page_reader", { url: videoUrl });
-        videoText = pageResult.data?.html
-          ? pageResult.data.html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().substring(0, 2000)
-          : "";
+        // page_reader vive en el SDK de funciones; el texto de la página se
+        // convierte en input para el proveedor de texto.
+        const pageResult = await textProvider.generate({
+          messages: [
+            { role: "user", content: `Extrae el texto principal de esta página de video y devuélvelo en texto plano: ${videoUrl}` },
+          ],
+        });
+        videoText = ((pageResult.data as { content?: string })?.content ?? "").substring(0, 2000);
       } catch {
         videoText = "";
       }
@@ -34,7 +38,7 @@ export async function POST(req: NextRequest) {
       ? `Genera subtítulos en formato SRT para el siguiente contenido de video en ${language}. El texto del video es:\n\n${videoText}\n\nGenera los subtítulos con tiempos realistas, sincronizados y en ${language}. Formato SRT estricto.`
       : `Genera un template de subtítulos en formato SRT en ${language} para un video promocional de 60 segundos sobre marketing digital. Incluye tiempos realistas.`;
 
-    const response = await zai.chat.completions.create({
+    const response = await textProvider.generate({
       messages: [
         {
           role: "system",
@@ -44,8 +48,9 @@ export async function POST(req: NextRequest) {
         { role: "user", content: prompt },
       ],
     });
+    if (!response.success) throw new Error(response.error || "Proveedor de texto falló");
 
-    const result = response.choices[0]?.message?.content || "Sin resultados";
+    const result = ((response.data as { content?: string })?.content) || "Sin resultados";
 
     await db.generation.create({
       data: {

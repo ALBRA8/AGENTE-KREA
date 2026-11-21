@@ -420,13 +420,20 @@ export class KreaDoctorV2 {
       const workingAdapters = Object.values(adapters).filter(Boolean).length;
       const totalAdapters = Object.keys(adapters).length;
 
+      // Honest credential report: explicit key > implicit SDK credentials > none
+      const keySource = process.env.ZAI_API_KEY
+        ? "explicit"
+        : workingAdapters > 0
+          ? "implicit"
+          : "missing";
+
       return {
         name: "providers",
         category: "integrations",
         status: workingAdapters === 0 ? "UNHEALTHY" : workingAdapters < totalAdapters ? "DEGRADED" : "HEALTHY",
         latencyMs: Date.now() - start,
-        details: `Z-AI SDK OK, ${workingAdapters}/${totalAdapters} adapters functional`,
-        metrics: { workingAdapters, totalAdapters, ...Object.fromEntries(Object.entries(adapters).map(([k, v]) => [k, v ? 1 : 0])) },
+        details: `Z-AI SDK OK, ${workingAdapters}/${totalAdapters} adapters functional, credenciales: ${keySource}${keySource === "missing" ? " (configura ZAI_API_KEY en .env)" : ""}`,
+        metrics: { workingAdapters, totalAdapters, keySource: keySource as unknown as number, ...Object.fromEntries(Object.entries(adapters).map(([k, v]) => [k, v ? 1 : 0])) },
         evidence: {
           checkedAt: new Date().toISOString(),
           truthLevel: "VERIFIED",

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSessionUser, deductCredits, refundCredits } from "@/lib/auth";
 import { db } from "@/lib/db";
-import ZAI from "z-ai-web-dev-sdk";
+import { getProvider } from "@/contracts/provider-registry";
 import { writeFileSync, mkdirSync } from "fs";
 import { join } from "path";
 import { randomUUID } from "crypto";
@@ -22,16 +22,16 @@ export async function POST(req: NextRequest) {
   if (!ok) return NextResponse.json({ error: "Créditos insuficientes" }, { status: 402 });
 
   try {
-    const zai = await ZAI.create();
     const selectedVoice = VALID_VOICES.includes(voice) ? voice : "tongtong";
 
-    const response = await zai.audio.tts.create({
-      input: text,
+    const response = await getProvider("voice").generate({
+      text,
       voice: selectedVoice,
     });
+    if (!response.success) throw new Error(response.error || "Proveedor de voz falló");
 
-    // ZAI SDK TTS returns a Response object — read as arrayBuffer
-    const arrayBuf = await (response as Response).arrayBuffer();
+    // Provider returns { data: { arrayBuffer, voice } }
+    const arrayBuf = (response.data as { arrayBuffer: ArrayBuffer })?.arrayBuffer;
     const buffer = Buffer.from(arrayBuf);
 
     // Ensure generated directory exists

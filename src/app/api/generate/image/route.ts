@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSessionUser, deductCredits, refundCredits } from "@/lib/auth";
 import { db } from "@/lib/db";
-import ZAI from "z-ai-web-dev-sdk";
+import { getProvider } from "@/contracts/provider-registry";
 import { writeFileSync, mkdirSync } from "fs";
 import { join } from "path";
 import { randomUUID } from "crypto";
@@ -23,7 +23,6 @@ export async function POST(req: NextRequest) {
   if (!ok) return NextResponse.json({ error: "Créditos insuficientes" }, { status: 402 });
 
   try {
-    const zai = await ZAI.create();
     const fullPrompt = style
       ? `${prompt}, ${style}, professional quality, high resolution, detailed`
       : `${prompt}, professional quality, high resolution, detailed`;
@@ -31,13 +30,14 @@ export async function POST(req: NextRequest) {
     // Validate size: must be 512-2880 and multiple of 32
     const selectedSize = VALID_SIZES.includes(size as any) ? size : "1024x1024";
 
-    const response = await zai.images.generations.create({
+    const response = await getProvider("image").generate({
       prompt: fullPrompt,
       size: selectedSize,
     });
+    if (!response.success) throw new Error(response.error || "Proveedor de imagen falló");
 
-    // ZAI SDK returns { data: [{ base64, format }] }
-    const base64 = response.data?.[0]?.base64;
+    // Provider returns { data: { base64, size } }
+    const base64 = ((response.data as { base64?: string })?.base64) || "";
     if (!base64) throw new Error("No se recibió imagen de la API");
 
     // Ensure generated directory exists

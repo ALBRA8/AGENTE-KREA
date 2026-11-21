@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSessionUser, deductCredits, refundCredits } from "@/lib/auth";
 import { db } from "@/lib/db";
-import ZAI from "z-ai-web-dev-sdk";
+import { getProvider } from "@/contracts/provider-registry";
 import {
   generatePdf,
   defaultPdfConfig,
@@ -31,8 +31,7 @@ export async function POST(req: NextRequest) {
     );
 
   try {
-    // Step 1: Generate content with ZAI
-    const zai = await ZAI.create();
+    // Step 1: Generate content via provider layer
     const prompt = `Genera un eBook completo en español sobre "${topic}" para ${targetAudience}.
 Debe tener exactamente ${chapters} capítulos.
 
@@ -54,7 +53,7 @@ FORMATO DE RESPUESTA (sigue este formato exactamente):
 
 Genera contenido de alta calidad, profesional y útil. Cada capítulo debe tener información valiosa y actionable.`;
 
-    const response = await zai.chat.completions.create({
+    const response = await getProvider("text").generate({
       messages: [
         {
           role: "system",
@@ -64,8 +63,9 @@ Genera contenido de alta calidad, profesional y útil. Cada capítulo debe tener
         { role: "user", content: prompt },
       ],
     });
+    if (!response.success) throw new Error(response.error || "Proveedor de texto falló");
 
-    const markdown = response.choices[0]?.message?.content || "";
+    const markdown = ((response.data as { content?: string })?.content) || "";
     if (!markdown) {
       await refundCredits(user.id, COST);
       return NextResponse.json(

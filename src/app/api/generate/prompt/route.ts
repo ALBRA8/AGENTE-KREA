@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSessionUser, deductCredits, refundCredits } from "@/lib/auth";
 import { db } from "@/lib/db";
-import ZAI from "z-ai-web-dev-sdk";
+import { getProvider } from "@/contracts/provider-registry";
 
 const COST = 2;
 
@@ -70,18 +70,18 @@ export async function POST(req: NextRequest) {
   if (!ok) return NextResponse.json({ error: "Créditos insuficientes" }, { status: 402 });
 
   try {
-    const zai = await ZAI.create();
     const category = reqCategory || detectCategory(description);
     const systemPrompt = CATEGORY_PROMPTS[category] || CATEGORY_PROMPTS.default;
 
-    const response = await zai.chat.completions.create({
+    const response = await getProvider("text").generate({
       messages: [
         { role: "system", content: systemPrompt },
         { role: "user", content: description },
       ],
     });
+    if (!response.success) throw new Error(response.error || "Proveedor de texto falló");
 
-    const prompt = response.choices[0]?.message?.content || "Sin resultados";
+    const prompt = ((response.data as { content?: string })?.content) || "Sin resultados";
 
     await db.generation.create({
       data: {
