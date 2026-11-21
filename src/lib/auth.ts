@@ -33,24 +33,24 @@ export async function getSessionUser(token: string): Promise<SessionUser | null>
 }
 
 /**
- * Atomically deduct credits using a Prisma transaction.
- * Prevents race conditions by checking and updating in a single transaction.
- * Returns the new credit balance, or null if insufficient credits.
+ * Atomically deduct credits.
+ *
+ * Implementation: a SINGLE conditional UPDATE (`updateMany` with
+ * `credits: { gte: amount }` in the WHERE). SQLite serializes writes, so two
+ * concurrent calls can never both pass the balance check — the classic
+ * read-then-write race is impossible by construction. Returns the new balance,
+ * or null if the user doesn't exist or has insufficient credits.
  */
 export async function deductCredits(userId: string, amount: number): Promise<number | null> {
   try {
-    const result = await db.$transaction(async (tx) => {
-      const user = await tx.user.findUnique({ where: { id: userId } });
-      if (!user || user.credits < amount) return null;
-      
-      const updated = await tx.user.update({
-        where: { id: userId },
-        data: { credits: user.credits - amount },
-      });
-      
-      return updated.credits;
+    const result = await db.user.updateMany({
+      where: { id: userId, credits: { gte: amount } },
+      data: { credits: { decrement: amount } },
     });
-    return result;
+    if (result.count === 0) return null;
+
+    const user = await db.user.findUnique({ where: { id: userId } });
+    return user?.credits ?? null;
   } catch {
     return null;
   }

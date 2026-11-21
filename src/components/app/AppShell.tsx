@@ -613,26 +613,48 @@ function Library({ user }: { user: User }) {
 /* ════════════ Main App ════════════ */
 interface AppShellProps { onLogout: () => void; user?: User | null }
 
-const FALLBACK_USER: User = { id: "demo-fallback", name: "Usuario Demo", email: "demo@krea.ai", credits: 50, plan: "starter" };
-
 export default function AppPage({ onLogout, user: initialUser }: AppShellProps) {
-  const [user, setUser] = useState<User>(() => {
+  const [user, setUser] = useState<User | null>(() => {
     if (initialUser) return initialUser;
     try {
       const saved = localStorage.getItem("p360_user");
       if (saved) {
         const parsed = JSON.parse(saved);
-        if (parsed && parsed.id) return parsed;
+        // Legacy cleanup: never resurrect the removed demo-fallback fake user
+        if (parsed && parsed.id && parsed.id !== "demo-fallback") return parsed;
       }
     } catch {}
-    // Always ensure a user exists — save fallback to localStorage
-    localStorage.setItem("p360_token", FALLBACK_USER.id);
-    localStorage.setItem("p360_user", JSON.stringify(FALLBACK_USER));
-    return FALLBACK_USER;
+    return null;
   });
   const [page, setPage] = useState("dashboard");
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [generations, setGenerations] = useState<Generation[]>([]);
+
+  // No user at all → try server auto-login (only works with DEMO_MODE=true);
+  // if it fails, hand control back to the parent (auth screen).
+  useEffect(() => {
+    if (user) return;
+    let cancelled = false;
+
+    async function tryAutoLogin() {
+      try {
+        const res = await fetch("/api/auth/auto-login", { method: "POST" });
+        if (!cancelled && res.ok) {
+          const data = await res.json();
+          localStorage.setItem("p360_token", data.token);
+          localStorage.setItem("p360_user", JSON.stringify(data.user));
+          setUser(data.user);
+        } else if (!cancelled) {
+          onLogout();
+        }
+      } catch {
+        if (!cancelled) onLogout();
+      }
+    }
+
+    const timer = setTimeout(tryAutoLogin, 0);
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [user, onLogout]);
 
   useEffect(() => {
     const token = localStorage.getItem("p360_token");
@@ -653,7 +675,16 @@ export default function AppPage({ onLogout, user: initialUser }: AppShellProps) 
       if (res.ok) setUser(await res.json());
     } catch {}
   };
-  const onUpdateCredits = (c: number) => { setUser(prev => ({ ...prev, credits: c })); };
+  const onUpdateCredits = (c: number) => { setUser(prev => prev ? { ...prev, credits: c } : prev); };
+
+  // Auth in flight (auto-login) — render a loading shell instead of the app
+  if (!user) {
+    return (
+      <div className="min-h-screen bg-[#080c16] flex items-center justify-center">
+        <div className="w-8 h-8 border-2 border-[#3b82f6] border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
 
   const renderPage = () => {
     switch (page) {

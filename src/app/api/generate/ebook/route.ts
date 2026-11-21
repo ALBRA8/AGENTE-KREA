@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getSessionUser, deductCredits } from "@/lib/auth";
+import { getSessionUser, deductCredits, refundCredits } from "@/lib/auth";
 import { db } from "@/lib/db";
 import ZAI from "z-ai-web-dev-sdk";
 import {
@@ -67,10 +67,7 @@ Genera contenido de alta calidad, profesional y útil. Cada capítulo debe tener
 
     const markdown = response.choices[0]?.message?.content || "";
     if (!markdown) {
-      await db.user.update({
-        where: { id: user.id },
-        data: { credits: { increment: COST } },
-      });
+      await refundCredits(user.id, COST);
       return NextResponse.json(
         { error: "No se pudo generar contenido" },
         { status: 500 }
@@ -102,10 +99,7 @@ Genera contenido de alta calidad, profesional y útil. Cada capítulo debe tener
     );
 
     if (!pdfResult.success || !pdfResult.filePath) {
-      await db.user.update({
-        where: { id: user.id },
-        data: { credits: { increment: COST } },
-      });
+      await refundCredits(user.id, COST);
       return NextResponse.json(
         { error: "Error generando PDF" },
         { status: 500 }
@@ -137,10 +131,7 @@ Genera contenido de alta calidad, profesional y útil. Cada capítulo debe tener
     });
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : "Error generando eBook";
-    await db.user.update({
-      where: { id: user.id },
-      data: { credits: { increment: COST } },
-    });
+    await refundCredits(user.id, COST);
     return NextResponse.json({ error: msg }, { status: 500 });
   }
 }

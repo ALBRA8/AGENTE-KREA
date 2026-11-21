@@ -994,19 +994,14 @@ import ErrorBoundary from "@/components/ErrorBoundary";
 
 type View = "landing" | "auth" | "app";
 
-/* Fallback demo user saved to localStorage when auto-login API fails */
-function saveFallbackUser() {
-  const fallback = { id: "demo-fallback", name: "Usuario Demo", email: "demo@krea.ai", credits: 50, plan: "starter" };
-  try { localStorage.setItem("p360_token", fallback.id); } catch {}
-  try { localStorage.setItem("p360_user", JSON.stringify(fallback)); } catch {}
-  return fallback;
-}
-
 export default function Home() {
   const [view, setView] = useState<View>(() => {
     // Try to read from localStorage synchronously on init — go straight to app if token exists
     try {
-      if (typeof window !== "undefined" && localStorage.getItem("p360_token")) {
+      const savedToken = typeof window !== "undefined" && localStorage.getItem("p360_token");
+      const savedUser = typeof window !== "undefined" && localStorage.getItem("p360_user");
+      // Legacy cleanup: the removed demo-fallback fake user must not grant entry
+      if (savedToken && savedUser && savedToken !== "demo-fallback" && savedUser !== "demo-fallback") {
         return "app";
       }
     } catch {}
@@ -1019,15 +1014,15 @@ export default function Home() {
       const res = await fetch("/api/auth/auto-login", { method: "POST" });
       if (res.ok) {
         const data = await res.json();
-        try { localStorage.setItem("p360_token", data.id); } catch {}
-        try { localStorage.setItem("p360_user", JSON.stringify(data)); } catch {}
-      } else {
-        saveFallbackUser();
+        try { localStorage.setItem("p360_token", data.token); } catch {}
+        try { localStorage.setItem("p360_user", JSON.stringify(data.user)); } catch {}
+        setView("app");
+        setKey(k => k + 1);
+        return;
       }
-    } catch {
-      saveFallbackUser();
-    }
-    setView("app");
+    } catch {}
+    // Auto-login unavailable (DEMO_MODE off, server error) → auth screen
+    setView("auth");
     setKey(k => k + 1);
   }
 

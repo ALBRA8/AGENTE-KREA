@@ -793,9 +793,9 @@ export class KreaDoctorV2 {
     const requiredVars = ["DATABASE_URL"];
     // KREA uses its own auth (security.ts + DB sessions), not NextAuth.
     // Recommended vars reflect what production actually consumes:
-    //   DEMO_PASSWORD  — required for auto-login to work in production
+    //   DEMO_MODE      — only set to "true" in disposable demo deployments
     //   CORS_ORIGINS   — middleware cross-origin allowlist (optional)
-    const recommendedVars = ["DEMO_PASSWORD", "CORS_ORIGINS"];
+    const recommendedVars = ["DEMO_MODE", "CORS_ORIGINS"];
 
     const missing: string[] = [];
     const warnings: string[] = [];

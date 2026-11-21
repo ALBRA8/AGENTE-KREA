@@ -17,7 +17,9 @@
     "test:watch": "vitest",
     "test:ui": "vitest --ui",
     "test:e2e": "echo 'E2E: Run manually with dev server' && exit 0",
-    "test:all": "vitest run"
+    "test:all": "vitest run",
+    "cleanup:generated": "node scripts/cleanup-generated.js",
+    "cleanup:generated:dry": "node scripts/cleanup-generated.js --dry-run"
   },
   "dependencies": {
     "@paralleldrive/cuid2": "^3.3.0",

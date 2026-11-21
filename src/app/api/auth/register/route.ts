@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { security } from "@/lib/auth";
+import { getClientIp } from "@/lib/client-ip";
 
 export async function POST(req: NextRequest) {
   try {
     // Rate limit by IP
-    const ip = req.headers.get("x-forwarded-for") || req.headers.get("x-real-ip") || "unknown";
+    const ip = getClientIp(req);
     const rl = security.rateLimit(`register:${ip}`, 5, 60 * 1000); // 5 registrations per minute per IP
     if (!rl.allowed) {
       return NextResponse.json(

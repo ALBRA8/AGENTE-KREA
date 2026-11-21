@@ -1,22 +1,37 @@
 import { NextRequest, NextResponse } from "next/server";
+import crypto from "crypto";
 import { db } from "@/lib/db";
 import { security } from "@/lib/auth";
+import { getClientIp } from "@/lib/client-ip";
 
-/** Demo password – must be set via env in production */
-const DEMO_PASSWORD = process.env.DEMO_PASSWORD || "demo123";
+/**
+ * POST /api/auth/auto-login
+ *
+ * Frictionless demo entry — GATED behind DEMO_MODE=true (default: false).
+ * Disabled by default in every environment, including development.
+ *
+ * When enabled:
+ *  - The demo user is created ONCE with 50 credits and never recreated/reset.
+ *  - Its password is a random value generated at server start and NEVER used
+ *    for login (auto-login issues a session token directly); it only exists
+ *    because the User model requires it. It is not logged or exposed.
+ *  - If the database is unavailable → 503 (no fake users).
+ */
+// Ephemeral random password — unknowable, never printed, never used for login.
+const EPHEMERAL_DEMO_PASSWORD = crypto.randomBytes(32).toString("hex");
 
 export async function POST(req: NextRequest) {
-  // Block auto-login in production unless DEMO_PASSWORD is explicitly configured
-  if (process.env.NODE_ENV === "production" && !process.env.DEMO_PASSWORD) {
+  // Hard gate: opt-in only. Default OFF everywhere (dev, preview, production).
+  if (process.env.DEMO_MODE !== "true") {
     return NextResponse.json(
-      { error: "Auto-login deshabilitado en producción sin DEMO_PASSWORD configurado" },
+      { error: "Auto-login deshabilitado. Configura DEMO_MODE=true para habilitarlo." },
       { status: 403 }
     );
   }
 
   try {
-    // Rate limit by IP
-    const ip = req.headers.get("x-forwarded-for") || req.headers.get("x-real-ip") || "unknown";
+    // Rate limit by client IP
+    const ip = getClientIp(req);
     const rl = security.rateLimit(`autologin:${ip}`, 10, 60 * 1000); // 10 per minute per IP
     if (!rl.allowed) {
       return NextResponse.json(
@@ -25,17 +40,16 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Find or create demo user
+    // Find or create demo user — creation happens exactly once, credits are
+    // never reset by subsequent calls (no infinite-credit loophole).
     let user = await db.user.findUnique({ where: { email: "demo@p360.com" } });
 
     if (!user) {
-      // Hash the demo password before storing
-      const hashedPassword = security.hashPassword(DEMO_PASSWORD);
       user = await db.user.create({
         data: {
           name: "Usuario Demo",
           email: "demo@p360.com",
-          password: hashedPassword,
+          password: security.hashPassword(EPHEMERAL_DEMO_PASSWORD),
           credits: 50,
           plan: "starter",
         },
@@ -72,3 +86,4 @@ export async function POST(req: NextRequest) {
     );
   }
 }
+

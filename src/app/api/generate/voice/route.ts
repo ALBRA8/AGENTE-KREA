@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getSessionUser, deductCredits } from "@/lib/auth";
+import { getSessionUser, deductCredits, refundCredits } from "@/lib/auth";
 import { db } from "@/lib/db";
 import ZAI from "z-ai-web-dev-sdk";
 import { writeFileSync, mkdirSync } from "fs";
@@ -56,7 +56,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ audioUrl: `/generated/${filename}`, credits: user.credits - COST });
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : "Error generando voz";
-    await db.user.update({ where: { id: user.id }, data: { credits: { increment: COST } } });
+    await refundCredits(user.id, COST);
     return NextResponse.json({ error: msg }, { status: 500 });
   }
 }
