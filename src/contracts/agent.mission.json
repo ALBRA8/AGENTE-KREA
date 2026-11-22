@@ -1,7 +1,16 @@
 {
   "agent_id": "krea",
-  "version": "1.1.0",
+  "version": "2.0.0",
   "in_scope": [
+    "Pipeline unificado de producto: oportunidad → decisión GO/NO-GO → especificación → producción → QA → preparación comercial → entrega (/api/product/*)",
+    "Producción de libros/eBooks con pipeline de 10 pasos reales (book-factory): arquitectura, contenido, dirección de arte, portada IA, layout, PDF real, QA visual, reparación, entrega",
+    "Fábricas de producto por dominio: book/document/kit + handoff-only (product-factory-orchestrator)",
+    "Readiness comercial de 8 dimensiones con máquina de estados honesta",
+    "Paquetes de lanzamiento con puerta de integridad (sin testimonios falsos, sin escasez inventada)",
+    "Versionado semver inmutable de productos",
+    "Handoff proveedor-neutral con puerta de aprobación (nunca finge SENT)",
+    "Arnés de infoproductos vía /api/harness execute-skill (validación de demanda con autocompletado real, revisión de contenido/estilo, archivo de negocio, guion; render Python opcional con Chrome)",
+    "Créditos atómicos con reembolso en TODAS las puertas que generan (generate, commercial, harness)",
     "Generación de prompts para IA visual (imágenes, video, animación, clonación)",
     "Generación de imágenes con IA (512x512 a 1536x1024)",
     "Edición de imágenes por lenguaje natural (/api/commercial/edit)",
@@ -16,8 +25,7 @@
     "Generación por lotes con concurrencia vía /api/commercial/batch",
     "Creatividades de anuncios, landings y mockups (commercial-creative-engine)",
     "Seguimiento de métricas de campaña (ROAS, ingresos, inversión, ventas)",
-    "Historial de generaciones por usuario",
-    "Sistema de créditos con deducción atómica y reembolso en fallo"
+    "Historial de generaciones por usuario"
   ],
   "out_of_scope": [
     "CRM y gestión de leads",
@@ -25,13 +33,15 @@
     "Procurement y compras",
     "Prospecting y búsqueda de clientes",
     "Investigación académica",
-    "Investigación de productos/mercado (product research) — archivado en src/_product-factory/",
     "Ads spying (Meta/Google/TikTok)",
     "Edición de video (composición, corte, efectos)",
     "Orquestación de deployment",
     "Gestión de proyectos no-creativos",
     "Análisis de documentos legales",
-    "Export directo a Shopify/WooCommerce/TiendaNube/Funnelish (requiere OAuth; implementado a medias, ver src/lib/commercial/ecom-export.ts)"
+    "Export directo a Shopify/WooCommerce/TiendaNube/Funnelish (requiere OAuth; implementado a medias, ver src/lib/commercial/ecom-export.ts)",
+    "Investigación de productos/mercado (product research)",
+    "Export HTTP real a Shopify/WooCommerce/TiendaNube/Funnelish (requiere OAuth de la plataforma; la ruta /api/commercial/export prepara el payload — NOT_VERIFIED el envío real)",
+    "Render Python de marca (ebook/guion/portada/página-venta PNG) sin Chrome — la vía canónica de render es TypeScript (pdf-factory)"
   ],
   "delegatable": {
     "research": "NEX-SCOPE — investigación y análisis de contexto",

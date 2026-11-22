@@ -1,9 +1,9 @@
 {
   "agent_id": "krea",
   "name": "AGENTE-KREA",
-  "version": "1.1.0",
-  "domain": "creative_production_factory",
-  "mission": "Producir assets creativos mediante generación con IA: imágenes, prompts, copy, voz, subtítulos, eBooks con PDF real, logos, banners, creatividades de email, catálogos y métricas de campaña",
+  "version": "2.0.0",
+  "domain": "creative_and_product_production_factory",
+  "mission": "Pipeline unificado de producción: activos creativos con IA (imágenes, prompts, copy, voz, subtítulos, eBooks con PDF real, logos, banners, email, catálogos, ads) + fábrica de productos infodigitales (oportunidad → decisión → especificación → producción → QA → comercial → entrega) + arnés de infoproductos con scripts Python opcionales",
   "owner": "ALBRA",
   "status": "active",
   "ecosystem": "ALBRA",
@@ -31,10 +31,30 @@
     "batch_generation",
     "ad_creative_generation",
     "landing_sections",
-    "mockup_generation"
+    "mockup_generation",
+    "opportunity_dossier",
+    "product_fit_scoring",
+    "product_decision",
+    "product_architecture",
+    "product_specification",
+    "product_economics",
+    "book_factory_pipeline",
+    "factory_orchestration",
+    "product_qa",
+    "product_packaging",
+    "commercial_readiness",
+    "launch_package_integrity",
+    "product_versioning",
+    "product_handoff",
+    "infoproducts_demand_validation",
+    "infoproducts_review",
+    "business_archive"
   ],
-  "providers": ["z-ai-web-dev-sdk"],
-  "provider_access": "registry (src/contracts/provider-registry.ts) — única vía, con inyección de mocks para tests",
+  "providers": [
+    "z-ai-web-dev-sdk (vía contracts/provider-registry)",
+    "python3 opcional (vía PythonBridge, con sonda de entorno y degradación con gracia)"
+  ],
+  "provider_access": "registry (src/contracts/provider-registry.ts) + ai-gateway (src/lib/ai-gateway.ts) para los motores del Factory — única vía, con inyección de mocks para tests; créditos atómicos vía src/lib/credit-service.ts",
   "integration_protocol": "contract",
   "autonomy_level": "L3"
 }

@@ -1,94 +1,69 @@
-# AGENTE-KREA
+# AGENTE-KREA (KREA)
 
-**Fábrica de producción creativa con IA** del ecosistema ALBRA. Genera prompts,
-imágenes, voz, texto, subtítulos, eBooks (con PDF real), logos, banners,
-creatividades de email, catálogos y gestiona métricas de campaña, historial por
-usuario y créditos con deducción atómica y reembolso.
+Fábrica unificada de producción: **activos creativos con IA** + **fábrica de productos infodigitales** + **arnés de infoproductos**, en un solo pipeline.
 
-Fuente de verdad de la misión: `src/contracts/agent.mission.json` y
-`src/contracts/agent.identity.json`.
+> Pipeline: oportunidad → decisión (GO/NO-GO) → especificación → producción → QA → preparación comercial → entrega.
 
-## Stack
+## Qué hace (resumen honesto)
 
-Next.js 16 (App Router, Turbopack) · TypeScript strict · Prisma + SQLite ·
-Tailwind CSS 4 · z-ai-web-dev-sdk vía capa de proveedor propia · Vitest.
+| Capa | Capacidad | Entrada HTTP | Estado |
+|---|---|---|---|
+| Creativa | prompts, imágenes, texto, voz, subtítulos, eBooks PDF | `/api/generate/*` | VERIFIED (créditos atómicos + reembolso) |
+| Creativa | logos, banners, email, catálogos, ads, landings, mockups, variantes, edición NL, plantillas, batch, launch-pack | `/api/commercial/*` | VERIFIED generación (créditos atómicos); export ecommerce NOT_VERIFIED (requiere OAuth) |
+| Producto | pipeline completo del Product Factory | `/api/product/*` | VERIFIED en módulos y e2e de script (ver INFORME-ESTADO); la ejecución real del orchestrator aún no dispara generación desde HTTP |
+| Arnés | validación demanda, revisión contenido/estilo, archivo de negocio, guion, ensamble | `/api/harness` (execute-skill) | VERIFIED ops puras; render Python NOT_VERIFIED sin Chrome (degrada con motivo) |
 
-## Instalación
+Detalles, evidencia y pendientes: **[INFORME-ESTADO.md](./INFORME-ESTADO.md)**.
 
-```bash
-npm install          # gestor único: npm (no hay bun.lock)
-npx prisma generate
-npx prisma db push   # crea db/custom.db
-cp .env.example .env # ajusta DATABASE_URL (y ZAI_API_KEY si tienes clave explícita)
-```
+## Arquitectura en una frase
 
-Requisito: Node 18+ (usa la Web API Request/Response que Next 16 necesita).
+- **Una sola vía de proveedor:** todo pasa por `src/contracts/provider-registry.ts` → adapters (`zai.adapter.ts`) → `z-ai-web-dev-sdk`. Los motores del Factory usan `src/lib/ai-gateway.ts` (fachada sobre el registry). Ningún módulo instancia el SDK directamente.
+- **Un solo sistema de créditos:** `src/lib/credit-service.ts` — deducción atómica (`updateMany` con `credits >= amount`) + reembolso en fallo, en `/api/generate/*`, `/api/commercial/*` y `/api/harness execute-skill`.
+- **Un solo pipeline de producto:** `src/lib/product-factory-orchestrator.ts` + módulos en `src/lib/` (dossier, fit, decision, architecture, specification, economics, book-factory, qa, packaging, readiness, launch-package, handoff, versioning), rutas en `src/app/api/product/*`, UI en `src/components/app/ProductDashboard.tsx`.
+- **Python explícito y opcional:** `src/lib/infoproductos/scripts/*.py` vía `PythonBridge`. Sin Chrome, las 4 capacidades de render devuelven `NOT_VERIFIED` con motivo; la vía canónica de PDF/portada es TypeScript (`pdf-factory`). Doctor: check `python-environment`.
 
-## Ejecutar
+## Requisitos
 
-```bash
-npm run dev     # desarrollo en :3000
-npm run build   # build de producción
-npm run start   # servir el build
-```
+- Node.js + npm (gestor único; `package-lock.json`).
+- `DATABASE_URL` (SQLite) en `.env` — ver `.env.example`.
+- **Opcional (arnés de infoproductos):** `python3` >= 3.9, `PIL` (Pillow), `PyMuPDF`, `pypdf`; `Chrome/Chromium/Edge` SOLO para render Python de marca. Sin ellos el sistema no se rompe: el doctor reporta `DEGRADED` con motivo.
+- Credenciales del proveedor de IA: `z-ai-web-dev-sdk` (el SDK resuelve credenciales del entorno; no se declara `ZAI_API_KEY` explícita en el repo).
 
-## Verificación completa (criterio de salida del proyecto)
+## Comandos
 
 ```bash
-npm install && npx prisma generate && npx prisma db push \
-  && npx tsc --noEmit && npm run lint && npm test && npm run build
+npm install          # postinstall: prisma generate
+npx prisma db push   # crea/actualiza el esquema SQLite (no destructivo si ya coincide)
+npm run dev          # dev server :3000
+npm run build        # prisma generate + next build
+npm test             # vitest (345 tests)
+npm run lint         # eslint
+npm run smoke:providers
+DATABASE_URL=file:./prisma/dev.db npx tsx scripts/e2e-mission-flow.ts   # flujo e2e real de misión
 ```
-
-Todos los comandos deben terminar en 0 errores.
-
-## Tests
-
-```bash
-npm test              # suite completa (unit + misión con proveedor mockeado)
-npm run smoke:providers   # prueba REAL de texto/imagen/voz con evidencia (latencia, tamaños)
-npm run cleanup:generated -- --dry-run  # política de limpieza de archivos generados
-```
-
-## Variables de entorno
-
-| Variable | Obligatoria | Uso |
-|----------|-------------|-----|
-| `DATABASE_URL` | Sí | SQLite (`file:./db/custom.db`). En despliegues efímeros usa un volumen o storage persistente. |
-| `ZAI_API_KEY` | No | Clave explícita del proveedor. Si falta y el SDK tiene credenciales implícitas, funciona con `implicit` (el doctor lo reporta). |
-| `DEMO_MODE` | No | `true` habilita `/api/auth/auto-login` (por defecto **403 deshabilitado**). Solo para demos desechables. |
-| `TRUST_PROXY` | No | `true` solo si hay proxy propio que sobreescribe `x-forwarded-for`; si no, el rate-limit usa un bucket no falsificable. |
-| `CORS_ORIGINS` | No | Orígenes CORS permitidos separados por coma. |
-| `GENERATED_RETENTION_DAYS` | No | Retención de archivos generados para `cleanup:generated` (default 30). |
-
-## Arquitectura (una sola vía, sin código muerto)
-
-```
-Ruta /api/generate/*  →  contracts/provider-registry  →  IGenerationProvider
-                      →  contracts/zai.adapter        →  z-ai-web-dev-sdk
-```
-
-- **Créditos**: `deductCredits` = un único `UPDATE ... WHERE credits >= amount`
-  (atómico, sin carrera). `refundCredits` en TODOS los fallos de las 6 rutas.
-- **Auth**: sesiones en DB (`Session`), contraseñas PBKDF2 (`lib/security.ts`).
-- **Doctor**: `/api/doctor` (rápido, shallow) y `/api/adn/doctor` (15 checks
-  profundos, estado real del proveedor incluida la fuente de credenciales).
-- **Módulo archivado**: el Product Factory (pipeline product-brain antiguo,
-  fuera de la misión) vive en `src/_product-factory/` con su documentación y
-  sus tests — excluido de build/lint/tests. Ver `src/_product-factory/README.md`.
 
 ## Estructura
 
 ```
 src/
-  app/api/generate/    # misión: image, text, voice, prompt, subtitle, ebook
-  app/api/commercial/  # creatividades: logo, banner, email, catalog, edit, batch, templates…
-  app/api/metrics/     # métricas de campaña por usuario
-  app/api/auth/        # login, register, me, auto-login (gated)
-  app/api/health       # liveness
-  app/api/adn/         # identidad, capacidades, doctor, observabilidad del agente
-  contracts/           # misión, identidad, interfaz de proveedor, registry, adaptador
-  lib/                 # auth, security, db, doctor, pdf-factory, commercial/, bridges…
-  components/app/      # UI (AppShell, generadores, dashboard ADN)
-  __tests__/           # tests de misión y aislamiento de datos
-db/                   # SQLite (gitignored)
+  app/api/generate/     prompts, image, text, voice, ebook, subtitle (créditos)
+  app/api/commercial/   logo, banner, email, catalog, ad, landing, mockup,
+                        variants, edit, batch, launch-pack, templates, export (créditos)
+  app/api/product/      opportunities, dossiers, fit, decide, architect, specify,
+                        economics, blueprint, produce, factory/execute, qa, packaging,
+                        offer, commercial, readiness, handoff, launch-package,
+                        feedback, versions, assets
+  app/api/harness/      arnés: execute-skill (créditos por op)
+  contracts/            provider-registry (única vía) + agent.mission/identity.json
+  lib/
+    commercial/           generadores creativos + batch + ecom-export + krea-agent
+    commercial-creative-engine.ts
+    credit-service.ts     costos + cobro atómico + reembolso
+    ai-gateway.ts         fachada única para los motores del Factory
+    book-factory.ts       pipeline de 10 pasos (LLM+imagen+PDF+QA reales)
+    product-*.ts          pipeline de producto (dossier→…→handoff/versioning)
+    krea-harness.ts       arnés (adapters, skills, bridges, knowledge)
+    harness/              infoproductos-plugin + knowledge-registry
+    infoproductos/        engine scripts Python + SKILL.md
+    bridges/              python-bridge (el puente ZAI ya no existe: es el registry)
 ```

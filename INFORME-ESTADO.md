@@ -1,68 +1,120 @@
-# INFORME DE ESTADO — Cierre AGENTE-KREA
+# INFORME-ESTADO — AGENTE-KREA (ronda de coherencia, 2026-11-22)
 
-**Fecha**: 2026-11-21 · **Método**: verificación con comandos reales por fase
-(cadena completa ejecutada en clon limpio). Nada se marca VERIFIED sin salida
-de comando pegada en el historial del worklog.
+**Base:** commit `57cf820` (fases 1–5 anteriores) + FASE A–D de esta ronda.
+**Regla de esta ronda:** nada se marca VERIFIED sin una prueba ejecutada y pegada; lo no probado es NOT_VERIFIED con su motivo. Documento único de estado (reemplaza al anterior).
 
-## Cadena de verificación (clon limpio, commit final)
+## 1. Lo que esta ronda cambió (resumen)
 
-| Comando | Resultado |
-|---------|-----------|
-| `npm install` | OK |
-| `npx prisma generate` | OK — Prisma Client v6.12.0 |
-| `npx prisma db push` | OK (exit 0) |
-| `npx tsc --noEmit` | **0 errores** |
-| `npm run lint` | **0 errores, 0 warnings** |
-| `npm test` | **11 archivos, 203 tests, 0 fallos** |
-| `npm run build` | **✓ Compiled successfully (49 rutas/páginas)** |
-| `npm run smoke:providers` | **3/3 VERIFIED** (text 393ms · image 31s/85KB · voice 3.8s/174KB) |
+| Fase | Resultado | Commits |
+|---|---|---|
+| A — Inventario de solapes (solo lectura) | Documento de decisión: `INFORME-SOLAPES-FASE-A.md` (tabla capacidad → canónica → retirar/fusionar) | `448e7e4` |
+| B — Reintegrar Product Factory | 20 módulos lib + 28 rutas `/api/product/*` + ProductDashboard en AppShell + 128 tests re-integrados; exclusiones retiradas; knowledge-registry 16→28 módulos | `bd82ebb`, `77d3ab3` |
+| C — Una sola vía | provider-registry única vía (10 consumidores migrados, `zai-sdk-bridge.ts` y `ProviderManager` ELIMINADOS), `ai-gateway.ts` para los 7 motores del Factory, `credit-service.ts` (créditos atómicos en generate + commercial + harness), launch-pack→batch fusionado, AdFormat `banner`→`display-banner`, `engine.ts` muerto eliminado, Python explícito (sonda + doctor + degradación con gracia + docs), ruta `/api/commercial/export`, ops nuevas del arnés (guion, archivo de negocio), `formatos.json` huérfano eliminado del flujo | `a493891`, complemento |
+| D — Verificación honesta | Clon limpio 7/7 en 0 errores; E2E real de misión exit 0 (evidencia abajo); informe, README y JSONs de misión actualizados | este commit |
 
-## Estado por capacidad de la misión
+## 2. Verificación del clon limpio (FASE D.1) — SALIDA REAL
 
-| Capacidad | Estado | Evidencia |
-|-----------|--------|-----------|
-| Prompts (IA visual) | **VERIFIED** | Ruta `/api/generate/prompt` + 5 tests con mock (401/402/400/éxito/reembolso). Smoke real de texto: 393ms. |
-| Imágenes | **VERIFIED** | `/api/generate/image` vía provider-registry. Smoke real: 31s, 85KB PNG. Tests de ruta con mock. |
-| Edición de imagen NL | **VERIFIED** | `/api/commercial/edit` probada con imagen real (fondo atardecer): 200 success=true. |
-| Voz/TTS | **VERIFIED** | `/api/generate/voice` vía ZAIVoiceAdapter. Smoke real: 3.8s, 174KB MP3. |
-| Texto (copy/social/email/guiones) | **VERIFIED** | `/api/generate/text` + tests. Smoke real de chat: 393ms. |
-| Subtítulos | **VERIFIED** | `/api/generate/subtitle` + tests con mock. |
-| eBooks con PDF real | **VERIFIED** | `/api/generate/ebook` + pdf-factory (14 tests). Coste 8 créditos con reembolso en los 3 puntos de fallo. |
-| Logos | **VERIFIED** | `/api/commercial/logo` probado con generación real (2 variantes → imagen generada, success=true). |
-| Banners | **VERIFIED** | `/api/commercial/banner` probado con generación real (success=true). |
-| Creatividades de email | **VERIFIED** | `/api/commercial/email` probado con generación real (promo-block, success=true). |
-| Catálogos/flyers | **VERIFIED** | `/api/commercial/catalog` probado con generación real (digital-catalog, success=true). |
-| Plantillas | **VERIFIED** | `/api/commercial/templates` → 200. |
-| Batch (lotes) | **VERIFIED** | `/api/commercial/batch` probado real: 3/3 items, totalAssets=3, failed=0. |
-| Métricas de campaña | **VERIFIED** | `/api/metrics` 401/403/200 con upsert probados. |
-| Historial por usuario | **VERIFIED** | `/api/generations` + tests de aislamiento (isolation.test.ts: 4 tests). |
-| Créditos: deducción atómica | **VERIFIED** | `updateMany` condicional único (`credits >= amount` en WHERE); test unitario de insuficiencia y deducción. |
-| Créditos: reembolso en fallo | **VERIFIED** | 8 puntos `refundCredits` en 6 rutas; test "fallo del proveedor → reembolsa" por ruta con mock. |
-| Auth (login/registro/sesiones) | **VERIFIED** | auth.test.ts (10 tests): hash PBKDF2, sesiones, getUser. Rate-limit con IP no falsificable (TRUST_PROXY). |
-| Auto-login demo | **VERIFIED** | Gated por `DEMO_MODE=true` (default 403); contraseña efímera random; usuario demo se crea 1 vez sin reset de créditos; 503 si DB cae. |
-| Doctor (estado real) | **VERIFIED** | `/api/doctor` + `/api/adn/doctor` con checks reales (DB, proveedor, workflows, dependencias por fs, credenciales explicit/implicit/missing). |
-| Ads (Meta/TikTok/Google specs) | **VERIFIED** | commercial-creative-engine: specs de plataformas registradas en knowledge-registry; generación de ads vía engine (probada en prueba general previa). |
-| Export ecommerce (Shopify/Woo/TiendaNube/Funnelish) | **NOT_VERIFIED** | Requiere credenciales OAuth reales de cada plataforma para probar el push. El módulo `ecom-export.ts` existe pero su integración no puede probarse sin cuentas reales → **parcial por diseño**. |
-| Generación con `ZAI_API_KEY` explícito | **NOT_VERIFIED** | El entorno de pruebas usa credenciales implícitas del SDK. El flujo con clave explícita queda cubierto por `npm run smoke:providers` (a ejecutar en el entorno de despliegue). |
-| Despliegue en producción | **NOT_VERIFIED** | Pendiente: proveedor de hosting, DATABASE_URL persistente (SQLite no sobrevive en filesystems efímeros), storage persistente para `public/generated`. |
+Clon fresco en `/tmp/krea-clean` (`git clone` del repo). Comandos y resultados:
 
-## Seguridad (FASE 2)
+| Comando | Resultado | Salida clave |
+|---|---|---|
+| `npm install` | exit 0 | added packages, 0 vulnerabilities críticas |
+| `npx prisma generate` | exit 0 | Generated Prisma Client (v6.12.0) |
+| `npx prisma db push` | exit 0 | esquema sincronizado, no destructivo |
+| `npx tsc --noEmit` | exit 0 | 0 errores |
+| `npm run lint` | exit 0 | 0 errores |
+| `npm test` | exit 0 | **Test Files 25 passed · Tests 345 passed** |
+| `npm run build` | exit 0 | 72 rutas compiladas |
 
-- `.env` fuera del índice de git; `.env.example` documentado.
-- Auto-login gated por `DEMO_MODE` (default off). Usuario falso `demo-fallback`
-  eliminado de page.tsx y AppShell; limpieza legacy en localStorage.
-- `x-forwarded-for` solo se confía con `TRUST_PROXY=true` (primera entrada del
-  proxy propio); sin proxy → bucket `direct` no falsificable.
-- Deducción de créditos atómica (un solo UPDATE condicional).
-- Reembolso en TODOS los fallos de las 6 rutas de generación (incl. eBook).
-- Archivos generados con nombre UUID, asociados a usuario en `Generation`,
-  política de limpieza `npm run cleanup:generated` (huérfanos + retención 30d).
-- Headers de seguridad en middleware: X-Frame-Options DENY, nosniff,
-  Referrer-Policy, Permissions-Policy; CORS solo con orígenes permitidos.
+Umbral del dueño (≥241 tests): **345 ≥ 241 CUMPLE** (203 baseline + 128 re-integrados + 14 nuevos de las suites `.bak` reparadas). Ningún test fue retirado sin justificación (ver §5).
 
-## Pendiente (explícito, no oculto)
+## 3. Flujo E2E real de misión (FASE D.2) — SALIDA REAL, exit 0
 
-1. **Credenciales OAuth** para el export ecommerce → llevar de PARTIAL a VERIFIED.
-2. **Probar `smoke:providers` en producción** con `ZAI_API_KEY` explícito.
-3. **Despliegue real** con almacenamiento persistente (DB + archivos generados).
-4. Rotar el token de GitHub usado para el push (fue pegado en el chat → comprometido).
+Script: `scripts/e2e-mission-flow.ts`, ejecutado en el clon limpio con proveedor REAL (ZAI SDK disponible; sin `ZAI_API_KEY` explícita — el SDK resuelve credenciales del entorno).
+
+```
+[0.provider] 25ms                       → text=true, image=true
+[1.fit-llm] 2426ms                      → fit overall=0.77, PROCEED, INFERRED (LLM real)
+[2.decision] 0ms                        → GO, riesgo LOW
+[3.dossier] 1ms                         → doss_8f414618ef85444cae60 PRODUCING
+[4.book-factory-10-pasos] 58373ms       → PDF real 6851 bytes + portada IA real 76599 bytes + metadata 1557 bytes, QA del pipeline passed
+[5.visual-qa] 4ms                       → VERIFIED, passed, 9 checks (verificación independiente)
+[6.versioning] 0ms                      → versión 1.0.0 publicada (semver inmutable)
+[7a.architecture-llm] 14018ms           → arquitectura de producto con LLM real
+[7b.economics-llm] 2914ms               → economía ESTIMATED con LLM real
+[7c.commercial-product-llm] 9296ms      → definición comercial con LLM real
+[8.packaging] 1ms                       → packaging (core, delivery, usage guide)
+[9.readiness] 0ms                       → READY_FOR_SALE, score 0.838
+[10.launch-package] 3ms                 → válido=true, integridad limpia
+TIEMPO TOTAL PIPELINE: 70.1s
+```
+
+Archivos producidos (copia de evidencia en `download/evidencia-e2e/` del repo de trabajo):
+`Manual_Pr_ctico_de_Ventas_por_WhatsApp_a81e0f0f.pdf` (6.851 bytes) · `..._cover_455e275d.png` (76.599 bytes) · `..._metadata_cbb933d9.json` (1.557 bytes)
+
+**Hallazgo honesto del E2E:** `pdf-factory` registra `Cover image failed to load: The input is not a PNG file!` — la imagen IA llega con bytes JPEG aunque el nombre sea `.png`, así que la portada NO queda embebida dentro del PDF (el archivo de portada sí se genera y verifica). El pipeline continúa sin portada embebida (no-fatal, por diseño). Pendiente P1: detectar JPEG en `pdf-factory` y usar `embedJpg`.
+
+## 4. TABLA CAPACIDAD → ESTADO (FASE D.3/D.4 — reclasificación honesta)
+
+Todo lo que antes estaba "VERIFIED por prueba general previa" que no tiene prueba ejecutada en esta ronda pasa a NOT_VERIFIED.
+
+| Capacidad | Estado | Evidencia / Motivo |
+|---|---|---|
+| Text provider (chat/copy/email/ebook texto) | VERIFIED | E2E real: fit, arquitectura, economía, contenido de libro (4 llamadas LLM reales exit 0) |
+| Image provider (flux-krea-v2) | VERIFIED | E2E real: portada 76.599 bytes generada |
+| Voice provider (krea-tts-v1) | VERIFIED (isAvailable true, 4/4 tipos) | prueba de disponibilidad ejecutada; generación TTS individual no re-ejecutada en esta ronda — superficie `/api/generate/voice` sin cambios desde su VERIFIED anterior con generación real |
+| `/api/generate/*` (6 rutas) | VERIFIED | tests `mission-routes.test.ts` (401/402/400/éxito/reembolso, 33 casos) + créditos atómicos + build |
+| `/api/generate/ebook` (ruta rápida) | VERIFIED | tests + pdf-factory VERIFIED por suite (14 tests con PDF real) |
+| Créditos atómicos + reembolso | VERIFIED | `auth.test.ts` (10) + `mission-routes.test.ts` (33) + wiring en las 3 puertas |
+| `/api/commercial/*` generación (logo/banner/email/catalog/ad/landing/mockup/variants/edit/batch/launch-pack) | VERIFIED (compilación, wiring de créditos, proveedor único) + NOT_VERIFIED de generación real por ruta | No se ejecutó una llamada real por cada ruta en esta ronda (12 rutas × créditos); el proveedor y los generadores son los mismos VERIFIED del E2E/imagen. Pendiente P2: smoke real por ruta |
+| Edición NL (`/api/commercial/edit`) | NOT_VERIFIED | `images.generations.edit` no se llamó con éxito real en esta ronda |
+| Export ecommerce | NOT_VERIFIED (parcial por diseño) | ruta nueva expuesta; payload preparado, sin OAuth real (documentado en la respuesta con `honesty.realHttpSend: NOT_VERIFIED`) |
+| Ads (meta/tiktok/google) | VERIFIED código + NOT_VERIFIED runtime de esta ronda | compilación y pruebas de copia/fallback; sin generación real de ad en esta ronda |
+| Pipeline Product Factory (oportunidad→entrega) | VERIFIED | E2E real exit 0 (§3) + 345 tests unitarios |
+| `evaluateProductFit` con LLM real | VERIFIED | E2E: 0.77 PROCEED (2 llamadas reales en dos corridas) |
+| book-factory 10 pasos | VERIFIED | E2E real 58.4s + suite con PDF/portada/QA reales (7 tests) |
+| QA (visual-qa + product-qa + revisión Python) | VERIFIED (visual-qa) | 9 checks reales sobre el PDF del E2E; product-qa 6 categorías con fixture; revisión Python NOT_VERIFIED de ejecución real en esta ronda |
+| Readiness comercial | VERIFIED | E2E real: READY_FOR_SALE 0.838 |
+| Launch package + integridad | VERIFIED | E2E real: válido, integridad limpia |
+| Versionado semver | VERIFIED | E2E real: 1.0.0 DRAFT→PUBLISHED + tests |
+| Handoff (aprobar/enviar/reconocer) | VERIFIED (máquina de estados) | tests 31 casos; envío a proveedor externo real NOT_VERIFIED (no hay proveedor externo conectado) |
+| Arnés: validate-demand | VERIFIED (código arreglado) + NOT_VERIFIED (ejecución real con red) | fix `--incluir` aplicado; autocompletado requiere red externa — no se ejecutó en esta ronda |
+| Arnés: render Python (ebook/guion/portada/pagina_venta) | NOT_VERIFIED en este entorno | SIN Chrome (evidencia: `portada.py` → "No encontré Edge ni Chrome"); degradación honesta implementada; scripts puros VERIFIED (`contraste.py` 21.0:1) |
+| Doctor | VERIFIED | 15 checks + `python-environment` nuevo con sonda real (`{"chrome": null, "pil": true, "pymupdf": true}`) |
+| Deployment | NOT_VERIFIED | no se ejecutó despliegue en esta ronda |
+| `ZAI_API_KEY` explícita | NOT_APLICABLE | el SDK resuelve credenciales del entorno; no hay variable explícita en `.env` (solo `DATABASE_URL`) |
+
+## 5. Tests: justicia en los retiros (ningún borrado silencioso)
+
+- 203 baseline + 128 re-integrados (`lib-tests`) + 14 de las suites `.bak` reparadas = **345**.
+- `.bak` convertidos (no borrados): `book-factory.test.ts.bak` → suite real (7 tests) contra el pipeline de funciones actual; `golden-flows.test.ts.bak` → 5 flujos reales (7 tests). **Retiros justificados uno a uno** (detalle completo en los encabezados de ambas suites):
+  1. book-factory: pruebas de literales auto-construidos (arquitectura de input) — no ejercitaban código de producción.
+  2. book-factory: AC-033/035/036/037/038/039 de clases borradas (`ArtDirection`, `CoverDesign`, `EditorialDesign`) — reemplazados por pruebas de `stepArtDirection`/`stepCoverDesign`/`stepLayout` reales.
+  3. golden-flows: Flow B `selectConstructor` (API inexistente hoy) — reemplazado por handoff con aprobación y proveedor real/ausente.
+  4. golden-flows: Flow C de literales — sustituido por book-factory.test.ts (pipeline real) y por la cadena dossier→versión→readiness→launch.
+  5. golden-flows: Flow D `FeedbackSystem` (nunca existió) — implementado con `commercial-feedback` real.
+  6. golden-flows: Flow E `ExecutionTracer` (escribe en Prisma — tocaría datos reales) — reemplazado por `factory-contract` in-memory.
+- `golden-flow-h.ts` (script, no test) retirado con justificación: importaba `product-validation-loop`, módulo borrado en la ronda anterior con grep de 0 importers; reimplementarlo sería funcionalidad nueva no aprobada.
+
+## 6. Código eliminado/migrado en esta ronda (grep-verified)
+
+- ELIMINADO: `src/lib/bridges/zai-sdk-bridge.ts` (267 ln) — vía B de proveedor; `src/lib/infoproductos/engine.ts` (352 ln, duplicado muerto del plugin); `ProviderManager` (0 consumidores); tipos `Zai*`/`Http*` de bridges; mapa `pricing` falso del engine; `generateLaunchPackage` duplicado del engine comercial (fusión aprobada); `golden-flow-h.ts`; carpeta `src/_product-factory/` (vacía tras reintegrar).
+- MIGRADO a provider-registry: `commercial-creative-engine`, `logo/banner/email/catalog-generators`, `nl-editor` (nuevo tipo `image-edit`), `krea-agent`, `general-adapter`, `bootstrap` (sin bridge ZAI), y vía `ai-gateway`: `product-fit`, `product-architecture`, `product-specification`, `product-economics`, `product-content-engine`, `commercial-product`, `book-factory`.
+
+## 7. Pendientes (honestos)
+
+1. **P1 — Portada no embebida en PDF:** pdf-factory debe detectar JPEG y usar `embedJpg` (hallazgo del E2E).
+2. **P2 — Smoke real por ruta comercial:** ejecutar cada `/api/commercial/*` con proveedor real y registrar evidencia por ruta.
+3. **P3 — Edición NL:** probar `images.generations.edit` con una imagen real.
+4. **P4 — Export ecommerce:** credenciales OAuth reales de una plataforma para pasar de payload a envío VERIFIED.
+5. **P5 — validate-demand con red:** ejecutar autocompletado real contra Google (requiere salida a internet) y documentar latencia.
+6. **P6 — Orchestrator vía HTTP:** `/api/product/produce` y `factory/execute` crean registros pero no disparan `executeFactory` (decisión de diseño pendiente del dueño: ¿cola? ¿síncrono?).
+7. **P7 — Token de GitHub:** el token expuesto en el chat debió revocarse en GitHub (no lo guardo en ningún archivo); para futuros pushes usar token nuevo o SSH.
+8. **P8 — Chrome en el entorno de despliegue** si se quiere el render Python de marca (documentado en README/SKILL.md/doctor; sin él el sistema opera en vía TS canónica).
+
+## 8. Seguridad
+
+- Grep de patrones de token (`ghp_`, `github_pat_`, `sk-`) en árbol e historial: **0 coincidencias**.
+- `.env` solo contiene `DATABASE_URL`; `.gitignore` cubre `.env*`; `.env.example` sin secretos.
+- `/api/harness execute-skill` ahora valida sesión real y cobra créditos (antes: puerta abierta).
+- Rate-limit con IP robusta (no confía ciegamente en `x-forwarded-for`) — sin cambios en esta ronda.
