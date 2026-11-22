@@ -5,11 +5,12 @@ import PromptChat from "./PromptChat";
 import SettingsPage from "./SettingsPage";
 import SupportPage from "./SupportPage";
 import MetricsTracker from "./MetricsTracker";
+import ProductDashboard from "./ProductDashboard";
 import {
   Image as ImageIcon, FileText, Mic, BookOpen, Subtitles, LayoutDashboard,
   Library as LibraryIcon, LogOut, Menu, X, Coins, Sparkles, ChevronRight, Loader2,
   Copy, MessageSquare, Video, Wand2, Download, Trash2, Clock,
-  RefreshCw, Volume2, Type, Settings, HelpCircle, Headphones, BarChart3,
+  RefreshCw, Volume2, Type, Settings, HelpCircle, Headphones, BarChart3, Package,
 } from "lucide-react";
 
 /* ════════════ Types ════════════ */
@@ -42,6 +43,9 @@ const NAV_SECTIONS: { title: string | null; items: NavItem[] }[] = [
   ]},
   { title: "INTELIGENCIA", items: [
     { id: "metrics", label: "360 Metrics", icon: BarChart3, badge: "NUEVO" },
+  ]},
+  { title: "PRODUCTO", items: [
+    { id: "factory", label: "Product Factory", icon: Package },
   ]},
   { title: "GESTIÓN", items: [
     { id: "library", label: "Biblioteca de Proyectos", icon: LibraryIcon },
@@ -688,6 +692,7 @@ export default function AppPage({ onLogout, user: initialUser }: AppShellProps) 
       case "ebook": return <EbookGenerator user={user} onUpdateCredits={onUpdateCredits} />;
       case "subtitle": return <SubtitleGenerator user={user} onUpdateCredits={onUpdateCredits} />;
       case "metrics": return <MetricsTracker userId={user.id} />;
+      case "factory": return <ProductDashboard />;
       case "library": return <Library user={user} />;
       case "settings": return <SettingsPage user={user} />;
       case "support": return <SupportPage />;

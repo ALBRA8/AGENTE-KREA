@@ -129,11 +129,10 @@ export const knowledgeRegistry = new KnowledgeRegistry();
  * Register all built-in KREA knowledge modules.
  * Called during harness initialization.
  *
- * NOTA: los módulos del Product Factory (product-fit, product-decision,
- * product-architecture, book-factory, orchestration, packaging, handoff,
- * versioning, cover/editorial/art-direction, …) se archivaron en
- * src/_product-factory/ al cerrar el proyecto — su misión (producción
- * creativa) no los usa. Ver src/_product-factory/README.md.
+ * NOTA: el Product Factory fue re-integrado (FASE B de la ronda de coherencia):
+ * sus módulos viven en src/lib/ y sus rutas en src/app/api/product/. Los
+ * módulos de producto vuelven al registro como etapa del pipeline unificado
+ * oportunidad → decisión → especificación → producción → QA → comercial → entrega.
  */
 export function registerBuiltinKnowledge(): void {
   const modules: IKnowledgeModule[] = [
@@ -147,8 +146,22 @@ export function registerBuiltinKnowledge(): void {
     { moduleId: "landing-sections", name: "Landing Section Templates", version: "1.0", category: "commercial-readiness" as KnowledgeCategory, capabilities: ["hero", "offer", "before-after", "benefits", "comparison", "authority", "testimonials", "how-to-use", "logistics", "faq"], sourceFiles: ["commercial-creative-engine.ts"], healthCheck: async () => ({ status: "AVAILABLE" }) },
     { moduleId: "mockup-generator", name: "Mockup Generator", version: "1.0", category: "commercial-readiness" as KnowledgeCategory, capabilities: ["phone", "laptop", "billboard", "box", "bottle", "tshirt", "flat-lay"], sourceFiles: ["commercial-creative-engine.ts"], healthCheck: async () => ({ status: "AVAILABLE" }) },
 
+    // Product Factory (pipeline unificado: oportunidad → decisión → especificación → producción → QA → comercial → entrega)
+    { moduleId: "product-dossier", name: "Product Dossier", version: "1.0", category: "product-brain" as KnowledgeCategory, capabilities: ["dossier-lifecycle", "opportunity-attachment", "timeline"], sourceFiles: ["product-dossier.ts"], healthCheck: async () => ({ status: "AVAILABLE" }) },
+    { moduleId: "product-fit", name: "Product Fit", version: "1.0", category: "product-brain" as KnowledgeCategory, capabilities: ["fit-scoring", "5-dimensions", "recommendation"], sourceFiles: ["product-fit.ts"], healthCheck: async () => ({ status: "AVAILABLE" }) },
+    { moduleId: "product-decision", name: "Product Decision", version: "1.0", category: "product-brain" as KnowledgeCategory, capabilities: ["go-no-go", "thresholds", "risk-assessment"], sourceFiles: ["product-decision.ts"], healthCheck: async () => ({ status: "AVAILABLE" }) },
+    { moduleId: "product-architecture", name: "Product Architecture", version: "1.0", category: "product-brain" as KnowledgeCategory, capabilities: ["per-domain-architecture", "book-architecture", "software-architecture"], sourceFiles: ["product-architecture.ts"], healthCheck: async () => ({ status: "AVAILABLE" }) },
+    { moduleId: "product-specification", name: "Product Specification", version: "1.0", category: "product-brain" as KnowledgeCategory, capabilities: ["acceptance-criteria", "chapter-specs", "module-specs"], sourceFiles: ["product-specification.ts"], healthCheck: async () => ({ status: "AVAILABLE" }) },
+    { moduleId: "book-factory", name: "Book Factory", version: "1.0", category: "product-factory" as KnowledgeCategory, capabilities: ["10-step-pipeline", "content-generation", "cover-generation", "pdf-render", "qa-repair-loop"], sourceFiles: ["book-factory.ts", "pdf-factory.ts", "visual-qa.ts"], healthCheck: async () => ({ status: "AVAILABLE" }) },
+    { moduleId: "factory-orchestrator", name: "Factory Orchestrator", version: "1.0", category: "product-factory" as KnowledgeCategory, capabilities: ["book-factory", "document-factory", "kit-factory", "handoff-only", "execution-contract"], sourceFiles: ["product-factory-orchestrator.ts", "factory-contract.ts"], healthCheck: async () => ({ status: "AVAILABLE" }) },
+    { moduleId: "product-qa", name: "Product QA", version: "1.0", category: "qa-engine" as KnowledgeCategory, capabilities: ["6-category-qa", "artifact-qa", "content-qa", "commercial-qa"], sourceFiles: ["product-qa.ts"], healthCheck: async () => ({ status: "AVAILABLE" }) },
+    { moduleId: "commercial-readiness", name: "Commercial Readiness", version: "1.0", category: "commercial-readiness" as KnowledgeCategory, capabilities: ["8-dimension-scoring", "readiness-state-machine", "requirements"], sourceFiles: ["commercial-readiness.ts"], healthCheck: async () => ({ status: "AVAILABLE" }) },
+    { moduleId: "launch-package", name: "Launch Package", version: "1.0", category: "commercial-readiness" as KnowledgeCategory, capabilities: ["launch-assembly", "integrity-gate", "offer-info"], sourceFiles: ["launch-package.ts", "offer-architecture.ts"], healthCheck: async () => ({ status: "AVAILABLE" }) },
+    { moduleId: "product-handoff", name: "Product Handoff", version: "1.0", category: "product-lifecycle" as KnowledgeCategory, capabilities: ["provider-neutral-handoff", "approval-gate", "honest-not-verified"], sourceFiles: ["product-handoff.ts"], healthCheck: async () => ({ status: "AVAILABLE" }) },
+    { moduleId: "product-versioning", name: "Product Versioning", version: "1.0", category: "product-lifecycle" as KnowledgeCategory, capabilities: ["immutable-semver", "version-history", "supersede"], sourceFiles: ["product-versioning.ts"], healthCheck: async () => ({ status: "AVAILABLE" }) },
+
     // Infoproductos
-    { moduleId: "infoproductos-pipeline", name: "Infoproductos Pipeline", version: "2.1", category: "infoproductos" as KnowledgeCategory, capabilities: ["7-step-pipeline", "ebook", "minicurso", "webinar", "podcast"], sourceFiles: ["infoproductos/engine.ts", "infoproductos/scripts/*.py"], healthCheck: async () => ({ status: "AVAILABLE" }) },
+    { moduleId: "infoproductos-pipeline", name: "Infoproductos Pipeline", version: "2.1", category: "infoproductos" as KnowledgeCategory, capabilities: ["7-step-pipeline", "ebook", "minicurso", "webinar", "podcast"], sourceFiles: ["harness/infoproductos-plugin.ts", "infoproductos/scripts/*.py"], healthCheck: async () => ({ status: "AVAILABLE" }) },
     { moduleId: "demand-validation", name: "Demand Validation", version: "2.1", category: "infoproductos" as KnowledgeCategory, capabilities: ["validate-demand", "autocomplete", "openseo"], sourceFiles: ["infoproductos/scripts/validar_demanda.py", "infoproductos/scripts/autocompletado.py"], healthCheck: async () => ({ status: "AVAILABLE" }) },
     { moduleId: "premium-style", name: "Premium Style", version: "2.1", category: "infoproductos" as KnowledgeCategory, capabilities: ["apply-style", "review-style"], sourceFiles: ["infoproductos/scripts/estilo_premium.py", "infoproductos/scripts/revisar_estilo.py"], healthCheck: async () => ({ status: "AVAILABLE" }) },
     { moduleId: "sales-page", name: "Sales Page Generator", version: "2.1", category: "infoproductos" as KnowledgeCategory, capabilities: ["generate-sales-page", "copy-writing"], sourceFiles: ["infoproductos/scripts/pagina_venta.py"], healthCheck: async () => ({ status: "AVAILABLE" }) },

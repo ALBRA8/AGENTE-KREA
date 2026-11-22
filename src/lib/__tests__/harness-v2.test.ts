@@ -280,9 +280,9 @@ describe("KreaHarness v2.1", () => {
     await harness.mount(adapter);
 
     const status = harness.status();
-    // 16 módulos tras archivar el Product Factory (ver src/_product-factory/README.md)
-    expect(status.knowledgeModules.length).toBe(16);
-    expect(status.knowledgeStats.total).toBe(16);
+    // 28 módulos tras re-integrar el Product Factory (12 módulos de producto + 16 existentes)
+    expect(status.knowledgeModules.length).toBe(28);
+    expect(status.knowledgeStats.total).toBe(28);
   });
 
   it("reports bridge and skill status", async () => {
