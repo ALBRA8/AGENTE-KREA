@@ -67,3 +67,7 @@ download/
 
 # Agent context files
 agent-ctx/
+
+# Runtime-generated assets (served at /generated/*, produced by the APIs)
+public/generated/*
+!public/generated/.gitkeep

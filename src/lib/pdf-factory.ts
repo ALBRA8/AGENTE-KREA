@@ -14,10 +14,12 @@ import {
   StandardFonts,
   PDFPage,
   PDFFont,
+  PDFImage,
 } from "pdf-lib";
 import fs from "fs/promises";
 import path from "path";
 import { randomUUID } from "crypto";
+import { detectImageFormat } from "./image-format";
 
 // ─── Evidence Tag ─────────────────────────────────────────────────────────────
 
@@ -185,7 +187,7 @@ async function ensureDir(dir: string): Promise<void> {
   }
 }
 
-/** Detect image type from file extension */
+/** Detect image type from file extension (fallback when bytes are unknown) */
 function imageTypeFromPath(
   filePath: string
 ): "jpg" | "png" | null {
@@ -193,6 +195,40 @@ function imageTypeFromPath(
   if (ext === ".jpg" || ext === ".jpeg") return "jpg";
   if (ext === ".png") return "png";
   return null;
+}
+
+/** Add a full-bleed cover page, scaling the image to fit while preserving aspect ratio. */
+function addFittedCoverPage(
+  pdfDoc: PDFDocument,
+  coverImage: PDFImage,
+  pageWidth: number,
+  pageHeight: number
+): void {
+  const coverPage = pdfDoc.addPage([pageWidth, pageHeight]);
+  const imgAspect = coverImage.width / coverImage.height;
+  const pageAspect = pageWidth / pageHeight;
+  let drawWidth: number, drawHeight: number, drawX: number, drawY: number;
+
+  if (imgAspect > pageAspect) {
+    // Image is wider relative to page
+    drawWidth = pageWidth;
+    drawHeight = pageWidth / imgAspect;
+    drawX = 0;
+    drawY = (pageHeight - drawHeight) / 2;
+  } else {
+    // Image is taller relative to page
+    drawHeight = pageHeight;
+    drawWidth = pageHeight * imgAspect;
+    drawX = (pageWidth - drawWidth) / 2;
+    drawY = 0;
+  }
+
+  coverPage.drawImage(coverImage, {
+    x: drawX,
+    y: drawY,
+    width: drawWidth,
+    height: drawHeight,
+  });
 }
 
 // ─── Default config builder ───────────────────────────────────────────────────
@@ -267,62 +303,19 @@ export async function generatePdf(
   if (coverImagePath) {
     try {
       const coverBytes = await fs.readFile(coverImagePath);
-      const imgType = imageTypeFromPath(coverImagePath);
+      // Detect the format from the REAL bytes first: AI providers may return
+      // JPEG bytes saved with a .png name (see INFORME-ESTADO.md P1). Only
+      // fall back to the file extension when the bytes are not recognizable.
+      const imgType =
+        detectImageFormat(coverBytes) ?? imageTypeFromPath(coverImagePath);
 
       if (imgType === "jpg") {
         const coverImage = await pdfDoc.embedJpg(coverBytes);
-        const coverPage = pdfDoc.addPage([pageWidth, pageHeight]);
-        // Scale image to fit page while maintaining aspect ratio
-        const imgAspect = coverImage.width / coverImage.height;
-        const pageAspect = pageWidth / pageHeight;
-        let drawWidth: number, drawHeight: number, drawX: number, drawY: number;
-
-        if (imgAspect > pageAspect) {
-          // Image is wider relative to page
-          drawWidth = pageWidth;
-          drawHeight = pageWidth / imgAspect;
-          drawX = 0;
-          drawY = (pageHeight - drawHeight) / 2;
-        } else {
-          // Image is taller relative to page
-          drawHeight = pageHeight;
-          drawWidth = pageHeight * imgAspect;
-          drawX = (pageWidth - drawWidth) / 2;
-          drawY = 0;
-        }
-
-        coverPage.drawImage(coverImage, {
-          x: drawX,
-          y: drawY,
-          width: drawWidth,
-          height: drawHeight,
-        });
+        addFittedCoverPage(pdfDoc, coverImage, pageWidth, pageHeight);
         coverPageAdded = true;
       } else if (imgType === "png") {
         const coverImage = await pdfDoc.embedPng(coverBytes);
-        const coverPage = pdfDoc.addPage([pageWidth, pageHeight]);
-        const imgAspect = coverImage.width / coverImage.height;
-        const pageAspect = pageWidth / pageHeight;
-        let drawWidth: number, drawHeight: number, drawX: number, drawY: number;
-
-        if (imgAspect > pageAspect) {
-          drawWidth = pageWidth;
-          drawHeight = pageWidth / imgAspect;
-          drawX = 0;
-          drawY = (pageHeight - drawHeight) / 2;
-        } else {
-          drawHeight = pageHeight;
-          drawWidth = pageHeight * imgAspect;
-          drawX = (pageWidth - drawWidth) / 2;
-          drawY = 0;
-        }
-
-        coverPage.drawImage(coverImage, {
-          x: drawX,
-          y: drawY,
-          width: drawWidth,
-          height: drawHeight,
-        });
+        addFittedCoverPage(pdfDoc, coverImage, pageWidth, pageHeight);
         coverPageAdded = true;
       }
       // If image type unrecognized, skip cover — don't crash the pipeline

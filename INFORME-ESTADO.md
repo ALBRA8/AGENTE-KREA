@@ -11,6 +11,7 @@
 | B — Reintegrar Product Factory | 20 módulos lib + 28 rutas `/api/product/*` + ProductDashboard en AppShell + 128 tests re-integrados; exclusiones retiradas; knowledge-registry 16→28 módulos | `bd82ebb`, `77d3ab3` |
 | C — Una sola vía | provider-registry única vía (10 consumidores migrados, `zai-sdk-bridge.ts` y `ProviderManager` ELIMINADOS), `ai-gateway.ts` para los 7 motores del Factory, `credit-service.ts` (créditos atómicos en generate + commercial + harness), launch-pack→batch fusionado, AdFormat `banner`→`display-banner`, `engine.ts` muerto eliminado, Python explícito (sonda + doctor + degradación con gracia + docs), ruta `/api/commercial/export`, ops nuevas del arnés (guion, archivo de negocio), `formatos.json` huérfano eliminado del flujo | `a493891`, complemento |
 | D — Verificación honesta | Clon limpio 7/7 en 0 errores; E2E real de misión exit 0 (evidencia abajo); informe, README y JSONs de misión actualizados | este commit |
+| D.5 — P1 resuelto (portada) | Detección de formato por bytes reales (`image-format.ts`), productor nombra por bytes reales, 7 tests nuevos de regresión; E2E re-ejecutado con portada embebida verificada | ver §3.1 |
 
 ## 2. Verificación del clon limpio (FASE D.1) — SALIDA REAL
 
@@ -26,7 +27,7 @@ Clon fresco en `/tmp/krea-clean` (`git clone` del repo). Comandos y resultados:
 | `npm test` | exit 0 | **Test Files 25 passed · Tests 345 passed** |
 | `npm run build` | exit 0 | 72 rutas compiladas |
 
-Umbral del dueño (≥241 tests): **345 ≥ 241 CUMPLE** (203 baseline + 128 re-integrados + 14 nuevos de las suites `.bak` reparadas). Ningún test fue retirado sin justificación (ver §5).
+Umbral del dueño (≥241 tests): **345 ≥ 241 CUMPLE** (203 baseline + 128 re-integrados + 14 nuevos de las suites `.bak` reparadas). Tras resolver el P1 la suite queda en **352** (7 nuevos de regresión de portada, §3.1) — verificado en el repo de trabajo: `tsc 0 errores · eslint 0 errores · 352/352 · build 0`. Ningún test fue retirado sin justificación (ver §5).
 
 ## 3. Flujo E2E real de misión (FASE D.2) — SALIDA REAL, exit 0
 
@@ -49,10 +50,32 @@ Script: `scripts/e2e-mission-flow.ts`, ejecutado en el clon limpio con proveedor
 TIEMPO TOTAL PIPELINE: 70.1s
 ```
 
-Archivos producidos (copia de evidencia en `download/evidencia-e2e/` del repo de trabajo):
-`Manual_Pr_ctico_de_Ventas_por_WhatsApp_a81e0f0f.pdf` (6.851 bytes) · `..._cover_455e275d.png` (76.599 bytes) · `..._metadata_cbb933d9.json` (1.557 bytes)
+Archivos de la primera corrida: `..._a81e0f0f.pdf` (6.851 bytes, portada perdida) · `..._cover_455e275d.png` (76.599 bytes, JPEG disfrazado de PNG) · `..._metadata_cbb933d9.json`. La carpeta `download/evidencia-e2e/` del repo de trabajo ahora conserva la corrida de §3.1 (con portada embebida).
 
-**Hallazgo honesto del E2E:** `pdf-factory` registra `Cover image failed to load: The input is not a PNG file!` — la imagen IA llega con bytes JPEG aunque el nombre sea `.png`, así que la portada NO queda embebida dentro del PDF (el archivo de portada sí se genera y verifica). El pipeline continúa sin portada embebida (no-fatal, por diseño). Pendiente P1: detectar JPEG en `pdf-factory` y usar `embedJpg`.
+**Hallazgo honesto del E2E (RESUELTO, ver §3.1):** en la primera corrida `pdf-factory` registraba `Cover image failed to load: The input is not a PNG file!` — la imagen IA llega con bytes JPEG aunque el nombre sea `.png`, así que la portada NO quedaba embebida dentro del PDF (el pipeline continúa sin portada embebida, no-fatal por diseño).
+
+## 3.1 Resolución del P1 — portada embebida, evidencia real
+
+**Causa raíz (dos capas):** el productor (`book-factory`) guardaba siempre con extensión `.png` aunque el proveedor devolviera JPEG, y el consumidor (`pdf-factory`) elegía `embedPng`/`embedJpg` por la **extensión del archivo** en lugar de por los **bytes reales**.
+
+**Fix:**
+- `src/lib/image-format.ts` (nuevo): `detectImageFormat` por magic bytes (`FF D8 FF` → JPEG, `89 50 4E 47` → PNG) + `imageExtensionFor`.
+- `pdf-factory`: detecta el formato por bytes primero; la extensión es solo fallback. Código de portada deduplicado (`addFittedCoverPage`).
+- `book-factory`: nombra la portada según los bytes reales (`imageExtensionFor`).
+- Suite nueva `pdf-factory-cover.test.ts` (7 tests) con fixtures JPEG/PNG reales (generados con PIL, versionados).
+
+**E2E re-ejecutado con proveedor real (exit 0, 63s):**
+
+```
+[4.book-factory-10-pasos] 55016ms
+  PDF: ..._6e861410.pdf 186823 bytes
+  Portada: ..._cover_abdf57f8.jpg 179778 bytes   ← extensión ahora refleja los bytes reales (JPEG)
+```
+
+- El PDF creció de **6.851 bytes (portada perdida) a 186.823 bytes (portada embebida)**.
+- Verificación independiente con pypdf sobre el PDF de la corrida: página 1 contiene XObject `/Image` **1024×1024 con filtro `/DCTDecode`** (JPEG incrustado en el PDF).
+- Sin warning `Cover image failed to load` en la corrida completa.
+- QA del pipeline passed · visual-qa 9 checks passed · READY_FOR_SALE 0.838 · launch-package válido.
 
 ## 4. TABLA CAPACIDAD → ESTADO (FASE D.3/D.4 — reclasificación honesta)
 
@@ -86,7 +109,7 @@ Todo lo que antes estaba "VERIFIED por prueba general previa" que no tiene prueb
 
 ## 5. Tests: justicia en los retiros (ningún borrado silencioso)
 
-- 203 baseline + 128 re-integrados (`lib-tests`) + 14 de las suites `.bak` reparadas = **345**.
+- 203 baseline + 128 re-integrados (`lib-tests`) + 14 de las suites `.bak` reparadas + 7 de regresión de portada (`pdf-factory-cover.test.ts`, P1) = **352**.
 - `.bak` convertidos (no borrados): `book-factory.test.ts.bak` → suite real (7 tests) contra el pipeline de funciones actual; `golden-flows.test.ts.bak` → 5 flujos reales (7 tests). **Retiros justificados uno a uno** (detalle completo en los encabezados de ambas suites):
   1. book-factory: pruebas de literales auto-construidos (arquitectura de input) — no ejercitaban código de producción.
   2. book-factory: AC-033/035/036/037/038/039 de clases borradas (`ArtDirection`, `CoverDesign`, `EditorialDesign`) — reemplazados por pruebas de `stepArtDirection`/`stepCoverDesign`/`stepLayout` reales.
@@ -103,7 +126,7 @@ Todo lo que antes estaba "VERIFIED por prueba general previa" que no tiene prueb
 
 ## 7. Pendientes (honestos)
 
-1. **P1 — Portada no embebida en PDF:** pdf-factory debe detectar JPEG y usar `embedJpg` (hallazgo del E2E).
+1. ~~**P1 — Portada no embebida en PDF**~~ → **RESUELTO** (detección por magic bytes + nomenclatura por bytes reales; evidencia en §3.1; 7 tests de regresión).
 2. **P2 — Smoke real por ruta comercial:** ejecutar cada `/api/commercial/*` con proveedor real y registrar evidencia por ruta.
 3. **P3 — Edición NL:** probar `images.generations.edit` con una imagen real.
 4. **P4 — Export ecommerce:** credenciales OAuth reales de una plataforma para pasar de payload a envío VERIFIED.

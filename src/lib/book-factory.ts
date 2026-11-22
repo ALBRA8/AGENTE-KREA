@@ -22,6 +22,7 @@ import { getAiGateway } from "./ai-gateway";
 import fs from "fs/promises";
 import path from "path";
 import { randomUUID } from "crypto";
+import { imageExtensionFor } from "./image-format";
 import {
   generatePdf,
   inspectPdf,
@@ -495,11 +496,14 @@ async function stepCoverDesign(
     // Save cover image to disk
     const outputDir = DEFAULT_OUTPUT_DIR;
     await fs.mkdir(outputDir, { recursive: true });
-    const coverFileName = `${project.title.replace(/[^a-zA-Z0-9]+/g, "_")}_cover_${randomUUID().slice(0, 8)}.png`;
+    // Decode base64 and write — the extension must match the REAL bytes:
+    // the AI provider may return JPEG even though we asked for an image,
+    // and naming those bytes .png made pdf-factory drop the cover (P1).
+    const buffer = Buffer.from(base64, "base64");
+    const coverExt = imageExtensionFor(buffer);
+    const coverFileName = `${project.title.replace(/[^a-zA-Z0-9]+/g, "_")}_cover_${randomUUID().slice(0, 8)}${coverExt}`;
     const coverPath = path.join(outputDir, coverFileName);
 
-    // Decode base64 and write
-    const buffer = Buffer.from(base64, "base64");
     await fs.writeFile(coverPath, buffer);
 
     // Verify file exists
