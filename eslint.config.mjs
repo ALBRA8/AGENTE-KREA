@@ -59,7 +59,6 @@ const eslintConfig = [...nextCoreWebVitals, ...nextTypescript, {
     "upload/**",
     "download/**",
     "mini-services/**",
-    "src/_product-factory/**",
   ]
 }];
 
