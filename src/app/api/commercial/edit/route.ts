@@ -36,7 +36,7 @@ export async function POST(req: NextRequest) {
       language: language ?? "es",
     });
 
-    return NextResponse.json({ success: true, data: result, credits: charge.ok ? charge.creditsLeft : undefined });
+    return NextResponse.json({ success: (result as { success?: boolean }).success ?? true, data: result, credits: charge.ok ? charge.creditsLeft : undefined });
   } catch (e: unknown) {
     if (charge?.ok) await refundCharge(charge.userId, "commercial:edit");
     const message = e instanceof Error ? e.message : "Error editing creative";

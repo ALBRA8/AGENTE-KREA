@@ -43,11 +43,13 @@ export class ZAITextAdapter implements IGenerationProvider {
     const zai = await this.init();
     const start = Date.now();
     
-    const response = await zai.chat.completions.create({
-      messages: params.messages as any,
-      ...(params.temperature !== undefined && { temperature: params.temperature }),
-      ...(params.maxTokens !== undefined && { max_tokens: params.maxTokens }),
-    });
+    const response = await withRateLimitRetry(() =>
+      zai.chat.completions.create({
+        messages: params.messages as any,
+        ...(params.temperature !== undefined && { temperature: params.temperature }),
+        ...(params.maxTokens !== undefined && { max_tokens: params.maxTokens }),
+      })
+    );
 
     const content = response.choices[0]?.message?.content || "";
     const evidence: ProviderEvidence = {
@@ -77,6 +79,64 @@ export class ZAITextAdapter implements IGenerationProvider {
   estimateCost(): number { return 0; }
 }
 
+// ─── Image size normalization + rate-limit resilience ──────────────
+
+/**
+ * Valid sizes for the image API: both sides multiple of 32, 512–2880 px,
+ * and total pixels <= 2^22. Requested creative dimensions like 1080x1080
+ * or 600x200 are rejected with error 1214, so they are mapped to the
+ * closest valid preset by aspect ratio (see smoke evidence P2).
+ */
+const IMAGE_SIZE_PRESETS = ["1024x1024", "1792x1024", "1024x576", "576x1024", "1152x896"] as const;
+
+export function normalizeImageSize(size?: string): string {
+  const fallback = "1024x1024";
+  if (!size) return fallback;
+  const m = /^(\d+)x(\d+)$/i.exec(size.trim());
+  if (!m) return fallback;
+  const w = parseInt(m[1], 10);
+  const h = parseInt(m[2], 10);
+  if (!w || !h) return fallback;
+
+  const okSide = (n: number) => n % 32 === 0 && n >= 512 && n <= 2880;
+  if (okSide(w) && okSide(h) && w * h <= 2 ** 22) return `${w}x${h}`;
+
+  const ratio = w / h;
+  let best = fallback;
+  let bestDiff = Infinity;
+  for (const p of IMAGE_SIZE_PRESETS) {
+    const [pw, ph] = p.split("x").map(Number);
+    const diff = Math.abs(pw / ph - ratio);
+    if (diff < bestDiff) {
+      bestDiff = diff;
+      best = p;
+    }
+  }
+  return best;
+}
+
+/**
+ * Retry with backoff for transient rate-limit errors (HTTP 429).
+ * The provider throttles bursts of calls; 2 delayed retries (3s, 6s) avoid
+ * spurious failures in batch flows (verified in the P2 smoke runs).
+ */
+async function withRateLimitRetry<T>(fn: () => Promise<T>): Promise<T> {
+  const RETRY_DELAYS_MS = [3000, 6000];
+  let lastErr: unknown;
+  for (let attempt = 0; attempt <= RETRY_DELAYS_MS.length; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      lastErr = err;
+      const msg = err instanceof Error ? err.message : String(err);
+      const isThrottle = msg.includes("429") || msg.includes("Too many requests");
+      if (!isThrottle || attempt === RETRY_DELAYS_MS.length) throw err;
+      await new Promise((resolve) => setTimeout(resolve, RETRY_DELAYS_MS[attempt]));
+    }
+  }
+  throw lastErr;
+}
+
 export class ZAIImageAdapter implements IGenerationProvider {
   readonly config: ProviderConfig;
   private zai: Awaited<ReturnType<typeof ZAI.create>> | null = null;
@@ -93,13 +153,15 @@ export class ZAIImageAdapter implements IGenerationProvider {
   async generate(params: { prompt: string; size?: string }): Promise<ProviderResult> {
     const zai = await this.init();
     const start = Date.now();
-    
-    const size = params.size || "1024x1024";
-    const response = await zai.images.generations.create({
-      model: "flux-krea-v2",
-      prompt: params.prompt,
-      size: size as any,
-    });
+
+    const size = normalizeImageSize(params.size);
+    const response = await withRateLimitRetry(() =>
+      zai.images.generations.create({
+        model: "flux-krea-v2",
+        prompt: params.prompt,
+        size: size as any,
+      })
+    );
 
     const base64 = response.data[0]?.base64 || "";
     const url = (response.data?.[0] as any)?.url;
@@ -150,14 +212,16 @@ export class ZAIImageEditAdapter implements IGenerationProvider {
   }): Promise<ProviderResult> {
     const zai = await this.init();
     const start = Date.now();
-    
-    const size = params.size || "1024x1024";
-    const response = await zai.images.generations.edit({
-      model: "flux-krea-v2" as any,
-      image: params.image as any,
-      prompt: params.prompt,
-      size: size as any,
-    });
+
+    const size = normalizeImageSize(params.size);
+    const response = await withRateLimitRetry(() =>
+      zai.images.generations.edit({
+        model: "flux-krea-v2" as any,
+        image: params.image as any,
+        prompt: params.prompt,
+        size: size as any,
+      })
+    );
 
     const base64 = (response.data?.[0] as any)?.base64 || "";
     const url = (response.data?.[0] as any)?.url;

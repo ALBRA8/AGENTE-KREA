@@ -35,15 +35,39 @@ export async function POST(req: NextRequest) {
     }
 
     const { exportToEcom, getPlatformInfo } = await import("@/lib/commercial/ecom-export");
+    // Map the loose API body to the EcomExportParams contract: the route
+    // accepts { platform, productData, creatives } and derives productId,
+    // assets and metadata (before this fix, missing assets crashed
+    // validateExport with "undefined is not iterable" — smoke evidence P2).
+    const creativeAssets = Array.isArray(creatives) ? creatives : [];
+    const productDataObj = (productData ?? {}) as Record<string, unknown>;
     const result = await exportToEcom({
       platform,
-      productData,
-      creatives,
-    } as any);
+      productId:
+        (typeof productDataObj.id === "string" && productDataObj.id) ||
+        (typeof productDataObj.productId === "string" && productDataObj.productId) ||
+        `prepared-${Date.now()}`,
+      assets: creativeAssets.map(
+        (c: { url?: string; type?: string; alt?: string }) => ({
+          url: c?.url ?? "",
+          type: c?.type ?? "image",
+          alt: c?.alt,
+        })
+      ),
+      metadata: {
+        name: typeof productDataObj.name === "string" ? productDataObj.name : "",
+        description:
+          typeof productDataObj.description === "string" ? productDataObj.description : "",
+        price:
+          productDataObj.price !== undefined && productDataObj.price !== null
+            ? String(productDataObj.price)
+            : "",
+      },
+    } as Parameters<typeof exportToEcom>[0]);
     const platformInfo = getPlatformInfo(platform);
 
     return NextResponse.json({
-      success: true,
+      success: (result as { success?: boolean }).success ?? true,
       data: result,
       platformInfo,
       honesty: {

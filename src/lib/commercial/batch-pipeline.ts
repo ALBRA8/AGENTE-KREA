@@ -51,9 +51,23 @@ export async function executeBatch(
 
       try {
         const result = await executeSingleItem(item.type, item.params);
-        progress.items[globalIndex].status = "done";
-        progress.items[globalIndex].result = result;
-        progress.completed++;
+        // Honest status: a generator that returned success:false is a FAILED
+        // item even if it didn't throw (smoke evidence P2 — a 200 with a
+        // success:false payload must not be counted as done).
+        const innerFailed =
+          !!result &&
+          typeof result === "object" &&
+          (result as { success?: boolean }).success === false;
+        if (innerFailed) {
+          progress.items[globalIndex].status = "error";
+          progress.items[globalIndex].error = "generation returned success:false";
+          progress.items[globalIndex].result = result;
+          progress.failed++;
+        } else {
+          progress.items[globalIndex].status = "done";
+          progress.items[globalIndex].result = result;
+          progress.completed++;
+        }
       } catch (e: unknown) {
         progress.items[globalIndex].status = "error";
         progress.items[globalIndex].error = e instanceof Error ? e.message : "Unknown error";
@@ -134,6 +148,7 @@ export function buildLaunchBatch(params: {
         type: "ad",
         params: {
           ...params.productInfo,
+          productInfo: params.productInfo,
           platform,
           adFormat: format,
         },
@@ -147,6 +162,7 @@ export function buildLaunchBatch(params: {
       type: "landing",
       params: {
         ...params.productInfo,
+        productInfo: params.productInfo,
         sectionType: section,
       },
     });
@@ -158,6 +174,7 @@ export function buildLaunchBatch(params: {
       type: "mockup",
       params: {
         ...params.productInfo,
+        productInfo: params.productInfo,
         mockupType,
       },
     });
@@ -177,6 +194,7 @@ export function buildLaunchBatch(params: {
     type: "banner",
     params: {
       ...params.productInfo,
+      productInfo: params.productInfo,
       bannerFormat: "website-hero",
     },
   });

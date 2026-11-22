@@ -64,7 +64,7 @@ function validateExport(params: EcomExportParams): string[] {
     errors.push("No assets to export");
   }
 
-  for (const asset of params.assets) {
+  for (const asset of params.assets ?? []) {
     if (!asset.url) {
       errors.push(`Asset missing URL: ${asset.type}`);
     }

@@ -66,7 +66,7 @@ export async function POST(req: NextRequest) {
     });
     const result = await executeBatch(items, concurrency ?? 3);
 
-    return NextResponse.json({ success: true, data: result, credits: charge.ok ? charge.creditsLeft : undefined });
+    return NextResponse.json({ success: (result as { success?: boolean }).success ?? true, data: result, credits: charge.ok ? charge.creditsLeft : undefined });
   } catch (e: unknown) {
     if (charge?.ok) await refundCharge(charge.userId, "commercial:batch");
     const message =

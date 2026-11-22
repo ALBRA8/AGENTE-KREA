@@ -5,8 +5,28 @@ set -u
 TEST_SCRIPT="$1"
 cd /home/z/my-project
 
-# Asegurar puerto libre
-fuser -k 3000/tcp 2>/dev/null; sleep 1
+# Asegurar puerto libre — fuser no existe en todos los entornos y lsof puede
+# no ver procesos del sandbox; ss -ltnp es la vía más fiable aquí
+kill_port_3000() {
+  local pids=""
+  if command -v ss >/dev/null 2>&1; then
+    pids=$(ss -ltnp 2>/dev/null | grep ':3000 ' | grep -oP '(?<=pid=)[0-9]+' | sort -u || true)
+  fi
+  if [ -z "$pids" ] && command -v lsof >/dev/null 2>&1; then
+    pids=$(lsof -t -i :3000 2>/dev/null || true)
+  fi
+  if [ -n "$pids" ]; then
+    echo "$pids" | xargs -r kill -9 2>/dev/null || true
+    sleep 1
+  fi
+}
+kill_port_3000
+
+# Verificación dura: el puerto DEBE estar libre, si no, abortar (evita golpear un servidor viejo)
+if ss -ltn 2>/dev/null | grep -q ":3000 "; then
+  echo "[runner] ERROR: el puerto 3000 sigue ocupado; abortando para no probar contra un servidor obsoleto"
+  exit 3
+fi
 
 # Arrancar servidor
 npm run start > /tmp/krea-server.log 2>&1 &
@@ -30,6 +50,6 @@ TEST_EXIT=$?
 
 # Apagar servidor
 kill $SERVER_PID 2>/dev/null
-fuser -k 3000/tcp 2>/dev/null
+kill_port_3000
 echo "[runner] Servidor detenido. Exit pruebas: $TEST_EXIT"
 exit $TEST_EXIT
