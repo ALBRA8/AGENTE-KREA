@@ -120,22 +120,25 @@ async function executeSingleItem(
  */
 export function buildLaunchBatch(params: {
   productInfo: Record<string, unknown>;
-  platforms: BatchItemType[];
+  platforms: string[];
   sections: string[];
   mockupTypes: string[];
   adFormats: string[];
 }): BatchItem[] {
   const items: BatchItem[] = [];
 
-  // Ads for each platform
-  for (const format of params.adFormats) {
-    items.push({
-      type: "ad",
-      params: {
-        ...params.productInfo,
-        adFormat: format,
-      },
-    });
+  // Ads for each platform × format combination
+  for (const platform of params.platforms) {
+    for (const format of params.adFormats) {
+      items.push({
+        type: "ad",
+        params: {
+          ...params.productInfo,
+          platform,
+          adFormat: format,
+        },
+      });
+    }
   }
 
   // Landing sections

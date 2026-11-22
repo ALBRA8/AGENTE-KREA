@@ -104,6 +104,7 @@ export class KreaDoctorV2 {
   async runFullCheck(): Promise<DoctorReportV2> {
     const allChecks = [
       this.checkRuntime(),
+      this.checkPythonEnvironment(),
       this.checkDatabase(),
       this.checkAPIs(),
       this.checkProviders(),
@@ -252,6 +253,93 @@ export class KreaDoctorV2 {
         name: "runtime",
         category: "system",
         status: "UNHEALTHY",
+        latencyMs: Date.now() - start,
+        error: e.message,
+        evidence: {
+          checkedAt: new Date().toISOString(),
+          truthLevel: "VERIFIED",
+          source: "doctor-v2",
+        },
+      };
+    }
+  }
+
+  // ──────────────────────────────────────────────
+  // CHECK 1b: Entorno Python del arnés de infoproductos
+  // (dependencia EXPLÍCITA: python3 + PIL + PyMuPDF + Chrome para render)
+  // ──────────────────────────────────────────────
+  async checkPythonEnvironment(): Promise<HealthCheckResultV2> {
+    const start = Date.now();
+    try {
+      const { execFile } = await import("child_process");
+      const { promisify } = await import("util");
+      const execFileAsync = promisify(execFile);
+      const scriptPath = `${process.cwd()}/src/lib/infoproductos/scripts/check_entorno.py`;
+
+      let parsed: Record<string, unknown> | null = null;
+      try {
+        const { stdout } = await execFileAsync(
+          process.env.PYTHON_CMD || "python3",
+          [scriptPath],
+          { timeout: 15000 }
+        );
+        const match = stdout.match(/\{[\s\S]*\}/);
+        if (match) parsed = JSON.parse(match[0]);
+      } catch {
+        parsed = null;
+      }
+
+      if (!parsed) {
+        return {
+          name: "python-environment",
+          category: "system",
+          status: "DEGRADED",
+          latencyMs: Date.now() - start,
+          details: "python3 no disponible o check_entorno.py falló — el arnés de infoproductos opera en modo degradado (vía canónica TS disponible)",
+          metrics: { pythonOk: 0 },
+          evidence: {
+            checkedAt: new Date().toISOString(),
+            truthLevel: "VERIFIED",
+            source: "check_entorno.py",
+          },
+        };
+      }
+
+      const chrome = (parsed.chrome as string | null) ?? null;
+      const pil = Boolean(parsed.pil);
+      const pymupdf = Boolean(parsed.pymupdf);
+      const missing = [
+        !chrome && "chrome (render.py: ebook/guion/portada/pagina_venta)",
+        !pil && "PIL (portada JPG, recorte PNG)",
+        !pymupdf && "PyMuPDF (revisar_estilo sobre PDF)",
+      ].filter(Boolean) as string[];
+
+      return {
+        name: "python-environment",
+        category: "system",
+        status: missing.length === 0 ? "HEALTHY" : "DEGRADED",
+        latencyMs: Date.now() - start,
+        details:
+          missing.length === 0
+            ? `python ${parsed.python} — entorno completo (chrome: ${chrome})`
+            : `python ${parsed.python} — degradado sin: ${missing.join("; ")}. Las capacidades afectadas devuelven NOT_VERIFIED con el motivo; la vía canónica de render es TypeScript (pdf-factory).`,
+        metrics: {
+          pythonOk: 1,
+          chromeOk: chrome ? 1 : 0,
+          pilOk: pil ? 1 : 0,
+          pymupdfOk: pymupdf ? 1 : 0,
+        },
+        evidence: {
+          checkedAt: new Date().toISOString(),
+          truthLevel: "VERIFIED",
+          source: "check_entorno.py",
+        },
+      };
+    } catch (e: any) {
+      return {
+        name: "python-environment",
+        category: "system",
+        status: "DEGRADED",
         latencyMs: Date.now() - start,
         error: e.message,
         evidence: {

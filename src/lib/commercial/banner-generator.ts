@@ -6,7 +6,7 @@
  * Inspirado por ecom-magic.ai: Banner Generator (1 crédito cada uno).
  */
 
-import { zaiSdkBridge } from "../bridges/zai-sdk-bridge";
+import { getProvider } from "@/contracts/provider-registry";
 import type { BannerParams, BannerResult, BannerFormat } from "./types";
 import { LANG_STRINGS } from "../commercial-creative-engine";
 
@@ -95,8 +95,8 @@ export async function generateBanner(params: BannerParams): Promise<BannerResult
       ? "1024x1024"
       : "1024x576";
 
-    const imageResult = await zaiSdkBridge.generateImage({ prompt, size });
-    const imageData = (imageResult as any)?.data;
+    const imageResult = await getProvider("image").generate({ prompt, size });
+    const imageData = (imageResult.data as { base64?: string; url?: string }) ?? undefined;
 
     return {
       success: true,

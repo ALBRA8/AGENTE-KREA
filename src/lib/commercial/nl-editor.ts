@@ -8,7 +8,7 @@
  * Inspirado por ecom-magic.ai: Natural Language Editing.
  */
 
-import { zaiSdkBridge } from "../bridges/zai-sdk-bridge";
+import { getProvider } from "@/contracts/provider-registry";
 import type { NLEditParams, NLEditResult, Language } from "./types";
 import { LANG_STRINGS } from "../commercial-creative-engine";
 
@@ -38,13 +38,13 @@ export async function editCreativeWithNL(params: NLEditParams): Promise<NLEditRe
   const prompt = buildEditPrompt(originalImage, editInstruction, language);
 
   try {
-    // Use image-edit capability via ZAI SDK bridge
-    const editResult = await zaiSdkBridge.editImage({
+    // Use image-edit capability via the unified provider layer
+    const editResult = await getProvider("image-edit").generate({
       image: originalImage,
       prompt,
     });
 
-    const imageData = (editResult as any)?.data;
+    const imageData = (editResult.data as { base64?: string; url?: string }) ?? undefined;
 
     return {
       success: true,
@@ -58,11 +58,11 @@ export async function editCreativeWithNL(params: NLEditParams): Promise<NLEditRe
     // Fallback: generate a new image with the edit instruction as part of the prompt
     try {
       const fallbackPrompt = `Based on the instruction "${editInstruction}", create a revised version. ${prompt}`;
-      const genResult = await zaiSdkBridge.generateImage({
+      const genResult = await getProvider("image").generate({
         prompt: fallbackPrompt,
         size: "1024x1024",
       });
-      const genData = (genResult as any)?.data;
+      const genData = (genResult.data as { base64?: string; url?: string }) ?? undefined;
 
       return {
         success: true,

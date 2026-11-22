@@ -8,7 +8,7 @@
  * KREA absorbe solo la capacidad de producción, no la investigación.
  */
 
-import { zaiSdkBridge } from "../bridges/zai-sdk-bridge";
+import { getProvider } from "@/contracts/provider-registry";
 import type {
   LogoParams,
   LogoResult,
@@ -121,12 +121,12 @@ export async function generateLogo(params: LogoParams): Promise<LogoResult> {
     const prompt = promptParts.join(" ");
 
     try {
-      const imageResult = await zaiSdkBridge.generateImage({
+      const imageResult = await getProvider("image").generate({
         prompt,
         size: "1024x1024",
       });
 
-      const imageData = (imageResult as any)?.data;
+      const imageData = (imageResult.data as { base64?: string; url?: string }) ?? undefined;
       generatedVariants.push({
         variant,
         imageBase64: imageData?.base64 ?? undefined,

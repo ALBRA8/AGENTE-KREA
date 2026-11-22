@@ -43,7 +43,7 @@ import {
   type SpeechOptions,
   type MemoryMetadata,
 } from "../agent-adapter";
-import { zaiSdkBridge } from "../bridges/zai-sdk-bridge";
+import { getProvider, isProviderAvailable } from "@/contracts/provider-registry";
 import { CommercialCreativeEngine } from "../commercial-creative-engine";
 import { generateLogo } from "./logo-generator";
 import { generateBanner } from "./banner-generator";
@@ -116,8 +116,8 @@ export class KreaAdapter implements AgentAdapter {
   // ─── Lifecycle ────────────────────────────────────────────────
 
   async initialize(): Promise<void> {
-    if (!zaiSdkBridge.isConnected) {
-      await zaiSdkBridge.initialize();
+    if (!(await isProviderAvailable("text"))) {
+      console.warn("[KreaAdapter] Provider de texto no disponible al inicializar — continuando en modo degradado");
     }
     this._isConnected = true;
   }
@@ -147,7 +147,7 @@ export class KreaAdapter implements AgentAdapter {
   async reason(prompt: string, options?: ReasonOptions): Promise<AgentResponse> {
     const start = Date.now();
     try {
-      const result = await zaiSdkBridge.chat({
+      const result = await getProvider("text").generate({
         messages: [
           {
             role: "system",
@@ -159,10 +159,9 @@ export class KreaAdapter implements AgentAdapter {
         ],
         temperature: options?.temperature ?? 0.8,
         maxTokens: options?.maxTokens,
-        model: options?.model,
       });
 
-      const data = (result as any)?.data;
+      const data = (result.data as { content?: string; model?: string; tokensUsed?: { input: number; output: number } }) ?? undefined;
       return {
         content: data?.content ?? "",
         evidence: "INFERRED" as EvidenceTag,
@@ -209,12 +208,11 @@ export class KreaAdapter implements AgentAdapter {
   ): Promise<AgentResponse & { imageUrl?: string; imageBase64?: string }> {
     const start = Date.now();
     try {
-      const result = await zaiSdkBridge.generateImage({
+      const result = await getProvider("image").generate({
         prompt,
         size: options?.size,
-        model: options?.model,
       });
-      const data = (result as any)?.data;
+      const data = (result.data as { base64?: string; url?: string }) ?? undefined;
       return {
         content: "Image generated",
         imageUrl: data?.url,
@@ -242,11 +240,13 @@ export class KreaAdapter implements AgentAdapter {
   ): Promise<AgentResponse & { audioUrl?: string; audioBase64?: string }> {
     const start = Date.now();
     try {
-      const result = await zaiSdkBridge.generateSpeech({
+      const result = await getProvider("voice").generate({
         text,
         voice: options?.voice,
       });
-      const audioBase64 = (result as any)?.data?.audioBase64 ?? "";
+      const audioBase64 = result.data
+        ? Buffer.from((result.data as { arrayBuffer?: ArrayBuffer }).arrayBuffer as ArrayBuffer).toString("base64")
+        : "";
       return {
         content: "Speech generated",
         audioBase64,
@@ -362,7 +362,7 @@ export class KreaAdapter implements AgentAdapter {
       healthy: this._isConnected,
       agent: this.adapterName,
       components: {
-        zaiSdk: zaiSdkBridge.isConnected ? "UP" : "DOWN",
+        zaiSdk: (await isProviderAvailable("text")) ? "UP" : "DOWN",
         engine: "UP",
         templates: "UP",
       },
@@ -392,11 +392,6 @@ export class KreaAdapter implements AgentAdapter {
   /** Generate A/B variants */
   async generateVariants(params: Record<string, unknown>) {
     return CommercialCreativeEngine.getInstance().generateVariantPack(params as any);
-  }
-
-  /** Generate a launch package */
-  async generateLaunchPackage(params: Record<string, unknown>) {
-    return CommercialCreativeEngine.getInstance().generateLaunchPackage(params as any);
   }
 
   /** Generate a logo */

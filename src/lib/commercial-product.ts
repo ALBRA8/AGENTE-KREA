@@ -14,7 +14,7 @@
  * - NEVER invents testimonials, market data, or guaranteed results
  */
 
-import ZAI from "z-ai-web-dev-sdk";
+import { getAiGateway } from "./ai-gateway";
 import { z } from "zod";
 import { parseStructuredResponse } from "@/lib/structured-output";
 import type { EvidenceTag } from "@/lib/product-fit";
@@ -181,14 +181,8 @@ const DISTRIBUTION_DEFAULTS: Record<string, string> = {
 
 // ─── ZAI Adapter ──────────────────────────────────────────────────────────────
 
-let zaiInstance: Awaited<ReturnType<typeof ZAI.create>> | null = null;
-
-async function getZAI() {
-  if (!zaiInstance) {
-    zaiInstance = await ZAI.create();
-  }
-  return zaiInstance;
-}
+/** Única vía: puerta AI sobre contracts/provider-registry (sin SDK directo). */
+const getZAI = getAiGateway;
 
 // ─── Core Functions ───────────────────────────────────────────────────────────
 

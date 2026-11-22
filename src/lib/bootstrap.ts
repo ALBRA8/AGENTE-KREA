@@ -15,7 +15,6 @@
 
 import { kreaHarness } from "./krea-harness";
 import { GeneralAdapter } from "./adapters/general-adapter";
-import { zaiSdkBridge } from "./bridges/zai-sdk-bridge";
 import {
   infoproductosPythonBridge,
   agenteGeneralPythonBridge,
@@ -52,11 +51,8 @@ export async function bootstrapKrea(): Promise<{
   }
 
   try {
-    // ─── 1. Registrar bridges ──────────────────────────────────
-    bridgeRegistry.register(zaiSdkBridge);
-
-    // Inicializar ZAI SDK bridge (proveedor primario)
-    await zaiSdkBridge.initialize();
+    // ─── 1. Registrar bridges Python ──────────────────────────
+    // (el proveedor ZAI no necesita bridge: todo pasa por contracts/provider-registry)
 
     // Inicializar Python bridges (opcionales — no bloquean si fallan)
     try {

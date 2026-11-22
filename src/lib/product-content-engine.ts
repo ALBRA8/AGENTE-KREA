@@ -13,7 +13,7 @@
  * via registerContentType().
  */
 
-import ZAI from "z-ai-web-dev-sdk";
+import { getAiGateway } from "./ai-gateway";
 import type { EvidenceTag } from "@/lib/product-fit";
 
 // ─── Type Definitions ────────────────────────────────────────────────
@@ -170,14 +170,8 @@ for (const [type, info] of Object.entries(DEFAULT_CONTENT_TYPES)) {
 
 // ─── ZAI Adapter ──────────────────────────────────────────────────────
 
-let zaiInstance: Awaited<ReturnType<typeof ZAI.create>> | null = null;
-
-async function getZAI() {
-  if (!zaiInstance) {
-    zaiInstance = await ZAI.create();
-  }
-  return zaiInstance;
-}
+/** Única vía: puerta AI sobre contracts/provider-registry (sin SDK directo). */
+const getZAI = getAiGateway;
 
 // ─── Core Functions ───────────────────────────────────────────────────
 

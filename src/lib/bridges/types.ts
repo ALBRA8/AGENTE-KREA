@@ -5,9 +5,8 @@
  * Formaliza cómo el arnés se comunica con cualquier proveedor de capacidades.
  *
  * Tipos de Bridge:
- *   - ZaiSdkBridge: llama al z-ai-web-dev-sdk (LLM, image, voice) — Node.js nativo
- *   - PythonBridge: llama scripts Python via subprocess — para infoproductos y albra_seed
- *   - HttpBridge: llama APIs REST externas — para agentes remotos
+ *   - PythonBridge: llama scripts Python via subprocess — para infoproductos
+ *   (la generación ZAI no usa bridge: pasa por contracts/provider-registry)
  *
  * Principio: KREA nunca acopla directamente un proveedor.
  *            Todo proveedor es accedido via un Bridge.
@@ -34,7 +33,7 @@ export interface IBridge {
   readonly bridgeId: string;
 
   /** Tipo de bridge */
-  readonly bridgeType: "zai-sdk" | "python" | "http" | "mock";
+  readonly bridgeType: "python" | "mock";
 
   /** Capacidades que este bridge provee */
   readonly capabilities: string[];
@@ -63,51 +62,6 @@ export interface BridgeCallResult {
   provider: string;
 }
 
-// ─── ZAI SDK Bridge Types ──────────────────────────────────────────
-
-export interface ZaiChatParams {
-  messages: Array<{ role: "system" | "user" | "assistant"; content: string }>;
-  temperature?: number;
-  maxTokens?: number;
-  model?: string;
-}
-
-export interface ZaiImageParams {
-  prompt: string;
-  size?: string;
-  model?: string;
-  n7?: number;
-}
-
-export interface ZaiImageEditParams {
-  image: string;       // URL or base64 of the source image
-  prompt: string;     // Edit instruction
-  size?: string;
-  model?: string;
-}
-
-export interface ZaiVoiceParams {
-  text: string;
-  voice?: string;
-  model?: string;
-}
-
-export interface ZaiChatResult extends BridgeCallResult {
-  data?: { content: string; model?: string; tokensUsed?: { input: number; output: number } };
-}
-
-export interface ZaiImageResult extends BridgeCallResult {
-  data?: { base64: string; url?: string; size: string };
-}
-
-export interface ZaiImageEditResult extends BridgeCallResult {
-  data?: { base64: string; url?: string; size: string };
-}
-
-export interface ZaiVoiceResult extends BridgeCallResult {
-  data?: { audioBase64: string; voice: string };
-}
-
 // ─── Python Bridge Types ───────────────────────────────────────────
 
 export interface PythonCallParams {
@@ -127,20 +81,6 @@ export interface PythonCallParams {
 
 export interface PythonCallResult extends BridgeCallResult {
   data?: { stdout: string; parsed?: unknown; exitCode: number };
-}
-
-// ─── HTTP Bridge Types ─────────────────────────────────────────────
-
-export interface HttpCallParams {
-  url: string;
-  method: "GET" | "POST" | "PUT" | "DELETE";
-  headers?: Record<string, string>;
-  body?: unknown;
-  timeout?: number;
-}
-
-export interface HttpCallResult extends BridgeCallResult {
-  data?: { status: number; body: unknown };
 }
 
 // ─── Bridge Registry ───────────────────────────────────────────────

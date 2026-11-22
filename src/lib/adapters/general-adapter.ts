@@ -2,13 +2,13 @@
  * KREA ARNÉS — Adaptador para AGENTE-GENERAL
  *
  * Este adaptador conecta KREA con el AGENTE-GENERAL.
- * Usa bridges formales para comunicarse con cada runtime:
+ * Toda generación pasa por la capa de proveedor unificada:
  *
- *   - ZaiSdkBridge → z-ai-web-dev-sdk (LLM, image, voice)
- *   - PythonBridge → scripts Python (infoproductos, albra_seed)
+ *   - contracts/provider-registry → z-ai-web-dev-sdk (LLM, imagen, voz, edición)
+ *   - PythonBridge → scripts Python (infoproductos)
  *
- * Principio: el adaptador NUNCA llama un proveedor directamente.
- *            Todo pasa por un bridge.
+ * Principio: el adaptador NUNCA llama el SDK directamente.
+ *            Todo pasa por el provider-registry.
  */
 
 import { randomUUID } from "crypto";
@@ -27,9 +27,8 @@ import type {
   MemoryMetadata,
   EvidenceTag,
 } from "../agent-adapter";
-import { ZaiSdkBridge } from "../bridges/zai-sdk-bridge";
 import { PythonBridge } from "../bridges/python-bridge";
-import type { BridgeHealth } from "../bridges/types";
+import { getProvider, isProviderAvailable } from "@/contracts/provider-registry";
 
 // ─── Config ────────────────────────────────────────────────────────
 
@@ -53,13 +52,12 @@ export class GeneralAdapter implements AgentAdapter {
   private _isConnected = false;
   private config: GeneralAdapterConfig;
 
-  // Bridges
-  private zaiBridge: ZaiSdkBridge;
+  // Estado de proveedores
+  private _zaiAvailable = false;
   private pythonBridge?: PythonBridge;
 
   constructor(config?: Partial<GeneralAdapterConfig>) {
     this.config = { ...DEFAULT_CONFIG, ...config };
-    this.zaiBridge = new ZaiSdkBridge();
     this.pythonBridge = config?.pythonBridge;
   }
 
@@ -102,9 +100,9 @@ export class GeneralAdapter implements AgentAdapter {
 
   async initialize(): Promise<void> {
     try {
-      // Initialize ZAI SDK bridge (primary)
+      // Verificar disponibilidad real del proveedor de texto (primary)
       if (this.config.useZaiSdk) {
-        await this.zaiBridge.initialize();
+        this._zaiAvailable = await isProviderAvailable("text");
       }
 
       // Initialize Python bridge (optional)
@@ -112,21 +110,20 @@ export class GeneralAdapter implements AgentAdapter {
         await this.pythonBridge.initialize();
       }
 
-      this._isConnected = this.zaiBridge.isConnected || (this.pythonBridge?.isConnected ?? false);
+      this._isConnected = this._zaiAvailable || (this.pythonBridge?.isConnected ?? false);
     } catch (error) {
       this._isConnected = false;
       console.warn("[GeneralAdapter] Initialization partial:", error);
-      // Still mark as connected if at least ZAI is available
-      this._isConnected = this.zaiBridge.isConnected;
+      this._isConnected = this._zaiAvailable;
     }
   }
 
   async shutdown(): Promise<void> {
-    await this.zaiBridge.shutdown();
     if (this.pythonBridge) {
       await this.pythonBridge.shutdown();
     }
     this._isConnected = false;
+    this._zaiAvailable = false;
   }
 
   // ─── Cognición (via ZAI SDK Bridge) ──────────────────────────
@@ -134,8 +131,8 @@ export class GeneralAdapter implements AgentAdapter {
   async reason(prompt: string, options?: ReasonOptions): Promise<AgentResponse> {
     const start = Date.now();
 
-    // Try ZAI SDK first
-    if (this.zaiBridge.isConnected) {
+    // Try unified provider first
+    if (this._zaiAvailable) {
       try {
         const messages: Array<{ role: "system" | "user" | "assistant"; content: string }> = [];
         if (options?.systemPrompt) {
@@ -143,21 +140,21 @@ export class GeneralAdapter implements AgentAdapter {
         }
         messages.push({ role: "user", content: prompt });
 
-        const result = await this.zaiBridge.chat({
+        const result = await getProvider("text").generate({
           messages,
           temperature: options?.temperature,
           maxTokens: options?.maxTokens,
-          model: options?.model,
         });
 
-        if (result.success && result.data) {
+        const data = (result.data as { content?: string; model?: string; tokensUsed?: { input: number; output: number } }) ?? undefined;
+        if (result.success && data?.content) {
           return {
-            content: result.data.content,
-            evidence: result.evidence,
+            content: data.content,
+            evidence: "VERIFIED" as EvidenceTag,
             confidence: 0.9,
-            provider: result.provider,
-            model: result.data.model,
-            tokensUsed: result.data.tokensUsed,
+            provider: "zai",
+            model: data.model,
+            tokensUsed: data.tokensUsed,
             latencyMs: Date.now() - start,
           };
         }
@@ -234,22 +231,22 @@ export class GeneralAdapter implements AgentAdapter {
   ): Promise<AgentResponse & { imageUrl?: string; imageBase64?: string }> {
     const start = Date.now();
 
-    if (this.zaiBridge.isConnected) {
+    if (this._zaiAvailable) {
       try {
-        const result = await this.zaiBridge.generateImage({
+        const result = await getProvider("image").generate({
           prompt,
           size: options?.size,
-          model: options?.model,
         });
 
-        if (result.success && result.data) {
+        const data = (result.data as { base64?: string; url?: string }) ?? undefined;
+        if (result.success && data?.base64) {
           return {
             content: "Image generated successfully",
-            imageUrl: result.data.url,
-            imageBase64: result.data.base64,
-            evidence: result.evidence,
+            imageUrl: data.url,
+            imageBase64: data.base64,
+            evidence: "VERIFIED" as EvidenceTag,
             confidence: 0.9,
-            provider: result.provider,
+            provider: "zai",
             latencyMs: Date.now() - start,
           };
         }
@@ -274,20 +271,21 @@ export class GeneralAdapter implements AgentAdapter {
   ): Promise<AgentResponse & { audioUrl?: string; audioBase64?: string }> {
     const start = Date.now();
 
-    if (this.zaiBridge.isConnected) {
+    if (this._zaiAvailable) {
       try {
-        const result = await this.zaiBridge.generateSpeech({
+        const result = await getProvider("voice").generate({
           text,
           voice: options?.voice,
-        } as any);
+        });
 
-        if (result.success && result.data) {
+        const data = (result.data as { arrayBuffer?: ArrayBuffer; voice?: string }) ?? undefined;
+        if (result.success && data?.arrayBuffer) {
           return {
             content: "Speech generated successfully",
-            audioBase64: result.data.audioBase64,
-            evidence: result.evidence,
+            audioBase64: Buffer.from(data.arrayBuffer).toString("base64"),
+            evidence: "VERIFIED" as EvidenceTag,
             confidence: 0.9,
-            provider: result.provider,
+            provider: "zai",
             latencyMs: Date.now() - start,
           };
         }
@@ -452,9 +450,9 @@ export class GeneralAdapter implements AgentAdapter {
     const start = Date.now();
     const components: Record<string, "UP" | "DOWN" | "DEGRADED"> = {};
 
-    // Check ZAI SDK bridge
-    const zaiHealth: BridgeHealth = await this.zaiBridge.healthCheck();
-    components["zai-sdk"] = zaiHealth.status === "CONNECTED" ? "UP" : zaiHealth.status === "DEGRADED" ? "DEGRADED" : "DOWN";
+    // Check unified provider (text)
+    const zaiUp = await isProviderAvailable("text");
+    components["zai-sdk"] = zaiUp ? "UP" : "DOWN";
 
     // Check Python bridge
     if (this.pythonBridge) {
@@ -491,11 +489,6 @@ export class GeneralAdapter implements AgentAdapter {
   }
 
   // ─── Bridge access (for advanced usage) ──────────────────────
-
-  /** Get the ZAI SDK bridge for direct access */
-  getZaiBridge(): ZaiSdkBridge {
-    return this.zaiBridge;
-  }
 
   /** Get the Python bridge for direct access */
   getPythonBridge(): PythonBridge | undefined {

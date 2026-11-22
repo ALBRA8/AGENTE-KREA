@@ -29,7 +29,10 @@ export async function GET() {
         sectionTypes: baseCapabilities.sectionTypes,
         mockupTypes: baseCapabilities.mockupTypes,
         angles: baseCapabilities.angles,
-        pricing: baseCapabilities.pricing,
+        costs: {
+          ad: 2, landing: 2, mockup: 3, variants: 2, batch: 5,
+          logo: 3, banner: 3, email: 2, catalog: 3, edit: 3, export: 1,
+        },
         // Extended capabilities
         logoStyles: ["wordmark", "iconic", "abstract", "monogram", "emblem", "mascot"],
         logoVariants: ["primary", "icon-only", "horizontal", "stacked", "dark-bg", "light-bg"],

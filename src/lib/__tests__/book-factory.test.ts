@@ -18,7 +18,7 @@
  *     (acotado por construcción); se prueba que REPAIR queda en "skipped" cuando QA pasa.
  */
 
-import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, vi, beforeEach, afterEach } from "vitest";
 import fs from "fs/promises";
 import path from "path";
 import {
@@ -28,6 +28,14 @@ import {
   runPipeline,
   type ProgressEvent,
 } from "@/lib/book-factory";
+import {
+  setProviderOverride,
+  clearProviderOverrides,
+} from "@/contracts/provider-registry";
+import type {
+  IGenerationProvider,
+  ProviderResult,
+} from "@/contracts/provider.interface";
 
 // PNG 1x1 válido (para no depender de la red en la generación de portada)
 const TINY_PNG =
@@ -43,15 +51,6 @@ vi.hoisted(() => {
 const { chatCreate, imageCreate } = vi.hoisted(() => ({
   chatCreate: vi.fn(),
   imageCreate: vi.fn(),
-}));
-
-vi.mock("z-ai-web-dev-sdk", () => ({
-  default: {
-    create: vi.fn(async () => ({
-      chat: { completions: { create: chatCreate } },
-      images: { generations: { create: imageCreate } },
-    })),
-  },
 }));
 
 // ─── Helpers ──────────────────────────────────────────────────────────────
@@ -73,36 +72,73 @@ function makeChapters() {
   ];
 }
 
-/** Respuesta de chat según el paso: art direction devuelve estilo JSON; el resto, contenido. */
+/** Respuesta de chat según el paso: art direction devuelve estilo JSON; el resto, contenido.
+ *  El proveedor simulado envuelve la respuesta en { content } vía makeMockTextProvider. */
 function mockChatSuccess() {
   chatCreate.mockImplementation(async ({ messages }: { messages: Array<{ role: string; content: string }> }) => {
     const sys = messages[0]?.content ?? "";
     if (sys.includes("art director")) {
-      return {
-        choices: [
-          {
-            message: {
-              content:
-                '{"colorScheme":"deep navy and amber","coverStyle":"bold","fontSize":12,"lineHeight":1.6}',
-            },
-          },
-        ],
-      };
+      return '{"colorScheme":"deep navy and amber","coverStyle":"bold","fontSize":12,"lineHeight":1.6}';
     }
-    return {
-      choices: [
-        {
-          message: {
-            content:
-              "## Sección principal\n\n" +
-              "Contenido de prueba para el capítulo con suficientes palabras para llenar páginas reales. ".repeat(
-                30
-              ),
-          },
-        },
-      ],
-    };
+    return (
+      "## Sección principal\n\n" +
+      "Contenido de prueba para el capítulo con suficientes palabras para llenar páginas reales. ".repeat(
+        30
+      )
+    );
   });
+}
+
+// ─── Mock providers (inyección oficial del provider-registry) ────────────
+
+/** Proveedor de texto de prueba: delega en chatCreate; devuelve { content }. */
+function makeMockTextProvider(): IGenerationProvider {
+  return {
+    config: {
+      id: "mock-text", name: "Mock Text", type: "text",
+      priority: 1, enabled: true, maxRetries: 0, timeoutMs: 5000,
+    },
+    generate: async (params: Record<string, unknown>) => {
+      const content = await chatCreate(params);
+      const result: ProviderResult = {
+        success: true,
+        data: { content: String(content) },
+        providerId: "mock-text",
+        cost: 0,
+        latencyMs: 1,
+        evidence: { truthLevel: "VERIFIED", timestamp: new Date().toISOString() },
+      };
+      return result;
+    },
+    isAvailable: async () => true,
+    getCapabilities: () => ["chat"],
+    estimateCost: () => 0,
+  };
+}
+
+/** Proveedor de imagen de prueba: delega en imageCreate; devuelve el PNG 1x1. */
+function makeMockImageProvider(): IGenerationProvider {
+  return {
+    config: {
+      id: "mock-image", name: "Mock Image", type: "image",
+      priority: 1, enabled: true, maxRetries: 0, timeoutMs: 5000,
+    },
+    generate: async (params: Record<string, unknown>) => {
+      await imageCreate(params);
+      const result: ProviderResult = {
+        success: true,
+        data: { base64: TINY_PNG, size: "1024x1024" },
+        providerId: "mock-image",
+        cost: 0,
+        latencyMs: 1,
+        evidence: { truthLevel: "VERIFIED", timestamp: new Date().toISOString() },
+      };
+      return result;
+    },
+    isAvailable: async () => true,
+    getCapabilities: () => ["image"],
+    estimateCost: () => 0,
+  };
 }
 
 // ─── Tests ────────────────────────────────────────────────────────────────
@@ -171,9 +207,18 @@ describe("Book Factory — contrato del pipeline", () => {
   });
 });
 
-describe("Book Factory — pipeline completo (LLM simulado, PDF/QA reales)", () => {
+describe("Book Factory — pipeline completo (proveedor simulado, PDF/QA reales)", () => {
   beforeAll(async () => {
     await fs.mkdir(tmpDir, { recursive: true });
+  });
+
+  beforeEach(() => {
+    setProviderOverride("text", makeMockTextProvider());
+    setProviderOverride("image", makeMockImageProvider());
+  });
+
+  afterEach(() => {
+    clearProviderOverrides();
   });
 
   afterAll(async () => {
@@ -182,7 +227,6 @@ describe("Book Factory — pipeline completo (LLM simulado, PDF/QA reales)", () 
 
   it("ejecuta los 10 pasos y produce PDF real + portada + metadata con QA", async () => {
     mockChatSuccess();
-    imageCreate.mockResolvedValue({ data: [{ base64: TINY_PNG }] });
 
     const project = createBookProject({
       userId: "user-1",
@@ -237,7 +281,6 @@ describe("Book Factory — pipeline completo (LLM simulado, PDF/QA reales)", () 
 
   it("falla de forma honesta en el paso 1 si el LLM no responde (estado FAILED, error no recuperable)", async () => {
     chatCreate.mockRejectedValue(new Error("ZAI indisponible"));
-    imageCreate.mockClear();
 
     const project = createBookProject({
       userId: "user-1",
@@ -245,7 +288,7 @@ describe("Book Factory — pipeline completo (LLM simulado, PDF/QA reales)", () 
       title: "Libro que falla",
       author: "KREA",
       targetAudience: "x",
-      // sin capítulos → stepArchitecture debe llamar al LLM
+      // sin capítulos → stepArchitecture debe llamar al proveedor
     });
 
     const events: ProgressEvent[] = [];

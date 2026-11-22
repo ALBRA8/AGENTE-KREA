@@ -18,7 +18,7 @@
  * 10. FINAL             → Deliver the product
  */
 
-import ZAI from "z-ai-web-dev-sdk";
+import { getAiGateway } from "./ai-gateway";
 import fs from "fs/promises";
 import path from "path";
 import { randomUUID } from "crypto";
@@ -147,9 +147,8 @@ export type ProgressCallback = (event: ProgressEvent) => void;
 
 // ─── ZAI helper ───────────────────────────────────────────────────────────────
 
-async function getZAI() {
-  return ZAI.create();
-}
+/** Única vía: puerta AI sobre contracts/provider-registry (sin SDK directo). */
+const getZAI = getAiGateway;
 
 // ─── In-memory project store ──────────────────────────────────────────────────
 // In production, this would persist to the database via Prisma.

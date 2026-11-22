@@ -9,7 +9,7 @@
  * All LLM-derived data is marked as INFERRED.
  */
 
-import ZAI from "z-ai-web-dev-sdk";
+import { getAiGateway } from "./ai-gateway";
 import { z } from "zod";
 import { randomUUID } from "crypto";
 import { parseStructuredResponse } from "@/lib/structured-output";
@@ -106,14 +106,8 @@ const specificationResponseSchema = z.object({
 
 // ─── ZAI Adapter ──────────────────────────────────────────────────────────────
 
-let zaiInstance: Awaited<ReturnType<typeof ZAI.create>> | null = null;
-
-async function getZAI() {
-  if (!zaiInstance) {
-    zaiInstance = await ZAI.create();
-  }
-  return zaiInstance;
-}
+/** Única vía: puerta AI sobre contracts/provider-registry (sin SDK directo). */
+const getZAI = getAiGateway;
 
 // ─── Core Functions ───────────────────────────────────────────────────────────
 

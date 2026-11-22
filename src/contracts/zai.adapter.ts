@@ -35,12 +35,18 @@ export class ZAITextAdapter implements IGenerationProvider {
     return this.zai;
   }
 
-  async generate(params: { messages: Array<{ role: string; content: string }> }): Promise<ProviderResult> {
+  async generate(params: {
+    messages: Array<{ role: string; content: string }>;
+    temperature?: number;
+    maxTokens?: number;
+  }): Promise<ProviderResult> {
     const zai = await this.init();
     const start = Date.now();
     
     const response = await zai.chat.completions.create({
       messages: params.messages as any,
+      ...(params.temperature !== undefined && { temperature: params.temperature }),
+      ...(params.maxTokens !== undefined && { max_tokens: params.maxTokens }),
     });
 
     const content = response.choices[0]?.message?.content || "";
@@ -96,6 +102,7 @@ export class ZAIImageAdapter implements IGenerationProvider {
     });
 
     const base64 = response.data[0]?.base64 || "";
+    const url = (response.data?.[0] as any)?.url;
     const evidence: ProviderEvidence = {
       truthLevel: "VERIFIED",
       model: "flux-krea-v2",
@@ -104,7 +111,7 @@ export class ZAIImageAdapter implements IGenerationProvider {
 
     return {
       success: true,
-      data: { base64, size },
+      data: { base64, url, size },
       providerId: this.config.id,
       cost: 0,
       latencyMs: Date.now() - start,
@@ -118,6 +125,64 @@ export class ZAIImageAdapter implements IGenerationProvider {
 
   getCapabilities(): string[] {
     return ["images.generations.create", "sizes:512x512-1536x1024"];
+  }
+
+  estimateCost(): number { return 3; }
+}
+
+export class ZAIImageEditAdapter implements IGenerationProvider {
+  readonly config: ProviderConfig;
+  private zai: Awaited<ReturnType<typeof ZAI.create>> | null = null;
+
+  constructor() {
+    this.config = { ...ZAI_CONFIG, type: "image-edit", id: "zai-image-edit" };
+  }
+
+  private async init() {
+    if (!this.zai) this.zai = await ZAI.create();
+    return this.zai;
+  }
+
+  async generate(params: {
+    image: string | Blob;
+    prompt: string;
+    size?: string;
+  }): Promise<ProviderResult> {
+    const zai = await this.init();
+    const start = Date.now();
+    
+    const size = params.size || "1024x1024";
+    const response = await zai.images.generations.edit({
+      model: "flux-krea-v2" as any,
+      image: params.image as any,
+      prompt: params.prompt,
+      size: size as any,
+    });
+
+    const base64 = (response.data?.[0] as any)?.base64 || "";
+    const url = (response.data?.[0] as any)?.url;
+    const evidence: ProviderEvidence = {
+      truthLevel: "VERIFIED",
+      model: "flux-krea-v2",
+      timestamp: new Date().toISOString(),
+    };
+
+    return {
+      success: true,
+      data: { base64, url, size },
+      providerId: this.config.id,
+      cost: 0,
+      latencyMs: Date.now() - start,
+      evidence,
+    };
+  }
+
+  async isAvailable(): Promise<boolean> {
+    try { await this.init(); return true; } catch { return false; }
+  }
+
+  getCapabilities(): string[] {
+    return ["images.generations.edit", "nl-editing"];
   }
 
   estimateCost(): number { return 3; }

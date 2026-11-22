@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { chargeForCapability, refundCharge, type ChargeResult, type ChargeError } from "@/lib/credit-service";
 
 /**
  * POST /api/commercial/ad
@@ -7,6 +8,7 @@ import { NextRequest, NextResponse } from "next/server";
  * Body: { platform, format, productInfo, styleReference?, copy? }
  */
 export async function POST(req: NextRequest) {
+  let charge: ChargeResult | ChargeError | null = null;
   try {
     const body = await req.json();
     const { platform, format, productInfo, styleReference, copy } = body;
@@ -31,6 +33,15 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // Cobro atómico único (reembolso en caso de fallo)
+    charge = await chargeForCapability(
+      req.headers.get("authorization")?.replace("Bearer ", "") ?? "",
+      "commercial:ad"
+    );
+    if (!charge.ok) {
+      return NextResponse.json({ error: charge.error }, { status: charge.status });
+    }
+
     // Dynamic import to keep bundle lean
     const { CommercialCreativeEngine } = await import(
       "@/lib/commercial-creative-engine"
@@ -45,8 +56,9 @@ export async function POST(req: NextRequest) {
       copy,
     });
 
-    return NextResponse.json({ success: true, data: result });
+    return NextResponse.json({ success: true, data: result, credits: charge.ok ? charge.creditsLeft : undefined });
   } catch (e: unknown) {
+    if (charge?.ok) await refundCharge(charge.userId, "commercial:ad");
     const message = e instanceof Error ? e.message : "Error generating ad";
     return NextResponse.json({ success: false, error: message }, { status: 500 });
   }

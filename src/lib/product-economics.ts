@@ -12,7 +12,7 @@
  * Uses ZAI SDK for market-informed estimation, but always tags as ESTIMATED.
  */
 
-import ZAI from "z-ai-web-dev-sdk";
+import { getAiGateway } from "./ai-gateway";
 import { z } from "zod";
 import { parseStructuredResponse } from "@/lib/structured-output";
 import type { EvidenceTag } from "@/lib/product-fit";
@@ -74,14 +74,8 @@ const economicsResponseSchema = z.object({
 
 // ─── ZAI Adapter ──────────────────────────────────────────────────────────────
 
-let zaiInstance: Awaited<ReturnType<typeof ZAI.create>> | null = null;
-
-async function getZAI() {
-  if (!zaiInstance) {
-    zaiInstance = await ZAI.create();
-  }
-  return zaiInstance;
-}
+/** Única vía: puerta AI sobre contracts/provider-registry (sin SDK directo). */
+const getZAI = getAiGateway;
 
 // ─── Cost Benchmarks (Conservative Estimates) ─────────────────────────────────
 

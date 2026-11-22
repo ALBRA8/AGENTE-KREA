@@ -20,6 +20,10 @@ import type {
 } from "./types";
 import { PythonBridge } from "../bridges/python-bridge";
 import path from "path";
+import { execFile } from "child_process";
+import { promisify } from "util";
+
+const execFileAsync = promisify(execFile);
 
 // ─── Domain Types ──────────────────────────────────────────────────
 
@@ -63,12 +67,22 @@ export class InfoproductosPlugin implements ISkillPlugin {
     "generate-sales-page",
     "assemble-infoproduct",
     "review-style",
+    "generate-script",
+    "save-business-archive",
+    "read-business-archive",
   ];
   readonly dependencies: string[] = [];
 
   private _isReady = false;
   private pythonBridge: PythonBridge | null = null;
   private agentReason: SkillContext["agent"]["reason"] | null = null;
+  private envProbe: {
+    python: string;
+    chrome: string | null;
+    pil: boolean;
+    pymupdf: boolean;
+    pypdf: boolean;
+  } | null = null;
 
   get isReady(): boolean {
     return this._isReady;
@@ -98,6 +112,64 @@ export class InfoproductosPlugin implements ISkillPlugin {
     this._isReady = false;
     this.pythonBridge = null;
     this.agentReason = null;
+    this.envProbe = null;
+  }
+
+  /**
+   * Sonda del entorno Python (cacheada por proceso): Chrome, PIL, PyMuPDF.
+   * Degradación con gracia: las ops que renderizan devuelven NOT_VERIFIED
+   * con el motivo en vez de fallar en silencio.
+   */
+  private async probeEnv(): Promise<NonNullable<InfoproductosPlugin["envProbe"]>> {
+    if (this.envProbe) return this.envProbe;
+    try {
+      const result = await this.pythonBridge!.call({ script: "check_entorno.py", args: [] });
+      const parsed = (result.data as { parsed?: Record<string, unknown> })?.parsed;
+      if (parsed) {
+        this.envProbe = {
+          python: String(parsed.python ?? "unknown"),
+          chrome: (parsed.chrome as string | null) ?? null,
+          pil: Boolean(parsed.pil),
+          pymupdf: Boolean(parsed.pymupdf),
+          pypdf: Boolean(parsed.pypdf),
+        };
+        return this.envProbe;
+      }
+      // parseJson puede venir vacío — parsear stdout manualmente
+      const stdout = (result.data as { stdout?: string })?.stdout || "";
+      const match = stdout.match(/\{[\s\S]*\}/);
+      if (match) {
+        const parsed2 = JSON.parse(match[0]);
+        this.envProbe = {
+          python: String(parsed2.python ?? "unknown"),
+          chrome: (parsed2.chrome as string | null) ?? null,
+          pil: Boolean(parsed2.pil),
+          pymupdf: Boolean(parsed2.pymupdf),
+          pypdf: Boolean(parsed2.pypdf),
+        };
+        return this.envProbe;
+      }
+    } catch {
+      // probe falla → entorno mínimo
+    }
+    this.envProbe = { python: "unknown", chrome: null, pil: false, pymupdf: false, pypdf: false };
+    return this.envProbe;
+  }
+
+  /** Guard honesto para ops que requieren Chrome (render.py). */
+  private async requireChrome(start: number): Promise<SkillResult | null> {
+    const env = await this.probeEnv();
+    if (env.chrome) return null;
+    return {
+      success: false,
+      data: {
+        source: "NOT_VERIFIED — dependencia ausente",
+        reason: `Chrome/Edge no está disponible en este entorno (buscados: google-chrome, chromium, chromium-browser, microsoft-edge). La capacidad de render (render.py) no puede ejecutarse. La vía canónica de PDF/portada en KREA es TypeScript (pdf-factory + provider-registry); esta operación de marca es opcional.`,
+        env,
+      },
+      evidence: "NOT_VERIFIED" as EvidenceTag,
+      latencyMs: Date.now() - start,
+    };
   }
 
   async healthCheck(): Promise<SkillHealth> {
@@ -106,9 +178,24 @@ export class InfoproductosPlugin implements ISkillPlugin {
       return { status: "DOWN", details: "Python bridge not initialized", latencyMs: 0 };
     }
     const bridgeHealth = await this.pythonBridge.healthCheck();
+    if (bridgeHealth.status !== "CONNECTED") {
+      return {
+        status: bridgeHealth.status === "DEGRADED" ? "DEGRADED" : "DOWN",
+        details: bridgeHealth.details,
+        latencyMs: Date.now() - start,
+      };
+    }
+    const env = await this.probeEnv();
+    const missing = [
+      !env.chrome && "chrome (render.py)",
+      !env.pil && "PIL (portada/pagina_venta)",
+      !env.pymupdf && "PyMuPDF (revisar_estilo PDF)",
+    ].filter(Boolean);
     return {
-      status: bridgeHealth.status === "CONNECTED" ? "READY" : bridgeHealth.status === "DEGRADED" ? "DEGRADED" : "DOWN",
-      details: bridgeHealth.details,
+      status: missing.length === 0 ? "READY" : "DEGRADED",
+      details: missing.length === 0
+        ? `python ${env.python} — entorno completo`
+        : `python ${env.python} — degradado sin: ${missing.join(", ")}`,
       latencyMs: Date.now() - start,
     };
   }
@@ -145,6 +232,24 @@ export class InfoproductosPlugin implements ISkillPlugin {
 
         case "review-style":
           return await this.reviewStyle(params as { filePath: string });
+
+        case "generate-script":
+          return await this.generateScript(params as { jsonPath: string; outputPath: string });
+
+        case "save-business-archive":
+          return await this.saveBusinessArchive(params as {
+            archivo: string;
+            elemento?: string;
+            texto?: string;
+            gasto?: string;
+            crear?: boolean;
+            datos?: string[];
+            seccion?: string;
+            reemplazar?: boolean;
+          });
+
+        case "read-business-archive":
+          return await this.readBusinessArchive(params as { archivo: string; tema?: string });
 
         default:
           return {
@@ -196,9 +301,9 @@ export class InfoproductosPlugin implements ISkillPlugin {
 
   // ─── Paso 2: Validar demanda ─────────────────────────────────
 
-  private async validateDemand(params: { topic: string; country: string; excludeTerms?: string[] }): Promise<SkillResult> {
+  private async validateDemand(params: { topic: string; country: string; excludeTerms?: string[]; formatPhrases?: string[] }): Promise<SkillResult> {
     const start = Date.now();
-    const { topic, country, excludeTerms = [] } = params;
+    const { topic, country, excludeTerms = [], formatPhrases = [] } = params;
 
     if (!this.pythonBridge?.isConnected) {
       return {
@@ -215,18 +320,21 @@ export class InfoproductosPlugin implements ISkillPlugin {
     }
 
     try {
-      // Run autocompletado.py
-      const searchResult = await this.pythonBridge.call({
-        script: "autocompletado.py",
-        args: [topic, "--pais", country, "--expandir", "--excluir", excludeTerms.join(", "), "--salida", "busquedas.json"],
-      });
+      // Run autocompletado.py (las frases de formato van por --incluir: no
+      // dependemos de un formatos.json que nadie genera)
+      const args = [topic, "--pais", country, "--expandir", "--excluir", excludeTerms.join(", "), "--salida", "busquedas.json"];
+      if (formatPhrases.length > 0) {
+        args.push("--incluir", formatPhrases.join(", "));
+      }
+      const searchResult = await this.pythonBridge.call({ script: "autocompletado.py", args });
 
-      // Run validar_demanda.py
+      // Run validar_demanda.py con la única entrada que autocompletado produce
       const validationResult = await this.pythonBridge.call({
         script: "validar_demanda.py",
-        args: ["busquedas.json", "formatos.json", "--salida", "demanda"],
+        args: ["busquedas.json", "--salida", "demanda"],
       });
 
+      const searchOutput = (searchResult.data as any)?.stdout || "";
       const validationOutput = (validationResult.data as any)?.stdout || "";
       const verdict = this.parseVerdict(validationOutput);
 
@@ -238,6 +346,7 @@ export class InfoproductosPlugin implements ISkillPlugin {
           questions: [],
           formatSignals: {},
           competitors: [],
+          searchOutput,
           verdict,
           reasoning: validationOutput,
         },
@@ -301,6 +410,8 @@ export class InfoproductosPlugin implements ISkillPlugin {
 
   private async generateCover(params: { jsonPath: string; outputPath: string; backgroundImage?: string }): Promise<SkillResult> {
     const start = Date.now();
+    const chromeGuard = await this.requireChrome(start);
+    if (chromeGuard) return chromeGuard;
     if (!this.pythonBridge?.isConnected) {
       return { success: false, error: "Python bridge unavailable", evidence: "NOT_VERIFIED" as EvidenceTag, latencyMs: Date.now() - start };
     }
@@ -310,7 +421,7 @@ export class InfoproductosPlugin implements ISkillPlugin {
       await this.pythonBridge.call({ script: "portada.py", args });
       return {
         success: true,
-        data: { path: params.outputPath, costUsd: params.backgroundImage ? 0.25 : 0, evidence: "VERIFIED" },
+        data: { path: params.outputPath, evidence: "VERIFIED" },
         evidence: "VERIFIED" as EvidenceTag,
         latencyMs: Date.now() - start,
       };
@@ -323,6 +434,8 @@ export class InfoproductosPlugin implements ISkillPlugin {
 
   private async generateSalesPage(params: { jsonPath: string; outputDir: string }): Promise<SkillResult> {
     const start = Date.now();
+    const chromeGuard = await this.requireChrome(start);
+    if (chromeGuard) return chromeGuard;
     if (!this.pythonBridge?.isConnected) {
       return { success: false, error: "Python bridge unavailable", evidence: "NOT_VERIFIED" as EvidenceTag, latencyMs: Date.now() - start };
     }
@@ -343,6 +456,8 @@ export class InfoproductosPlugin implements ISkillPlugin {
 
   private async assembleInfoproduct(params: { jsonPath: string; outputDir: string; backgroundImage?: string }): Promise<SkillResult> {
     const start = Date.now();
+    const chromeGuard = await this.requireChrome(start);
+    if (chromeGuard) return chromeGuard;
     if (!this.pythonBridge?.isConnected) {
       return { success: false, error: "Python bridge unavailable", evidence: "NOT_VERIFIED" as EvidenceTag, latencyMs: Date.now() - start };
     }
@@ -405,6 +520,78 @@ export class InfoproductosPlugin implements ISkillPlugin {
   }
 
   // ─── Helpers ─────────────────────────────────────────────────
+
+  // ─── Paso 7b: Guion (webinar/podcast/minicurso) ─────────────
+
+  private async generateScript(params: { jsonPath: string; outputPath: string }): Promise<SkillResult> {
+    const start = Date.now();
+    if (!this.pythonBridge?.isConnected) {
+      return { success: false, error: "Python bridge unavailable", evidence: "NOT_VERIFIED" as EvidenceTag, latencyMs: Date.now() - start };
+    }
+    const chromeGuard = await this.requireChrome(start);
+    if (chromeGuard) return chromeGuard;
+    try {
+      const result = await this.pythonBridge.call({
+        script: "guion.py",
+        args: [params.jsonPath, params.outputPath],
+      });
+      const output = (result.data as { stdout?: string })?.stdout || "";
+      return { success: true, data: { path: params.outputPath, output, evidence: "VERIFIED" }, evidence: "VERIFIED" as EvidenceTag, latencyMs: Date.now() - start };
+    } catch (error) {
+      return { success: false, error: String(error), evidence: "NOT_VERIFIED" as EvidenceTag, latencyMs: Date.now() - start };
+    }
+  }
+
+  // ─── Archivo de negocio (guardar / leer) ────────────────────
+
+  private async saveBusinessArchive(params: {
+    archivo: string;
+    elemento?: string;
+    texto?: string;
+    gasto?: string;
+    crear?: boolean;
+    datos?: string[];
+    seccion?: string;
+    reemplazar?: boolean;
+  }): Promise<SkillResult> {
+    const start = Date.now();
+    if (!this.pythonBridge?.isConnected) {
+      return { success: false, error: "Python bridge unavailable", evidence: "NOT_VERIFIED" as EvidenceTag, latencyMs: Date.now() - start };
+    }
+    try {
+      const args: string[] = [params.archivo];
+      if (params.elemento) args.push("--elemento", params.elemento);
+      if (params.texto) args.push("--texto", params.texto);
+      if (params.texto && params.texto.includes("\n")) args.push("--desde");
+      if (params.gasto) args.push("--gasto", params.gasto);
+      if (params.crear) args.push("--crear");
+      if (params.datos && params.datos.length > 0) args.push("--datos", ...params.datos);
+      if (params.seccion) args.push("--seccion", params.seccion);
+      if (params.reemplazar) args.push("--reemplazar");
+      const result = await this.pythonBridge.call({ script: "guardar_en_archivo.py", args });
+      const output = (result.data as { stdout?: string })?.stdout || "";
+      return { success: true, data: { output, evidence: "VERIFIED" }, evidence: "VERIFIED" as EvidenceTag, latencyMs: Date.now() - start };
+    } catch (error) {
+      return { success: false, error: String(error), evidence: "NOT_VERIFIED" as EvidenceTag, latencyMs: Date.now() - start };
+    }
+  }
+
+  private async readBusinessArchive(params: { archivo: string; tema?: string }): Promise<SkillResult> {
+    const start = Date.now();
+    if (!this.pythonBridge?.isConnected) {
+      return { success: false, error: "Python bridge unavailable", evidence: "NOT_VERIFIED" as EvidenceTag, latencyMs: Date.now() - start };
+    }
+    try {
+      const args: string[] = [params.archivo];
+      if (params.tema) args.push(params.tema);
+      args.push("--leer");
+      const result = await this.pythonBridge.call({ script: "archivo_negocio.py", args });
+      const output = (result.data as { stdout?: string })?.stdout || "";
+      return { success: true, data: { output, evidence: "VERIFIED" }, evidence: "VERIFIED" as EvidenceTag, latencyMs: Date.now() - start };
+    } catch (error) {
+      return { success: false, error: String(error), evidence: "NOT_VERIFIED" as EvidenceTag, latencyMs: Date.now() - start };
+    }
+  }
 
   private parseVerdict(output: string): "advance" | "adjust_topic" | "change_format" {
     const lower = output.toLowerCase();

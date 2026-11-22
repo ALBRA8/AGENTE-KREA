@@ -15,6 +15,7 @@ import {
 import {
   ZAITextAdapter,
   ZAIImageAdapter,
+  ZAIImageEditAdapter,
   ZAIVoiceAdapter,
 } from "./zai.adapter";
 
@@ -34,6 +35,9 @@ export function getProvider(type: GenerationType): IGenerationProvider {
         break;
       case "image":
         instance = new ZAIImageAdapter();
+        break;
+      case "image-edit":
+        instance = new ZAIImageEditAdapter();
         break;
       case "voice":
         instance = new ZAIVoiceAdapter();

@@ -11,7 +11,7 @@
  * - Registrar evidencia
  */
 
-export type GenerationType = "image" | "text" | "voice" | "prompt";
+export type GenerationType = "image" | "image-edit" | "text" | "voice" | "prompt";
 
 export interface ProviderResult {
   success: boolean;
@@ -53,55 +53,4 @@ export interface IGenerationProvider {
   getCapabilities(): string[];
   
   estimateCost(params: Record<string, unknown>): number;
-}
-
-/**
- * Provider Manager — selecciona, ejecuta, y hace fallback
- */
-export class ProviderManager {
-  private providers: Map<GenerationType, IGenerationProvider[]> = new Map();
-
-  register(provider: IGenerationProvider): void {
-    const type = provider.config.type;
-    const existing = this.providers.get(type) || [];
-    existing.push(provider);
-    existing.sort((a, b) => a.config.priority - b.config.priority);
-    this.providers.set(type, existing);
-  }
-
-  async execute(type: GenerationType, params: Record<string, unknown>): Promise<ProviderResult> {
-    const providers = this.providers.get(type) || [];
-    
-    for (const provider of providers) {
-      if (!provider.config.enabled) continue;
-      
-      try {
-        const available = await provider.isAvailable();
-        if (!available) continue;
-        
-        const start = Date.now();
-        const result = await provider.generate(params);
-        result.latencyMs = Date.now() - start;
-        
-        if (result.success) return result;
-      } catch (e) {
-        // Try next provider (fallback)
-        continue;
-      }
-    }
-
-    return {
-      success: false,
-      data: null,
-      providerId: "none",
-      cost: 0,
-      latencyMs: 0,
-      evidence: { truthLevel: "UNKNOWN", timestamp: new Date().toISOString() },
-      error: `No available provider for type: ${type}`,
-    };
-  }
-
-  getProviders(type: GenerationType): IGenerationProvider[] {
-    return this.providers.get(type) || [];
-  }
 }

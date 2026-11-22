@@ -9,17 +9,18 @@
  *   - PAS  (Problem, Agitation, Solution)
  *   - Hooks + beneficio principal + CTA urgente
  *
- * Usa el ZAI SDK Bridge para generación de imágenes y copy.
+ * Usa la capa de proveedor unificada (contracts/provider-registry) para
+ * generación de imágenes y copy.
  */
 
-import { zaiSdkBridge } from "./bridges/zai-sdk-bridge";
+import { getProvider } from "@/contracts/provider-registry";
 
 // ═══════════════════════════════════════════════════════════════════
 // TYPES — Self-contained, no external type imports
 // ═══════════════════════════════════════════════════════════════════
 
 export type AdPlatform = "meta" | "tiktok" | "google";
-export type AdFormat = "feed" | "story" | "carousel" | "banner" | "shopping";
+export type AdFormat = "feed" | "story" | "carousel" | "display-banner" | "shopping";
 export type LandingSectionType =
   | "hero"
   | "offer"
@@ -98,17 +99,6 @@ export interface VariantParams {
   language?: Language;
 }
 
-export interface LaunchPackageParams {
-  productInfo: ProductInfo;
-  productImage?: string;
-  platforms: AdPlatform[];
-  adFormats: AdFormat[];
-  sectionTypes: LandingSectionType[];
-  mockupTypes: MockupType[];
-  language?: Language;
-  styleReference?: string;
-}
-
 export interface CreativeResult {
   success: boolean;
   imageBase64?: string;
@@ -141,13 +131,6 @@ export interface VariantPackResult {
   }>;
 }
 
-export interface LaunchPackageResult {
-  success: boolean;
-  ads: CreativeResult[];
-  sections: SectionResult[];
-  mockups: CreativeResult[];
-  totalAssets: number;
-}
 
 // ═══════════════════════════════════════════════════════════════════
 // DIMENSION MAPS — Platform-specific ad sizes
@@ -158,21 +141,21 @@ const AD_DIMENSIONS: Record<AdPlatform, Record<AdFormat, string>> = {
     feed: "1080x1080",
     story: "1080x1920",
     carousel: "1080x1080",
-    banner: "1200x628",
+    "display-banner": "1200x628",
     shopping: "1080x1080",
   },
   tiktok: {
     feed: "1080x1920",
     story: "1080x1920",
     carousel: "1080x1080",
-    banner: "1080x1920",
+    "display-banner": "1080x1920",
     shopping: "1080x1080",
   },
   google: {
     feed: "1200x628",
     story: "1080x1920",
     carousel: "1080x1080",
-    banner: "300x250",
+    "display-banner": "300x250",
     shopping: "1200x1200",
   },
 };
@@ -246,7 +229,7 @@ function buildAdImagePrompt(params: AdGenerationParams): string {
     feed: "in-feed square or rectangular ad",
     story: "vertical full-screen story ad",
     carousel: "carousel card square ad",
-    banner: "display banner ad",
+    "display-banner": "display banner ad",
     shopping: "product shopping ad",
   };
 
@@ -306,7 +289,7 @@ function buildAdImagePrompt(params: AdGenerationParams): string {
     promptParts.push(
       "Layout: square 1:1, single product hero shot, clean background, headline and CTA prominent, swipe-worthy visual."
     );
-  } else if (adFormat === "banner") {
+  } else if (adFormat === "display-banner") {
     promptParts.push(
       "Layout: wide format, product on one side, headline and CTA on the other, balanced composition."
     );
@@ -527,18 +510,18 @@ async function generateCopy(
 
   try {
     const messages = buildCopyPrompt(purpose, context);
-    const result = await zaiSdkBridge.chat({
+    const result = await getProvider("text").generate({
       messages,
       temperature: 0.8,
       maxTokens: 500,
     });
 
-    if (!result.success || !result.data?.content) {
+    if (!result.success || !(result.data as { content?: string })?.content) {
       return fallbackCopy(purpose, context, ls);
     }
 
     // Parse JSON from the response — handle markdown code blocks
-    let content = result.data.content.trim();
+    let content = ((result.data as { content?: string }).content as string).trim();
     // Strip ```json ... ``` wrapping if present
     const jsonMatch = content.match(/```(?:json)?\s*([\s\S]*?)```/);
     if (jsonMatch) {
@@ -632,16 +615,16 @@ async function generateCreativeImage(
   size: string
 ): Promise<{ base64: string; url?: string } | null> {
   try {
-    const result = await zaiSdkBridge.generateImage({
+    const result = await getProvider("image").generate({
       prompt,
       size,
-      model: "flux-krea-v2",
     });
 
     if (result.success && result.data) {
+      const data = result.data as { base64?: string; url?: string };
       return {
-        base64: result.data.base64,
-        url: result.data.url,
+        base64: data.base64 ?? "",
+        url: data.url,
       };
     }
 
@@ -864,127 +847,6 @@ export async function generateVariantPack(
   };
 }
 
-/**
- * Generate a complete launch package — the whole creative arsenal.
- *
- * Produces:
- *   - Ads: for each (platform × adFormat) combination
- *   - Landing sections: for each requested section type
- *   - Mockups: for each requested mockup type
- *
- * Total assets = ads.length + sections.length + mockups.length
- */
-export async function generateLaunchPackage(
-  params: LaunchPackageParams
-): Promise<LaunchPackageResult> {
-  const {
-    productInfo,
-    productImage,
-    platforms,
-    adFormats,
-    sectionTypes,
-    mockupTypes,
-    language,
-    styleReference,
-  } = params;
-  const lang = language ?? "es";
-
-  const ads: CreativeResult[] = [];
-  const sections: SectionResult[] = [];
-  const mockups: CreativeResult[] = [];
-
-  // Generate all ad combinations (platform × format)
-  const adPromises: Promise<CreativeResult>[] = [];
-  for (const platform of platforms) {
-    for (const adFormat of adFormats) {
-      adPromises.push(
-        generateAd({
-          productImage,
-          platform,
-          adFormat,
-          styleReference,
-          productInfo,
-          language: lang,
-        })
-      );
-    }
-  }
-
-  // Generate all sections
-  const sectionPromises: Promise<SectionResult>[] = [];
-  for (const sectionType of sectionTypes) {
-    sectionPromises.push(
-      generateLandingSection({
-        sectionType,
-        productInfo,
-        language: lang,
-      })
-    );
-  }
-
-  // Generate all mockups
-  const mockupPromises: Promise<CreativeResult>[] = [];
-  for (const mockupType of mockupTypes) {
-    mockupPromises.push(
-      generateMockup({
-        productImage: productImage ?? "",
-        mockupType,
-        productInfo,
-        language: lang,
-      })
-    );
-  }
-
-  // Execute all in parallel for speed
-  const [adResults, sectionResults, mockupResults] = await Promise.all([
-    Promise.all(adPromises),
-    Promise.all(sectionPromises),
-    Promise.all(mockupPromises),
-  ]);
-
-  ads.push(...adResults);
-  sections.push(...sectionResults);
-  mockups.push(...mockupResults);
-
-  const totalAssets = ads.length + sections.length + mockups.length;
-
-  return {
-    success: totalAssets > 0,
-    ads,
-    sections,
-    mockups,
-    totalAssets,
-  };
-}
-
-// ═══════════════════════════════════════════════════════════════════
-// DEFAULT LAUNCH PACKAGE — Pre-configured for quick start
-// ═══════════════════════════════════════════════════════════════════
-
-/**
- * Quick-start: generate a standard launch package with recommended defaults.
- *
- * 3 ad formats × 2 platforms + 5 landing sections + 2 mockups
- */
-export async function generateDefaultLaunchPackage(params: {
-  productInfo: ProductInfo;
-  productImage?: string;
-  language?: Language;
-  styleReference?: string;
-}): Promise<LaunchPackageResult> {
-  return generateLaunchPackage({
-    productInfo: params.productInfo,
-    productImage: params.productImage,
-    platforms: ["meta", "tiktok"],
-    adFormats: ["feed", "story", "carousel"],
-    sectionTypes: ["hero", "offer", "benefits", "testimonials", "how-to-use"],
-    mockupTypes: ["phone", "flat-lay"],
-    language: params.language ?? "es",
-    styleReference: params.styleReference,
-  });
-}
-
-// ═══════════════════════════════════════════════════════════════════
 // UTILITY — Quick single-shot helpers
 // ═══════════════════════════════════════════════════════════════════
 
@@ -1036,7 +898,7 @@ export async function generateGoogleAd(params: {
   return generateAd({
     productImage: params.productImage,
     platform: "google",
-    adFormat: params.adFormat ?? "banner",
+    adFormat: params.adFormat ?? "display-banner",
     productInfo: params.productInfo,
     language: params.language ?? "es",
   });
@@ -1080,7 +942,6 @@ export class CommercialCreativeEngine {
     sectionTypes: LandingSectionType[];
     mockupTypes: MockupType[];
     angles: CreativeAngle[];
-    pricing: Record<string, string>;
   } {
     return {
       platforms: ["meta", "tiktok", "google"],
@@ -1098,13 +959,6 @@ export class CommercialCreativeEngine {
       ],
       mockupTypes: ["phone", "laptop", "billboard", "box", "bottle", "tshirt", "flat-lay"],
       angles: ["price", "emotion", "social-proof", "scarcity", "authority", "curiosity"],
-      pricing: {
-        ad: "1 credit per ad creative",
-        section: "1 credit per landing section",
-        mockup: "1 credit per mockup",
-        variantPack: "N credits (1 per variant)",
-        launchPackage: "Sum of all included assets",
-      },
     };
   }
 
@@ -1189,43 +1043,4 @@ export class CommercialCreativeEngine {
     });
   }
 
-  /**
-   * Generate a complete launch package.
-   *
-   * Accepts `sections` or `sectionTypes` for flexibility with API routes.
-   */
-  async generateLaunchPackage(params: {
-    productInfo: ProductInfo;
-    productImage?: string;
-    platforms: AdPlatform[];
-    adFormats?: AdFormat[];
-    sections?: LandingSectionType[];
-    sectionTypes?: LandingSectionType[];
-    mockupTypes: MockupType[];
-    language?: Language;
-    styleReference?: string;
-  }): Promise<LaunchPackageResult> {
-    return generateLaunchPackage({
-      productInfo: params.productInfo,
-      productImage: params.productImage,
-      platforms: params.platforms,
-      adFormats: params.adFormats ?? ["feed", "story", "carousel"],
-      sectionTypes: params.sectionTypes ?? params.sections ?? ["hero", "offer", "benefits"],
-      mockupTypes: params.mockupTypes,
-      language: params.language,
-      styleReference: params.styleReference,
-    });
-  }
-
-  /**
-   * Quick-start default launch package.
-   */
-  async generateDefaultLaunchPackage(params: {
-    productInfo: ProductInfo;
-    productImage?: string;
-    language?: Language;
-    styleReference?: string;
-  }): Promise<LaunchPackageResult> {
-    return generateDefaultLaunchPackage(params);
-  }
 }

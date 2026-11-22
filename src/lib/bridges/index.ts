@@ -6,7 +6,6 @@
  */
 
 export * from "./types";
-export { ZaiSdkBridge, zaiSdkBridge } from "./zai-sdk-bridge";
 export {
   PythonBridge,
   infoproductosPythonBridge,

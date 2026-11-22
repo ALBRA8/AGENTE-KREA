@@ -4,6 +4,20 @@ import { adapterRegistry } from "@/lib/agent-adapter";
 import { bridgeRegistry } from "@/lib/bridges/types";
 import { skillRegistry } from "@/lib/harness/types";
 import { knowledgeRegistry } from "@/lib/harness/knowledge-registry";
+import { chargeForCapability, refundCharge, type Capability, type ChargeResult, type ChargeError } from "@/lib/credit-service";
+
+/**
+ * Operaciones de skill que cobran créditos. Las operaciones puras en TS
+ * (recommend-format, build-index) no cobran.
+ */
+const SKILL_COSTS: Record<string, Capability> = {
+  "validate-demand": "infoproductos:validate-demand",
+  "review-infoproduct": "infoproductos:review-infoproduct",
+  "review-style": "infoproductos:review-style",
+  "generate-cover": "infoproductos:generate-cover",
+  "generate-sales-page": "infoproductos:generate-sales-page",
+  "assemble-infoproduct": "infoproductos:assemble-infoproduct",
+};
 
 /**
  * GET /api/harness — Status del arnés KREA
@@ -30,6 +44,7 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
+  let charge: ChargeResult | ChargeError | null = null;
   try {
     const body = await request.json();
     const { operation } = body;
@@ -77,8 +92,26 @@ export async function POST(request: Request) {
 
       case "execute-skill": {
         const { skillId, skillOperation, skillParams } = body;
-        const result = await kreaHarness.executeSkill(skillId, skillOperation, skillParams);
-        return NextResponse.json({ result });
+
+        // Validación de sesión real + cobro por operación con costo
+        const capability = SKILL_COSTS[skillOperation];
+        if (capability) {
+          charge = await chargeForCapability(
+            request.headers.get("authorization")?.replace("Bearer ", "") ?? "",
+            capability
+          );
+          if (!charge.ok) {
+            return NextResponse.json({ error: charge.error }, { status: charge.status });
+          }
+        }
+
+        try {
+          const result = await kreaHarness.executeSkill(skillId, skillOperation, skillParams);
+          return NextResponse.json({ result, credits: charge?.ok ? charge.creditsLeft : undefined });
+        } catch (e: unknown) {
+          if (charge?.ok && capability) await refundCharge(charge.userId, capability);
+          throw e;
+        }
       }
 
       default:
