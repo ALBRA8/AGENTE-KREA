@@ -242,8 +242,22 @@ export interface EcomExportParams {
     type: string;
     url: string;
     alt?: string;
+    /** "jpg" | "png" | ... si se conoce — se valida contra los formatos aceptados de la plataforma */
+    format?: string;
+    /** Tamaño en bytes si se conoce — se valida contra el límite de la plataforma */
+    sizeBytes?: number;
   }>;
   metadata?: Record<string, string>;
+}
+
+/** Informe del envío HTTP real (o del motivo por el que no se intentó) */
+export interface EcomSendReport {
+  attempted: boolean;
+  ok: boolean;
+  status?: number;
+  endpoint?: string;
+  responsePreview?: string;
+  error?: string;
 }
 
 export interface EcomExportResult {
@@ -252,6 +266,10 @@ export interface EcomExportResult {
   exportedAssets: number;
   exportUrl?: string;    // URL to the exported product on the platform
   errors?: string[];
+  /** Credenciales detectadas para la plataforma (env vars) */
+  credentials?: { present: boolean; missingEnvVars: string[] };
+  /** Detalle del envío HTTP real cuando se intentó; attempted=false = solo payload preparado */
+  send?: EcomSendReport;
 }
 
 // ─── Product Organization ──────────────────────────────────────────

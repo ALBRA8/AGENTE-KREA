@@ -13,6 +13,7 @@
 | D — Verificación honesta | Clon limpio 7/7 en 0 errores; E2E real de misión exit 0 (evidencia abajo); informe, README y JSONs de misión actualizados | este commit |
 | D.5 — P1 resuelto (portada) | Detección de formato por bytes reales (`image-format.ts`), productor nombra por bytes reales, 7 tests nuevos de regresión; E2E re-ejecutado con portada embebida verificada | ver §3.1 |
 | E — Pendientes P2–P6 resueltos | Smoke real 13/13 rutas comerciales con generación real; 4 bugs raíz arreglados (tamaño del API, honestidad de rutas, export 500, buildLaunchBatch); edición NL real; validate-demand con red real; orquestador vía HTTP síncrono; 6 tests nuevos de `normalizeImageSize` | ver §3.2 |
+| F — P4: capa de envío HTTP real de export ecommerce | `ecom-export` envía de verdad a las APIs documentadas (Shopify/WooCommerce/TiendaNube) con credenciales por env vars; validación de formato/tamaño por plataforma; funnelish honesto (sin API pública); 14 tests con servidor loopback real + demo de evidencia exit 0 | ver §3.3 |
 
 ## 2. Verificación del clon limpio (FASE D.1) — SALIDA REAL
 
@@ -28,7 +29,7 @@ Clon fresco en `/tmp/krea-clean` (`git clone` del repo). Comandos y resultados:
 | `npm test` | exit 0 | **Test Files 25 passed · Tests 345 passed** |
 | `npm run build` | exit 0 | 72 rutas compiladas |
 
-Umbral del dueño (≥241 tests): **345 ≥ 241 CUMPLE** (203 baseline + 128 re-integrados + 14 nuevos de las suites `.bak` reparadas). Tras resolver el P1 la suite queda en **352** (7 nuevos de regresión de portada, §3.1) — verificado en el repo de trabajo: `tsc 0 errores · eslint 0 errores · 352/352 · build 0`. Tras resolver P2–P6 queda en **358** (6 nuevos de `normalizeImageSize`, §3.2). Re-verificación de clon limpio al cierre de la fase E (`a2447b7`): los 7 comandos exit 0, 352/352 en el clon. Ningún test fue retirado sin justificación (ver §5).
+Umbral del dueño (≥241 tests): **345 ≥ 241 CUMPLE** (203 baseline + 128 re-integrados + 14 nuevos de las suites `.bak` reparadas). Tras resolver el P1 la suite queda en **352** (7 nuevos de regresión de portada, §3.1) — verificado en el repo de trabajo: `tsc 0 errores · eslint 0 errores · 352/352 · build 0`. Tras resolver P2–P6 queda en **358** (6 nuevos de `normalizeImageSize`, §3.2). Tras la fase F (capa de envío de export) queda en **372** (14 nuevos de `ecom-export`, §3.3): `tsc 0 · eslint 0 · 372/372 · build 0`. Re-verificación de clon limpio al cierre de la fase E (`a2447b7`): los 7 comandos exit 0, 352/352 en el clon. Ningún test fue retirado sin justificación (ver §5).
 
 ## 3. Flujo E2E real de misión (FASE D.2) — SALIDA REAL, exit 0
 
@@ -115,7 +116,52 @@ templates      | HTTP 200 |    0.0s |     4626 B | success=true
 
 **P6 — Orquestador vía HTTP (decisión: síncrono):** `POST /api/product/produce` ahora ejecuta la fábrica de verdad (opcional `execute:false` para solo crear el registro) y `POST /api/product/factory/execute` ejecuta `executeFactory` y persiste el resultado; el dossier avanza PRODUCING→QA (éxito) o →FAILED (error), respetando la máquina de estados. Evidencia real: dossier nuevo → produce → **201, 563s, `book_factory` COMPLETED, 2 artefactos, dossier en QA** (`download/evidencia-smoke-commercial/p6-produce.json`). La alternativa de cola quedó documentada como evolución futura.
 
-Verificación del código tras los fixes: `tsc 0 · eslint 0 · 358/358 tests · build 0`.
+Verificación del código tras la fase F: `tsc 0 · eslint 0 · 372/372 tests · build 0`.
+
+## 3.3 FASE F — P4: capa de envío HTTP real de export ecommerce (evidencia real)
+
+**Antes:** `exportToEcom` preparaba el payload y devolvía un success simulado — nunca había un intento de envío ni informe de credenciales (honesty.realHttpSend: NOT_VERIFIED por diseño).
+
+**Ahora (modo real con credenciales):** cuando las env vars de la plataforma están presentes (`CREDENTIAL_ENV_VARS`), `exportToEcom` hace POSTs HTTP reales a la API documentada de cada plataforma, un asset por vez, con timeout (15s) e informe por asset:
+
+| Plataforma | Endpoint real | Auth | Fuente |
+|---|---|---|---|
+| Shopify | `POST {store}/admin/api/{v}/products/{id}/images.json` (una imagen por request, body `{image:{src,alt,position}}`) | header `X-Shopify-Access-Token` | Admin API documentada (versión configurable `KREA_SHOPIFY_API_VERSION`, default 2024-01) |
+| WooCommerce | `POST {site}/wp-json/wc/v3/products/{id}` (update del producto con `images[]`; el sub-recurso `/images` que usaba la config anterior no existe en REST v3) | Basic auth (consumer key/secret) | WooCommerce REST API v3 "Update a product" |
+| TiendaNube | `POST https://api.tiendanube.com/v1/{store_id}/products/{id}/images` (201) | header `Authentication: Bearer` + `User-Agent` obligatorio | API v1 documentada (OpenAPI de TiendaNube/Nuvemshop) |
+| Funnelish | sin envío real | — | **Honesto:** no hay API pública REST de imágenes de producto (solo webhooks); queda en payload preparado con `honesty.realHttpSend: NOT_SUPPORTED_NO_PUBLIC_API` |
+
+Además: validación nueva de `format` y `sizeBytes` de cada asset contra los límites declarados por plataforma (`acceptedFormats`, `maxImageSize`), `success` espeja el resultado real de los envíos, y la ruta `/api/commercial/export` devuelve `honesty.realHttpSend` con tres estados reales: `SENT_OK` / `SENT_FAILED` / `NOT_VERIFIED_NO_CREDENTIALS` (con la lista exacta de env vars faltantes).
+
+**Evidencia — tests (14, servidor loopback con TCP + fetch reales):** suite `src/lib/__tests__/ecom-export.test.ts` — verifica path exacto, headers de auth (Shopify token / WooCommerce Basic base64 / TiendaNube Bearer + User-Agent), body por plataforma, conteo de assets secuenciales, rechazo HTTP 422 preservando status, error de conexión real, timeout abortado, prepared-only sin credenciales con lista de env vars, funnelish por diseño, y validación de formato/tamaño.
+
+**Evidencia — demo fuera de vitest (exit 0):** `npx tsx scripts/demo-export-send.ts` →
+
+```
+[shopify]     success=true exportedAssets=1 send.status=201 endpoint=.../admin/api/2024-01/products/prod-evidencia-42/images.json
+[woocommerce] success=true exportedAssets=1 send.status=200 endpoint=.../wp-json/wc/v3/products/prod-evidencia-42
+[tiendanube]  success=true exportedAssets=1 send.status=201 endpoint=.../v1/559977/products/prod-evidencia-42/images
+[shopify sin credenciales] send.attempted=false missing=KREA_SHOPIFY_STORE,KREA_SHOPIFY_ADMIN_TOKEN
+[funnelish]  send.attempted=false (sin API pública de imágenes — por diseño)
+VEREDICTO: 3/3 envíos reales aceptados por el stub loopback
+```
+
+**Evidencia — smoke de la RUTA HTTP real contra servidor de producción (exit 0, 3/3):** `scripts/smoke-export-route.sh` vía `run-with-server.sh` →
+
+```
+export shopify (sin credenciales) | HTTP 200 | honesty=NOT_VERIFIED_NO_CREDENTIALS missing=["KREA_SHOPIFY_STORE","KREA_SHOPIFY_ADMIN_TOKEN"] | OK
+export funnelish               | HTTP 200 | honesty=NOT_SUPPORTED_NO_PUBLIC_API | OK
+export formato tiff            | HTTP 200 | success=false error=Asset format "tiff" not accepted by Shopify | OK
+RESUMEN export ruta: OK=3 FAIL=0
+```
+
+Evidencias JSON: `download/evidencia-export-ecom/` (`evidencia-export-send.json`, `smoke-ruta-*.json`).
+
+**Hallazgo del smoke de ruta (arreglado):** la ruta descartaba `format`/`sizeBytes` de los creatives al mapear al contrato `EcomExportParams` — la validación contra límites de plataforma nunca los veía (el tiff pasaba como válido). Fix: la ruta los pasa al contrato; el smoke lo verifica (caso 3).
+
+**Nota del propio smoke:** primera corrida del caso 3 marcaba FAIL por un bug del script de smoke (jq `false // empty` traga un `false` legítimo de `.success`), no de la app; corregido el script, 3/3.
+
+**Límite honesto:** el stub loopback es TCP/fetch reales pero NO es Shopify/Woo/TiendaNube productivas; el paso final a VERIFIED-productivo requiere credenciales reales del dueño (env vars documentadas en `.env.example`). Hallazgo del entorno: vitest+jsdom tiene dos realms de AbortSignal y Node fetch rechaza el de jsdom — el timeout se implementa con `Promise.race` portable.
 
 ## 4. TABLA CAPACIDAD → ESTADO (FASE D.3/D.4 — reclasificación honesta)
 
@@ -131,7 +177,7 @@ Todo lo que antes estaba "VERIFIED por prueba general previa" que no tiene prueb
 | Créditos atómicos + reembolso | VERIFIED | `auth.test.ts` (10) + `mission-routes.test.ts` (33) + wiring en las 3 puertas |
 | `/api/commercial/*` generación (logo/banner/email/catalog/ad/landing/mockup/variants/edit/batch/launch-pack/templates) | VERIFIED | smoke real 13/13 con generación de imagen IA real por ruta (§3.2); créditos cobrados exactos (33) |
 | Edición NL (`/api/commercial/edit`) | VERIFIED | 28.6s, imagen editada real 127KB vía `images.generations.edit` (§3.2, P3) |
-| Export ecommerce | NOT_VERIFIED (parcial por diseño) | ruta expuesta y smoke OK con payload preparado (exit 0, 503B, 1 asset; §3.2); sin envío HTTP real — requiere OAuth de la plataforma (`honesty.realHttpSend: NOT_VERIFIED`) |
+| Export ecommerce | VERIFIED en capa de envío (loopback real); plataforma productiva pendiente de credenciales | envío HTTP real implementado y demostrado exit 0 contra stub loopback TCP/fetch (§3.3, 3/3; 14 tests); con credenciales del dueño hace POSTs reales a las APIs documentadas; funnelish honesto (sin API pública) |
 | Ads (meta/tiktok/google) | VERIFIED | ad route con imagen real 34s (§3.2); compilación y pruebas de copia/fallback |
 | Pipeline Product Factory (oportunidad→entrega) | VERIFIED | E2E real exit 0 (§3) + 345 tests unitarios + producción vía HTTP real: produce 201, book_factory COMPLETED, dossier→QA (§3.2 P6) |
 | `evaluateProductFit` con LLM real | VERIFIED | E2E: 0.77 PROCEED (2 llamadas reales en dos corridas) |
@@ -169,7 +215,7 @@ Todo lo que antes estaba "VERIFIED por prueba general previa" que no tiene prueb
 1. ~~**P1 — Portada no embebida en PDF**~~ → **RESUELTO** (detección por magic bytes + nomenclatura por bytes reales; evidencia en §3.1; 7 tests de regresión).
 2. ~~**P2 — Smoke real por ruta comercial**~~ → **RESUELTO** (13/13 con generación real; 4 bugs raíz arreglados; evidencia y hallazgos en §3.2).
 3. ~~**P3 — Edición NL**~~ → **RESUELTO** (28.6s, imagen editada real vía `images.generations.edit`; §3.2).
-4. **P4 — Export ecommerce:** credenciales OAuth reales de una plataforma para pasar de payload a envío VERIFIED.
+4. ~~**P4 — Export ecommerce**~~ → **RESUELTO en capa de envío** (envío HTTP real a Shopify/WooCommerce/TiendaNube con credenciales por env vars; 14 tests loopback + demo exit 0 3/3; §3.3). Paso final a VERIFIED-productivo: setear las credenciales reales del dueño (documentadas en `.env.example`) y correr un envío a la tienda real.
 5. ~~**P5 — validate-demand con red**~~ → **RESUELTO** (VERIFIED con Google real, 37.8s; §3.2).
 6. ~~**P6 — Orchestrator vía HTTP**~~ → **RESUELTO** (decisión: ejecución síncrona con `execute:false` opcional; evidencia real en §3.2). Evolución futura: cola si se requiere multi-usuario.
 7. **P7 — Token de GitHub:** el token expuesto en el chat debió revocarse en GitHub (no lo guardo en ningún archivo); para futuros pushes usar token nuevo o SSH.

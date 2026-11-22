@@ -9,8 +9,8 @@ Fábrica unificada de producción: **activos creativos con IA** + **fábrica de 
 | Capa | Capacidad | Entrada HTTP | Estado |
 |---|---|---|---|
 | Creativa | prompts, imágenes, texto, voz, subtítulos, eBooks PDF | `/api/generate/*` | VERIFIED (créditos atómicos + reembolso) |
-| Creativa | logos, banners, email, catálogos, ads, landings, mockups, variantes, edición NL, plantillas, batch, launch-pack | `/api/commercial/*` | VERIFIED generación (créditos atómicos); export ecommerce NOT_VERIFIED (requiere OAuth) |
-| Producto | pipeline completo del Product Factory | `/api/product/*` | VERIFIED en módulos y e2e de script (ver INFORME-ESTADO); la ejecución real del orchestrator aún no dispara generación desde HTTP |
+| Creativa | logos, banners, email, catálogos, ads, landings, mockups, variantes, edición NL, plantillas, batch, launch-pack | `/api/commercial/*` | VERIFIED generación (créditos atómicos); export ecommerce con envío HTTP real (Shopify/WooCommerce/TiendaNube, credenciales por env vars — verificado contra loopback; productivo requiere credenciales del dueño) |
+| Producto | pipeline completo del Product Factory | `/api/product/*` | VERIFIED en módulos y e2e de script (ver INFORME-ESTADO); produce/factory-execute ejecutan la fábrica vía HTTP síncrona (P6, evidencia en INFORME-ESTADO §3.2) |
 | Arnés | validación demanda, revisión contenido/estilo, archivo de negocio, guion, ensamble | `/api/harness` (execute-skill) | VERIFIED ops puras; render Python NOT_VERIFIED sin Chrome (degrada con motivo) |
 
 Detalles, evidencia y pendientes: **[INFORME-ESTADO.md](./INFORME-ESTADO.md)**.

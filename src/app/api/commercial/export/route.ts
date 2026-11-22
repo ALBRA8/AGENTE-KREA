@@ -3,12 +3,15 @@ import { chargeForCapability, refundCharge, type ChargeResult, type ChargeError 
 
 /**
  * POST /api/commercial/export
- * Prepara el payload de exportación para una plataforma ecommerce
+ * Exporta creativos a una plataforma ecommerce
  * (shopify / woocommerce / tiendanube / funnelish).
  *
- * NOTA HONESTA: la implementación prepara el payload y devuelve el endpoint
- * destino; NO realiza la llamada HTTP real (requiere credenciales OAuth de la
- * plataforma). Estado de la capacidad: PARTIAL / NOT_VERIFIED para envío real.
+ * Con credenciales reales (env vars por plataforma — ver CREDENTIAL_ENV_VARS en
+ * ecom-export.ts) hace el envío HTTP real a la API documentada de la plataforma.
+ * Sin credenciales prepara el payload y devuelve el endpoint destino con la
+ * lista exacta de env vars faltantes (honesty.realHttpSend: NOT_VERIFIED_NO_CREDENTIALS).
+ * Funnelish no tiene API pública REST de imágenes de producto — honesty:
+ * NOT_SUPPORTED_NO_PUBLIC_API.
  *
  * Body: { platform, productData, creatives? }
  */
@@ -48,10 +51,14 @@ export async function POST(req: NextRequest) {
         (typeof productDataObj.productId === "string" && productDataObj.productId) ||
         `prepared-${Date.now()}`,
       assets: creativeAssets.map(
-        (c: { url?: string; type?: string; alt?: string }) => ({
+        (c: { url?: string; type?: string; alt?: string; format?: string; sizeBytes?: number }) => ({
           url: c?.url ?? "",
           type: c?.type ?? "image",
           alt: c?.alt,
+          // Pasar format/sizeBytes al contrato para que la validación contra
+          // los límites reales de la plataforma los vea (smoke export-ruta, P4)
+          format: typeof c?.format === "string" ? c.format : undefined,
+          sizeBytes: typeof c?.sizeBytes === "number" ? c.sizeBytes : undefined,
         })
       ),
       metadata: {
@@ -66,13 +73,30 @@ export async function POST(req: NextRequest) {
     } as Parameters<typeof exportToEcom>[0]);
     const platformInfo = getPlatformInfo(platform);
 
+    // Honestidad espejada del resultado real de la librería
+    const send = (result as { send?: { attempted?: boolean; ok?: boolean }; credentials?: { present?: boolean; missingEnvVars?: string[] } }).send;
+    const credentials = (result as { credentials?: { present?: boolean; missingEnvVars?: string[] } }).credentials;
+    let realHttpSend = "NOT_VERIFIED_NO_CREDENTIALS";
+    let reason = "Sin credenciales de la plataforma — se prepara el payload y el endpoint destino";
+    if (send?.attempted) {
+      realHttpSend = send.ok ? "SENT_OK" : "SENT_FAILED";
+      reason = send.ok
+        ? "Envío HTTP real ejecutado a la API de la plataforma"
+        : "Envío HTTP real intentado y rechazado por la plataforma (ver data.send)";
+    } else if (platform === "funnelish") {
+      realHttpSend = "NOT_SUPPORTED_NO_PUBLIC_API";
+      reason = "Funnelish no tiene API pública REST de imágenes de producto (solo webhooks) — payload preparado";
+    } else if (credentials?.missingEnvVars?.length) {
+      reason = `Faltan env vars de credenciales: ${credentials.missingEnvVars.join(", ")}`;
+    }
+
     return NextResponse.json({
       success: (result as { success?: boolean }).success ?? true,
       data: result,
       platformInfo,
       honesty: {
-        realHttpSend: "NOT_VERIFIED",
-        reason: "Requiere credenciales OAuth de la plataforma — se prepara el payload y el endpoint destino",
+        realHttpSend,
+        reason,
       },
       credits: charge.ok ? charge.creditsLeft : undefined,
     });
