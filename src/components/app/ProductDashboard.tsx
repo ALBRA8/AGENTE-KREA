@@ -1611,9 +1611,11 @@ interface ProductDashboardProps {
 export default function ProductDashboard({ initialSection = "opportunities" }: ProductDashboardProps) {
   const [internalSection, setInternalSection] = useState<Section>(initialSection);
   // When the parent changes the initialSection (different nav item clicked), update internal state
-  const activeSection = initialSection !== internalSection &&
-    ["opportunities", "dossiers", "production", "handoff", "commercial", "factory", "assets", "launch"].includes(initialSection)
-    ? initialSection : internalSection;
+  // FIX (FASE 4): la lógica anterior forzaba activeSection de vuelta a
+  // initialSection en cuanto internalSection cambiaba (initialSection está
+  // siempre en la lista de secciones válidas) — el switcher quedaba muerto y
+  // ninguna pestaña respondía. El prop initialSection ya inicializa el estado.
+  const activeSection = internalSection;
   const setActiveSection = (s: Section) => { setInternalSection(s); };
 
   const sections: { id: Section; label: string; icon: React.ComponentType<{ className?: string }> }[] = [

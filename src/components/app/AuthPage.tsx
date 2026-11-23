@@ -40,9 +40,14 @@ export default function AuthPage({ onLogin }: AuthPageProps) {
         return;
       }
 
-      localStorage.setItem("p360_token", data.id);
-      localStorage.setItem("p360_user", JSON.stringify(data));
-      onLogin(data);
+      // El API (login y register) responde { token, user } — guardar la forma
+      // correcta (antes se guardaba data.id, que no existe, y la sesión moría
+      // al instante: el auto-login 403 devolvía al login — bug FASE 4)
+      const token = typeof data.token === "string" ? data.token : data.id;
+      const userData = data.user ?? data;
+      localStorage.setItem("p360_token", token);
+      localStorage.setItem("p360_user", JSON.stringify(userData));
+      onLogin(userData);
     } catch {
       setError("Error de conexión");
       setLoading(false);

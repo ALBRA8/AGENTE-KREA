@@ -217,7 +217,7 @@ function ImageGenerator({ user, onUpdateCredits }: { user: User; onUpdateCredits
     setLoading(true); setError(""); setResult(null);
     try {
       const res = await fetch("/api/generate/image", {
-        method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${user.id}` },
+        method: "POST", headers: { "Content-Type": "application/json", ...authHeader() },
         body: JSON.stringify({ prompt, style }),
       });
       const data = await res.json();
@@ -297,7 +297,7 @@ function TextGenerator({ type, user, onUpdateCredits }: { type: string; user: Us
     setLoading(true); setError(""); setResult("");
     try {
       const res = await fetch("/api/generate/text", {
-        method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${user.id}` },
+        method: "POST", headers: { "Content-Type": "application/json", ...authHeader() },
         body: JSON.stringify({ prompt, type }),
       });
       const data = await res.json();
@@ -364,7 +364,7 @@ function VoiceGenerator({ user, onUpdateCredits }: { user: User; onUpdateCredits
     setLoading(true); setError(""); setResult("");
     try {
       const res = await fetch("/api/generate/voice", {
-        method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${user.id}` },
+        method: "POST", headers: { "Content-Type": "application/json", ...authHeader() },
         body: JSON.stringify({ text, voice }),
       });
       const data = await res.json();
@@ -427,7 +427,7 @@ function EbookGenerator({ user, onUpdateCredits }: { user: User; onUpdateCredits
     setLoading(true); setError(""); setResult("");
     try {
       const res = await fetch("/api/generate/ebook", {
-        method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${user.id}` },
+        method: "POST", headers: { "Content-Type": "application/json", ...authHeader() },
         body: JSON.stringify({ topic, chapters: parseInt(chapters), targetAudience: audience }),
       });
       const data = await res.json();
@@ -495,7 +495,7 @@ function SubtitleGenerator({ user, onUpdateCredits }: { user: User; onUpdateCred
     setLoading(true); setError(""); setResult("");
     try {
       const res = await fetch("/api/generate/subtitle", {
-        method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${user.id}` },
+        method: "POST", headers: { "Content-Type": "application/json", ...authHeader() },
         body: JSON.stringify({ videoUrl: url || undefined }),
       });
       const data = await res.json();
@@ -544,7 +544,7 @@ function Library({ user }: { user: User }) {
     setLoading(true);
     try {
       const params = filter === "all" ? "" : `?type=${filter}`;
-      const res = await fetch(`/api/generations${params}`, { headers: { Authorization: `Bearer ${user.id}` } });
+      const res = await fetch(`/api/generations${params}`, { headers: { ...authHeader() } });
       if (res.ok) setGens(await res.json());
     } catch { /* ignore */ }
     setLoading(false);
@@ -609,31 +609,41 @@ function Library({ user }: { user: User }) {
 /* ════════════ Main App ════════════ */
 interface AppShellProps { onLogout: () => void; user?: User | null }
 
+/** Token de sesión real — los generadores enviaban user.id como bearer (401). */
+const getToken = () => { try { return localStorage.getItem("p360_token") || ""; } catch { return ""; } };
+const authHeader = () => ({ Authorization: `Bearer ${getToken()}` });
 export default function AppPage({ onLogout, user: initialUser }: AppShellProps) {
-  const [user, setUser] = useState<User | null>(() => {
-    if (initialUser) return initialUser;
-    try {
-      const saved = localStorage.getItem("p360_user");
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        // Legacy cleanup: never resurrect the removed demo-fallback fake user
-        if (parsed && parsed.id && parsed.id !== "demo-fallback") return parsed;
-      }
-    } catch {}
-    return null;
-  });
+  // FIX hidratación (FASE 4): el SSR no puede leer localStorage — si el primer
+  // render del cliente difiere del server, React lanza error #418 y el árbol
+  // queda roto (los clicks no actualizan la UI). El usuario arranca en null en
+  // cliente Y servidor; la sesión se restaura en el efecto de abajo.
+  const [user, setUser] = useState<User | null>(initialUser ?? null);
   const [page, setPage] = useState("dashboard");
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [generations, setGenerations] = useState<Generation[]>([]);
 
-  // No user at all → try server auto-login (only works with DEMO_MODE=true);
-  // if it fails, hand control back to the parent (auth screen).
+  // Sin user → 1) restaurar sesión de localStorage (solo en cliente, tras la
+  // hidratación), 2) si no hay, auto-login del server (solo DEMO_MODE=true);
+  // si tampoco, devolver el control al padre (auth screen).
   useEffect(() => {
     if (user) return;
     let cancelled = false;
 
     async function tryAutoLogin() {
       try {
+        // 1) sesión persistida en localStorage (login/registro anteriores)
+        const saved = typeof window !== "undefined" ? localStorage.getItem("p360_user") : null;
+        const savedToken = typeof window !== "undefined" ? localStorage.getItem("p360_token") : null;
+        if (saved && savedToken) {
+          const parsed = JSON.parse(saved) as User | null;
+          // Legacy cleanup: nunca resucitar al fake user demo-fallback eliminado
+          if (parsed && parsed.id && parsed.id !== "demo-fallback") {
+            if (!cancelled) setUser(parsed);
+            return;
+          }
+        }
+
+        // 2) auto-login del server (DEMO_MODE)
         const res = await fetch("/api/auth/auto-login", { method: "POST" });
         if (!cancelled && res.ok) {
           const data = await res.json();

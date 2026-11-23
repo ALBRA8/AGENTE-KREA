@@ -16,9 +16,10 @@ export default function StudioPage() {
         const res = await fetch("/api/auth/auto-login", { method: "POST" });
         if (res.ok) {
           const data = await res.json();
-          localStorage.setItem("p360_token", data.id);
-          localStorage.setItem("p360_user", JSON.stringify(data));
-          if (!cancelled) setUser(data);
+          // auto-login responde { token, user } — misma forma que login/register
+          localStorage.setItem("p360_token", data.token);
+          localStorage.setItem("p360_user", JSON.stringify(data.user));
+          if (!cancelled) setUser(data.user);
         }
       } catch {}
       if (!cancelled) setLoading(false);

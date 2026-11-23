@@ -19,6 +19,12 @@ interface Props {
   onBack?: () => void;
 }
 
+/** Token de sesión real (antes se enviaba user.id como bearer → 401). */
+const authHeader = () => {
+  let token = "";
+  try { token = localStorage.getItem("p360_token") || ""; } catch {}
+  return { Authorization: `Bearer ${token}` };
+};
 const TEMPLATES = [
   { label: "Ebook completo", desc: "Tema → título, introducción y capítulos listos en Markdown.", icon: BookOpen, prompt: "Genera un ebook completo sobre marketing digital para emprendedores. Incluye título, subtítulo, introducción y al menos 5 capítulos con contenido sustancial." },
   { label: "Creativo para Facebook/Instagram Ads", desc: "Producto → títulos, textos principales, descripciones y CTA listos.", icon: ImageIcon, prompt: "Crea creativos publicitarios para Facebook e Instagram Ads para un curso de programación para principiantes. Incluye 3 opciones de título, texto principal, descripción y CTA." },
@@ -110,7 +116,7 @@ export default function PromptChat({ user, onUpdateCredits, onBack }: Props) {
 
       const res = await fetch("/api/generate/prompt", {
         method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${user.id}` },
+        headers: { "Content-Type": "application/json", ...authHeader() },
         body: JSON.stringify({ description: text.trim(), category }),
       });
       const data = await res.json();
