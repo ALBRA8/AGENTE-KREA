@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { createId } from "@paralleldrive/cuid2";
+import { chargeForCapability, refundCharge, type ChargeResult, type ChargeError } from "@/lib/credit-service";
 import {
   executeFactory,
   resolveFactory,
@@ -27,6 +28,7 @@ export async function POST(req: NextRequest) {
   const user = await getSessionUser(token);
   if (!user) return NextResponse.json({ error: "No autorizado" }, { status: 401 });
 
+  let charge: ChargeResult | ChargeError | null = null;
   try {
     const body = await req.json();
     const { productId, factoryType, contract } = body;
@@ -44,6 +46,12 @@ export async function POST(req: NextRequest) {
     });
     if (!dossier) {
       return NextResponse.json({ error: "Dossier no encontrado o sin permisos" }, { status: 404 });
+    }
+
+    // Cobro atómico antes de ejecutar la fábrica. Reembolso en cualquier fallo.
+    charge = await chargeForCapability(token, "product:factory-execute");
+    if (!charge.ok) {
+      return NextResponse.json({ error: charge.error }, { status: charge.status });
     }
 
     const contractObj = typeof contract === "string" && contract ? safeParse(contract) : (contract ?? {});
@@ -88,10 +96,18 @@ export async function POST(req: NextRequest) {
         where: { id: execution.id },
         data: { status: "FAILED", error: runMsg, completedAt: new Date() },
       });
+      // Fallo del proveedor/pipeline → reembolso
+      if (charge.ok) await refundCharge(charge.userId, "product:factory-execute");
       return NextResponse.json(
-        { error: `Factory falló: ${runMsg}`, executionId: execution.executionId },
+        { error: `Factory falló: ${runMsg}`, executionId: execution.executionId, refunded: true },
         { status: 500 }
       );
+    }
+
+    // Resultado no exitoso del pipeline → reembolso también
+    const failed = !(result.status === "COMPLETED" || result.status === "PASSED");
+    if (failed && charge.ok) {
+      await refundCharge(charge.userId, "product:factory-execute");
     }
 
     const updatedExec = await db.factoryExecution.update({
@@ -137,11 +153,12 @@ export async function POST(req: NextRequest) {
     }
 
     return NextResponse.json(
-      { execution: updatedExec, result },
+      { execution: updatedExec, result, credits: charge.ok ? charge.creditsLeft : undefined, refunded: failed || undefined },
       { status: 201 }
     );
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : "Error ejecutando factory";
+    if (charge?.ok) await refundCharge(charge.userId, "product:factory-execute");
     return NextResponse.json({ error: msg }, { status: 500 });
   }
 }

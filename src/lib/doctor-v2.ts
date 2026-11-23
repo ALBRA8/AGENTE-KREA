@@ -108,6 +108,7 @@ export class KreaDoctorV2 {
       this.checkDatabase(),
       this.checkAPIs(),
       this.checkProviders(),
+      this.checkCreditCosts(),
       this.checkMCP(),
       this.checkMemory(),
       this.checkSkills(),
@@ -539,6 +540,56 @@ export class KreaDoctorV2 {
           checkedAt: new Date().toISOString(),
           truthLevel: "VERIFIED",
           source: "z-ai-web-dev-sdk",
+        },
+      };
+    }
+  }
+
+  // ──────────────────────────────────────────────
+  // CHECK 4b: TABLA DE COSTOS DE CRÉDITOS
+  // ──────────────────────────────────────────────
+  /**
+   * Expone la tabla de costos por capacidad (CREDIT_COSTS) para que el
+   * diagnóstico documente exactamente cuánto cobra cada puerta.
+   */
+  async checkCreditCosts(): Promise<HealthCheckResultV2> {
+    try {
+      const { CREDIT_COSTS } = await import("@/lib/credit-service");
+      const entries = Object.entries(CREDIT_COSTS);
+      const byGate: Record<string, number> = {};
+      for (const [capability, cost] of entries) {
+        const gate = capability.split(":")[0];
+        byGate[gate] = (byGate[gate] ?? 0) + 1;
+      }
+      const table = entries
+        .map(([capability, cost]) => `${capability}=${cost}`)
+        .join(", ");
+      return {
+        name: "credit_costs",
+        category: "configuration",
+        status: entries.length > 0 ? "HEALTHY" : "DEGRADED",
+        details: `Tabla de costos (${entries.length} capacidades): ${table}`,
+        metrics: {
+          capacidades: entries.length,
+          ...Object.fromEntries(Object.entries(byGate).map(([g, n]) => [`gate_${g}`, n])),
+          totalCostos: entries.reduce((acc, [, c]) => acc + (c as number), 0),
+        },
+        evidence: {
+          checkedAt: new Date().toISOString(),
+          truthLevel: "VERIFIED",
+          source: "credit-service",
+        },
+      };
+    } catch (e: any) {
+      return {
+        name: "credit_costs",
+        category: "configuration",
+        status: "UNHEALTHY",
+        error: `No se pudo leer CREDIT_COSTS: ${e.message}`,
+        evidence: {
+          checkedAt: new Date().toISOString(),
+          truthLevel: "VERIFIED",
+          source: "credit-service",
         },
       };
     }

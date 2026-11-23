@@ -1,10 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
+import { chargeForCapability, refundCharge, type ChargeResult, type ChargeError } from "@/lib/credit-service";
 import { createProductSpecification } from "@/lib/product-specification";
 import type { ProductArchitecture } from "@/lib/product-architecture";
 
-// POST /api/product/specify — Create product specification
+// POST /api/product/specify — Create product specification (1 llamada LLM;
+// cobra y reembolsa si el proveedor no contribuyó, evidence NOT_VERIFIED)
 export async function POST(req: NextRequest) {
+  let charge: ChargeResult | ChargeError | null = null;
   const token = req.headers.get("authorization")?.replace("Bearer ", "");
   const user = await getSessionUser(token || "");
   if (!user) return NextResponse.json({ error: "No autorizado" }, { status: 401 });
@@ -20,13 +23,28 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Create specification from architecture
+    // Create specification — el cobro va justo antes de la llamada al proveedor
+    charge = await chargeForCapability(token ?? "", "product:specify");
+    if (!charge.ok) {
+      return NextResponse.json({ error: charge.error }, { status: charge.status });
+    }
+
     const specification = await createProductSpecification(
       architecture as ProductArchitecture
     );
 
-    return NextResponse.json({ data: specification });
+    // Degradación honesta: fallback NOT_VERIFIED = proveedor no contribuyó → reembolso
+    if (specification.evidence === "NOT_VERIFIED") {
+      await refundCharge(charge.userId, "product:specify");
+    }
+
+    return NextResponse.json({
+      data: specification,
+      credits: charge.ok ? charge.creditsLeft : undefined,
+      refunded: specification.evidence === "NOT_VERIFIED" || undefined,
+    });
   } catch (e: unknown) {
+    if (charge?.ok) await refundCharge(charge.userId, "product:specify");
     const msg = e instanceof Error ? e.message : "Error al crear especificación";
     return NextResponse.json({ error: msg }, { status: 500 });
   }

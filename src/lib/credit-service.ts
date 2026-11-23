@@ -35,10 +35,23 @@ export const CREDIT_COSTS = {
   "commercial:batch": 5,
   "commercial:export": 1,
 
+  // ── Product Factory (/api/product/*) — solo operaciones que llaman al
+  // proveedor IA (verificado con grep: fit/architect/economics/specify vía
+  // product-* libs; produce y factory-execute vía executeFactory). Las demás
+  // (decide/commercial/offer/qa/packaging/readiness/versions/handoff/
+  // launch-package/feedback) son DB pura y NO cobran.
+  // Degradación honesta: si el motor devuelve evidence NOT_VERIFIED (fit/
+  // architect/specify) o ESTIMATED-heurístico (economics), el proveedor no
+  // contribuyó → la ruta reembolsa.
+  "product:fit": 2,
+  "product:architect": 2,
+  "product:economics": 2,
+  "product:specify": 2,
+  "product:produce": 12,          // fábrica completa 10 pasos (texto multi-capítulo + portada IA + PDF)
+  "product:factory-execute": 12,  // misma fábrica vía /api/product/factory/execute
+
   // ── Arnés de infoproductos (/api/harness execute-skill) ──
   // NOTA: recommend-format y build-index son puros (TS) y no cobran.
-  // NOTA: /api/product produce y factory-execute no cobran — no generan nada
-  // en-ruta (solo transicionan estado / crean registro de ejecución).
   "infoproductos:validate-demand": 2,
   "infoproductos:review-infoproduct": 2,
   "infoproductos:review-style": 2,

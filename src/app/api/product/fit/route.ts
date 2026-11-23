@@ -1,15 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { chargeForCapability, refundCharge, type ChargeResult, type ChargeError } from "@/lib/credit-service";
 import { evaluateProductFit } from "@/lib/product-fit";
 import type { ProductOpportunityInput } from "@/lib/product-fit";
 
-// POST /api/product/fit — Evaluate product fit
+// POST /api/product/fit — Evaluate product fit (1 llamada LLM; cobra y
+// reembolsa si el proveedor no contribuyó, evidence NOT_VERIFIED)
 export async function POST(req: NextRequest) {
   const token = req.headers.get("authorization")?.replace("Bearer ", "");
   const user = await getSessionUser(token || "");
   if (!user) return NextResponse.json({ error: "No autorizado" }, { status: 401 });
 
+  let charge: ChargeResult | ChargeError | null = null;
   try {
     const body = await req.json();
     const { opportunityId } = body;
@@ -46,8 +49,19 @@ export async function POST(req: NextRequest) {
         : undefined,
     };
 
-    // Evaluate fit
+    // Evaluar fit — el cobro va justo antes de la llamada al proveedor
+    charge = await chargeForCapability(token ?? "", "product:fit");
+    if (!charge.ok) {
+      return NextResponse.json({ error: charge.error }, { status: charge.status });
+    }
+
     const fitScore = await evaluateProductFit(input);
+
+    // Degradación honesta: fallback NOT_VERIFIED = el proveedor no respondió
+    // (o el parse falló) → reembolso. Resultado INFERRED = LLM real → se mantiene.
+    if (fitScore.evidence === "NOT_VERIFIED") {
+      await refundCharge(charge.userId, "product:fit");
+    }
 
     // Save fitScore to opportunity
     await db.productOpportunity.update({
@@ -58,8 +72,13 @@ export async function POST(req: NextRequest) {
       },
     });
 
-    return NextResponse.json({ data: fitScore });
+    return NextResponse.json({
+      data: fitScore,
+      credits: charge.ok ? charge.creditsLeft : undefined,
+      refunded: fitScore.evidence === "NOT_VERIFIED" || undefined,
+    });
   } catch (e: unknown) {
+    if (charge?.ok) await refundCharge(charge.userId, "product:fit");
     const msg = e instanceof Error ? e.message : "Error al evaluar fit";
     return NextResponse.json({ error: msg }, { status: 500 });
   }
