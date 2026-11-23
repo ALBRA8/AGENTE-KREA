@@ -1,12 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { chargeForCapability, refundCharge, type ChargeResult, type ChargeError } from "@/lib/credit-service";
+import { createId } from "@paralleldrive/cuid2";
+import { chargeForCapability, refundCharge, type ChargeResult } from "@/lib/credit-service";
 import {
-  executeFactory,
+  resolveFactory,
   type ExecutionBlueprint,
   type ProductType,
 } from "@/lib/product-factory-orchestrator";
+import { launchFactoryRun } from "@/lib/production-recovery";
 
 /**
  * GET /api/product/produce
@@ -53,25 +55,33 @@ export async function GET(req: NextRequest) {
 
 /**
  * POST /api/product/produce
- * Start production for a dossier: transition to PRODUCING and — by default
- * (P6 decision, INFORME-ESTADO.md §7.6) — RUN the factory synchronously,
- * advancing PRODUCING → QA (success) or → FAILED (error).
+ * Start production for a dossier — ASYNC (FASE 2): cobra, crea una FactoryExecution
+ * RUNNING, transiciona el dossier a PRODUCING y responde 202 de inmediato con el
+ * executionId; la fábrica corre en segundo plano (production-recovery.ts) y
+ * avanza PRODUCING → QA (éxito) o → FAILED (fallo, con reembolso).
+ *
+ * Estado consultable por los GET existentes:
+ *   - GET /api/product/produce/[id]          (job del dossier, para polling)
+ *   - GET /api/product/factory/[executionId] (ejecución detallada)
+ *   - GET /api/product/produce               (lista de jobs)
  *
  * Body: { dossierId, execute? }  (execute defaults to true; pass false to
- * only create the PRODUCING record without running the pipeline).
+ * only create the PRODUCING record without charging or running the pipeline).
+ *
+ * Al arrancar el servidor, src/instrumentation.ts ejecuta recoverStaleRuns():
+ * toda ejecución RUNNING/QUEUED o dossier PRODUCING huérfano de un reinicio
+ * se marca FAILED con reembolso de los créditos registrados en su contract.
  */
 export async function POST(req: NextRequest) {
   const token = req.headers.get("authorization")?.replace("Bearer ", "") || "";
   const user = await getSessionUser(token);
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  let charge: ChargeResult | ChargeError | null = null;
-  let requestedDossierId = "";
+  let chargeRef: ChargeResult | null = null;
   try {
     const body = await req.json();
     const { dossierId, execute } = body;
     const shouldExecute = execute !== false;
-    if (typeof dossierId === "string") requestedDossierId = dossierId;
 
     if (!dossierId) {
       return NextResponse.json({ error: "dossierId is required" }, { status: 400 });
@@ -85,30 +95,18 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Dossier not found" }, { status: 404 });
     }
 
-    // Cobro atómico antes de ejecutar la fábrica (solo si va a ejecutar).
-    // Reembolso en cualquier fallo posterior — igual que generate/commercial.
-    let produceCharge: ChargeResult | null = null;
-    if (shouldExecute) {
-      charge = await chargeForCapability(token, "product:produce");
-      if (!charge.ok) {
-        return NextResponse.json({ error: charge.error }, { status: charge.status });
-      }
-      produceCharge = charge;
-    }
-
-    // Transition to PRODUCING
-    const updated = await db.productDossier.update({
-      where: { id: dossierId },
-      data: {
-        status: "PRODUCING",
-        timeline: JSON.stringify([
-          ...(dossier.timeline ? JSON.parse(dossier.timeline) as unknown[] : []),
-          { step: "PRODUCING", timestamp: new Date().toISOString() },
-        ]),
-      },
-    });
-
     if (!shouldExecute) {
+      // execute:false: solo el registro PRODUCING — sin cobro, sin ejecución
+      const updated = await db.productDossier.update({
+        where: { id: dossierId },
+        data: {
+          status: "PRODUCING",
+          timeline: JSON.stringify([
+            ...(dossier.timeline ? JSON.parse(dossier.timeline) as unknown[] : []),
+            { step: "PRODUCING", timestamp: new Date().toISOString() },
+          ]),
+        },
+      });
       return NextResponse.json({
         id: updated.id,
         dossierId: updated.id,
@@ -121,7 +119,15 @@ export async function POST(req: NextRequest) {
       }, { status: 201 });
     }
 
-    // P6: actually run the factory for the dossier (synchronous)
+    // Cobro atómico antes de lanzar la fábrica (12 créditos, product:produce)
+    const charge = await chargeForCapability(token, "product:produce");
+    if (!charge.ok) {
+      return NextResponse.json({ error: charge.error }, { status: charge.status });
+    }
+    chargeRef = charge;
+
+    // Ejecución registrada ANTES de responder: el cobro queda en el contract
+    // (chargedCredits) para el reembolso en fallo y en la recuperación
     const blueprint: ExecutionBlueprint = {
       blueprintId: `produce-${dossier.id}`,
       productId: dossier.id,
@@ -132,68 +138,63 @@ export async function POST(req: NextRequest) {
       requiredProviders: ["text", "image"],
     };
 
-    const executionResult = await executeFactory(blueprint);
-    const success =
-      executionResult.status === "COMPLETED" || executionResult.status === "PASSED";
+    const execution = await db.factoryExecution.create({
+      data: {
+        userId: user.id,
+        executionId: createId(),
+        productId: dossier.id,
+        factoryType: resolveFactory(dossier.domain as ProductType),
+        contract: JSON.stringify({
+          blueprintId: blueprint.blueprintId,
+          productVersion: blueprint.productVersion,
+          chargedCredits: charge.cost,
+          capability: "product:produce",
+        }),
+        status: "RUNNING",
+        startedAt: new Date(),
+      },
+    });
 
-    // Fallo de la fábrica = resultado no exitoso → reembolso (el proveedor no
-    // entregó el producto; los pasos parciales consumidos son pérdida del
-    // sistema, no del usuario)
-    if (!success && produceCharge) {
-      await refundCharge(produceCharge.userId, "product:produce");
-    }
-
-    // PRODUCING → QA (success) / FAILED (error) — both valid transitions
-    const finalDossier = await db.productDossier.update({
+    // Transición a PRODUCING (timeline referencia la ejecución)
+    const updated = await db.productDossier.update({
       where: { id: dossierId },
       data: {
-        status: success ? "QA" : "FAILED",
-        artifacts: JSON.stringify(executionResult.artifacts),
+        status: "PRODUCING",
         timeline: JSON.stringify([
-          ...(updated.timeline ? JSON.parse(updated.timeline) as unknown[] : []),
-          {
-            step: success ? "FACTORY_EXECUTED" : "FACTORY_FAILED",
-            timestamp: new Date().toISOString(),
-            executionId: executionResult.executionId,
-            error: executionResult.error ?? undefined,
-          },
-          ...(success ? [{ step: "QA", timestamp: new Date().toISOString() }] : []),
+          ...(dossier.timeline ? JSON.parse(dossier.timeline) as unknown[] : []),
+          { step: "PRODUCING", timestamp: new Date().toISOString(), executionId: execution.executionId },
         ]),
       },
     });
 
+    // Lanzar en segundo plano (fire-and-forget; la respuesta es 202 inmediata)
+    launchFactoryRun({
+      executionDbId: execution.id,
+      userId: user.id,
+      dossierId: dossier.id,
+      blueprint,
+      capability: "product:produce",
+      chargedCredits: charge.cost,
+    });
+
     return NextResponse.json({
-      id: finalDossier.id,
-      dossierId: finalDossier.id,
-      productName: finalDossier.title,
-      productType: finalDossier.domain,
-      status: finalDossier.status,
-      progress: success ? 85 : 0,
-      currentStep: success ? "QA checks" : "Factory failed",
-      execution: {
-        executionId: executionResult.executionId,
-        factoryType: executionResult.factoryType,
-        status: executionResult.status,
-        artifacts: executionResult.artifacts,
-        error: executionResult.error,
-      },
-      credits: produceCharge ? produceCharge.creditsLeft : undefined,
-      refunded: !success && produceCharge ? true : undefined,
-      createdAt: finalDossier.createdAt,
-    }, { status: 201 });
+      id: updated.id,
+      dossierId: updated.id,
+      executionId: execution.executionId,
+      productName: updated.title,
+      productType: updated.domain,
+      status: "PRODUCING",
+      progress: 0,
+      currentStep: "Initializing pipeline",
+      mode: "async",
+      poll: `/api/product/produce/${updated.id}`,
+      execution: { executionId: execution.executionId, factoryType: execution.factoryType, status: "RUNNING" },
+      credits: charge.creditsLeft,
+      createdAt: updated.createdAt,
+    }, { status: 202 });
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : "Error starting production";
-    if (charge?.ok) await refundCharge(charge.userId, "product:produce");
-    // Si el dossier quedó atascado en PRODUCING por la excepción, marcarlo
-    // FAILED (transición válida de la máquina de estados)
-    try {
-      if (requestedDossierId) {
-        await db.productDossier.updateMany({
-          where: { id: requestedDossierId, status: "PRODUCING" },
-          data: { status: "FAILED" },
-        });
-      }
-    } catch { /* el marcado FAILED es best-effort; el error original manda */ }
+    if (chargeRef) await refundCharge(chargeRef.userId, "product:produce");
     return NextResponse.json({ error: msg }, { status: 500 });
   }
 }

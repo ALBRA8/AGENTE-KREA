@@ -233,13 +233,28 @@ describe.each(LLM_CASES)("$name — créditos", ({ name, POST, capability, url, 
   });
 });
 
-/* ── produce y factory/execute (orquestador simulado) ─────────── */
+/* ── produce y factory/execute (orquestador simulado, modo ASYNC 202) ── */
 
 const ORCH_SUCCESS = {
   executionId: "exec-mock-1", factoryType: "book_factory", status: "COMPLETED",
   progress: [], artifacts: [{ id: "a1", type: "pdf", path: "/tmp/x.pdf" }],
   qaReport: { passed: true }, error: null, startedAt: new Date(), completedAt: new Date(),
 };
+
+/** Espera activa hasta que la condición se cumple (el trabajo corre en background) */
+async function waitFor<T>(fn: () => Promise<T | null>, timeoutMs = 10000): Promise<T> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const v = await fn();
+    if (v !== null && v !== undefined) return v;
+    await new Promise((r) => setTimeout(r, 50));
+  }
+  throw new Error("timeout esperando la condición asíncrona");
+}
+
+async function creditsOf(userId: string): Promise<number> {
+  return (await db.user.findUnique({ where: { id: userId } }))!.credits;
+}
 
 describe("produce — créditos de la fábrica completa", () => {
   it("401 sin token", async () => {
@@ -256,51 +271,71 @@ describe("produce — créditos de la fábrica completa", () => {
     expect(d!.status).not.toBe("PRODUCING");
   });
 
-  it("éxito: deducción exacta (12) y dossier → QA", async () => {
+  it("éxito async: 202 inmediato, deducción exacta (12) y dossier → QA en background", async () => {
     vi.mocked(executeFactory).mockResolvedValue(ORCH_SUCCESS as never);
-    const before = (await db.user.findUnique({ where: { id: richId } }))!.credits;
+    const before = await creditsOf(richId);
 
     const res = await producePOST(req("/api/product/produce", { dossierId }, richToken));
-    expect(res.status).toBe(201);
+    expect(res.status).toBe(202);                 // respuesta inmediata
     const json = await res.json();
-    expect(json.status).toBe("QA");
-    expect(json.refunded).toBeUndefined();
+    expect(json.mode).toBe("async");
+    expect(json.executionId).toBeDefined();
+    expect(json.status).toBe("PRODUCING");
+    // el cobro fue inmediato aunque la fábrica sigue corriendo
+    expect(await creditsOf(richId)).toBe(before - CREDIT_COSTS["product:produce"]);
 
-    const after = (await db.user.findUnique({ where: { id: richId } }))!.credits;
-    expect(after).toBe(before - CREDIT_COSTS["product:produce"]);
-    const d = await db.productDossier.findUnique({ where: { id: dossierId } });
-    expect(d!.status).toBe("QA");
-    // restaurar estado para los siguientes tests
+    // el trabajo en background completa: dossier → QA
+    const d = await waitFor(async () => {
+      const dd = await db.productDossier.findUnique({ where: { id: dossierId } });
+      return dd?.status === "QA" ? dd : null;
+    });
+    expect(d.status).toBe("QA");
+    expect(await creditsOf(richId)).toBe(before - CREDIT_COSTS["product:produce"]); // sin reembolso
     await db.productDossier.update({ where: { id: dossierId }, data: { status: "IDEA" } });
   });
 
-  it("fallo del pipeline: reembolso y dossier → FAILED", async () => {
+  it("fallo async del pipeline: 202, luego dossier → FAILED y reembolso", async () => {
     vi.mocked(executeFactory).mockResolvedValue({ ...ORCH_SUCCESS, status: "FAILED", error: "cover failed" } as never);
-    const before = (await db.user.findUnique({ where: { id: richId } }))!.credits;
+    const before = await creditsOf(richId);
 
     const res = await producePOST(req("/api/product/produce", { dossierId }, richToken));
-    expect(res.status).toBe(201);
-    const json = await res.json();
-    expect(json.status).toBe("FAILED");
-    expect(json.refunded).toBe(true);
+    expect(res.status).toBe(202);
 
-    const after = (await db.user.findUnique({ where: { id: richId } }))!.credits;
-    expect(after).toBe(before);
+    const d = await waitFor(async () => {
+      const dd = await db.productDossier.findUnique({ where: { id: dossierId } });
+      return dd?.status === "FAILED" ? dd : null;
+    });
+    expect(d.status).toBe("FAILED");
+    const restored = await waitFor(async () => {
+      const c = await creditsOf(richId);
+      return c === before ? c : null;
+    });
+    expect(restored).toBe(before);  // reembolsado en background
+    await db.productDossier.update({ where: { id: dossierId }, data: { status: "IDEA" } });
+  });
+
+  it("excepción async del pipeline: 202, luego ejecución FAILED + reembolso + dossier FAILED", async () => {
+    vi.mocked(executeFactory).mockRejectedValue(new Error("PROVIDER_DOWN"));
+    const before = await creditsOf(richId);
+
+    const res = await producePOST(req("/api/product/produce", { dossierId }, richToken));
+    expect(res.status).toBe(202);
+    const json = await res.json();
+
+    const exec = await waitFor(async () => {
+      const e = await db.factoryExecution.findFirst({ where: { executionId: json.executionId } });
+      return e?.status === "FAILED" ? e : null;
+    });
+    expect(exec.status).toBe("FAILED");
+    // el reembolso ocurre justo después de marcar FAILED en background — esperar el saldo
+    const restored = await waitFor(async () => {
+      const c = await creditsOf(richId);
+      return c === before ? c : null;
+    });
+    expect(restored).toBe(before);
     const d = await db.productDossier.findUnique({ where: { id: dossierId } });
     expect(d!.status).toBe("FAILED");
     await db.productDossier.update({ where: { id: dossierId }, data: { status: "IDEA" } });
-  });
-
-  it("excepción del pipeline: reembolso y 500", async () => {
-    vi.mocked(executeFactory).mockRejectedValue(new Error("PROVIDER_DOWN"));
-    const before = (await db.user.findUnique({ where: { id: richId } }))!.credits;
-
-    const res = await producePOST(req("/api/product/produce", { dossierId }, richToken));
-    expect(res.status).toBe(500);
-    const after = (await db.user.findUnique({ where: { id: richId } }))!.credits;
-    expect(after).toBe(before);
-    const d = await db.productDossier.findUnique({ where: { id: dossierId } });
-    expect(d!.status).not.toBe("PRODUCING");
   });
 
   it("execute:false crea el registro sin cobrar ni ejecutar", async () => {
@@ -328,32 +363,43 @@ describe("factory/execute — créditos de la fábrica por executionId", () => {
     expect(vi.mocked(executeFactory)).not.toHaveBeenCalled();
   });
 
-  it("éxito: deducción exacta (12) y ejecución COMPLETED en BD", async () => {
+  it("éxito async: 202 inmediato y ejecución COMPLETED en BD", async () => {
     vi.mocked(executeFactory).mockResolvedValue(ORCH_SUCCESS as never);
-    const before = (await db.user.findUnique({ where: { id: richId } }))!.credits;
+    const before = await creditsOf(richId);
 
     const res = await factoryExecutePOST(req("/api/product/factory/execute", { productId: dossierId }, richToken));
-    expect(res.status).toBe(201);
+    expect(res.status).toBe(202);
     const json = await res.json();
-    expect(json.refunded).toBeUndefined();
-    expect(json.execution.status).toBe("COMPLETED");
+    expect(json.executionId).toBeDefined();
+    expect(json.status).toBe("RUNNING");
+    expect(await creditsOf(richId)).toBe(before - CREDIT_COSTS["product:factory-execute"]);
 
-    const after = (await db.user.findUnique({ where: { id: richId } }))!.credits;
-    expect(after).toBe(before - CREDIT_COSTS["product:factory-execute"]);
+    const exec = await waitFor(async () => {
+      const e = await db.factoryExecution.findFirst({ where: { executionId: json.executionId } });
+      return e?.status === "COMPLETED" ? e : null;
+    });
+    expect(exec.status).toBe("COMPLETED");
+    expect(await creditsOf(richId)).toBe(before - CREDIT_COSTS["product:factory-execute"]);
   });
 
-  it("fallo del pipeline: reembolso y ejecución FAILED en BD", async () => {
+  it("fallo async del pipeline: 202, luego ejecución FAILED en BD + reembolso", async () => {
     vi.mocked(executeFactory).mockResolvedValue({ ...ORCH_SUCCESS, status: "FAILED", error: "qa failed" } as never);
-    const before = (await db.user.findUnique({ where: { id: richId } }))!.credits;
+    const before = await creditsOf(richId);
 
     const res = await factoryExecutePOST(req("/api/product/factory/execute", { productId: dossierId }, richToken));
-    expect(res.status).toBe(201);
+    expect(res.status).toBe(202);
     const json = await res.json();
-    expect(json.refunded).toBe(true);
-    expect(json.execution.status).toBe("FAILED");
 
-    const after = (await db.user.findUnique({ where: { id: richId } }))!.credits;
-    expect(after).toBe(before);
+    const exec = await waitFor(async () => {
+      const e = await db.factoryExecution.findFirst({ where: { executionId: json.executionId } });
+      return e?.status === "FAILED" ? e : null;
+    });
+    expect(exec.status).toBe("FAILED");
+    const restored = await waitFor(async () => {
+      const c = await creditsOf(richId);
+      return c === before ? c : null;
+    });
+    expect(restored).toBe(before);
   });
 
   it("404 para el dossier de otro usuario", async () => {
@@ -383,5 +429,63 @@ describe("tabla de costos y doctor", () => {
     expect(check.status).toBe("HEALTHY");
     expect(check.details).toContain("product:produce=12");
     expect(check.details).toContain("generate:ebook=8");
+  });
+});
+
+/* ── Recuperación al arrancar (FASE 2) ────────────────────────── */
+
+describe("recoverStaleRuns — huérfanos tras reinicio del servidor", () => {
+  it("ejecución RUNNING huérfana → FAILED + reembolso según contract.chargedCredits", async () => {
+    const { recoverStaleRuns } = await import("@/lib/production-recovery");
+    const u = await db.user.create({ data: { name: "Rec Test", email: `test-rec-${Date.now()}@krea-test.local`, password: security.hashPassword("x"), credits: 5 } });
+    const opp = await db.productOpportunity.create({ data: { userId: u.id, title: "Opp recovery", description: "Descripción suficientemente larga", domain: "ebook", audience: "A", problem: "P" } });
+    const dossier = await db.productDossier.create({ data: { userId: u.id, opportunityId: opp.id, title: "Opp recovery", description: "Descripción", domain: "ebook", status: "PRODUCING" } });
+    await db.factoryExecution.create({
+      data: {
+        userId: u.id, executionId: `rec-${Date.now()}`, productId: dossier.id,
+        factoryType: "book_factory",
+        contract: JSON.stringify({ chargedCredits: 12, capability: "product:produce" }),
+        status: "RUNNING", startedAt: new Date(),
+      },
+    });
+
+    const report = await recoverStaleRuns();
+
+    expect(report.recoveredExecutions).toBeGreaterThanOrEqual(1);
+    expect(report.refundsIssued).toBeGreaterThanOrEqual(1);
+    expect(report.refundedCredits).toBeGreaterThanOrEqual(12);
+    expect((await db.user.findUnique({ where: { id: u.id } }))!.credits).toBe(17); // 5 + 12
+    const exec = await db.factoryExecution.findFirst({ where: { productId: dossier.id } });
+    expect(exec!.status).toBe("FAILED");
+    expect(exec!.error).toBe("server_restart_recovery");
+    const d = await db.productDossier.findUnique({ where: { id: dossier.id } });
+    expect(d!.status).toBe("FAILED");
+    const timeline = JSON.parse(d!.timeline ?? "[]") as Array<{ step: string }>;
+    expect(timeline.some((t) => t.step === "FACTORY_FAILED" || t.step === "SERVER_RESTART_RECOVERY")).toBe(true);
+    await db.user.delete({ where: { id: u.id } });
+  });
+
+  it("dossier PRODUCING sin ejecución (execute:false o huérfano antiguo) → FAILED SIN reembolso ciego", async () => {
+    const { recoverStaleRuns } = await import("@/lib/production-recovery");
+    const u = await db.user.create({ data: { name: "Rec Test 2", email: `test-rec2-${Date.now()}@krea-test.local`, password: security.hashPassword("x"), credits: 0 } });
+    const opp = await db.productOpportunity.create({ data: { userId: u.id, title: "Opp recovery 2", description: "Descripción suficientemente larga", domain: "ebook", audience: "A", problem: "P" } });
+    const dossier = await db.productDossier.create({ data: { userId: u.id, opportunityId: opp.id, title: "Opp recovery 2", description: "Descripción", domain: "ebook", status: "PRODUCING" } });
+
+    const report = await recoverStaleRuns();
+
+    expect(report.recoveredDossiers).toBeGreaterThanOrEqual(1);
+    const d = await db.productDossier.findUnique({ where: { id: dossier.id } });
+    expect(d!.status).toBe("FAILED");
+    // sin cobro verificado → sin reembolso (el usuario seguía en 0 créditos)
+    expect((await db.user.findUnique({ where: { id: u.id } }))!.credits).toBe(0);
+    await db.user.delete({ where: { id: u.id } });
+  });
+
+  it("un servidor sin huérfanos no reembolsa nada (idempotente)", async () => {
+    const { recoverStaleRuns } = await import("@/lib/production-recovery");
+    const report = await recoverStaleRuns();
+    expect(report.recoveredExecutions).toBe(0);
+    expect(report.recoveredDossiers).toBe(0);
+    expect(report.refundedCredits).toBe(0);
   });
 });
