@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getSessionUser } from "@/lib/auth";
 import { chargeForCapability, refundCharge, type ChargeResult, type ChargeError } from "@/lib/credit-service";
 
 /**
@@ -11,6 +12,9 @@ import { chargeForCapability, refundCharge, type ChargeResult, type ChargeError 
  * Body: { productInfo, platforms, sections, mockupTypes, adFormats?, concurrency? }
  */
 export async function POST(req: NextRequest) {
+  // Gate de auth ANTES de leer/validar el body (auditoría FASE 3: sin token → 401)
+  const sessionUser = await getSessionUser(req.headers.get("authorization")?.replace("Bearer ", "") || "");
+  if (!sessionUser) return NextResponse.json({ error: "No autorizado" }, { status: 401 });
   let charge: ChargeResult | ChargeError | null = null;
   try {
     const body = await req.json();
