@@ -13,7 +13,7 @@ Fábrica unificada de producción: **activos creativos con IA** + **fábrica de 
 | Producto | pipeline completo del Product Factory | `/api/product/*` | VERIFIED en módulos y e2e de script (ver INFORME-ESTADO); produce/factory-execute ejecutan la fábrica vía HTTP síncrona (P6, evidencia en INFORME-ESTADO §3.2) |
 | Arnés | validación demanda, revisión contenido/estilo, archivo de negocio, guion, ensamble | `/api/harness` (execute-skill) | VERIFIED ops puras; render Python NOT_VERIFIED sin Chrome (degrada con motivo) |
 
-Detalles, evidencia y pendientes: **[INFORME-ESTADO.md](./INFORME-ESTADO.md)**.
+Detalles, evidencia y pendientes: **[INFORME-ESTADO.md](./INFORME-ESTADO.md)** · Despliegue: **[DEPLOY.md](./DEPLOY.md)** · Historial por fase: **[worklog.md](./worklog.md)**.
 
 ## Arquitectura en una frase
 
@@ -60,7 +60,7 @@ npm install          # postinstall: prisma generate
 npx prisma db push   # crea/actualiza el esquema SQLite (no destructivo si ya coincide)
 npm run dev          # dev server :3000
 npm run build        # prisma generate + next build
-npm test             # vitest (372 tests)
+npm test             # vitest (559 tests)
 npm run lint         # eslint
 npm run smoke:providers
 DATABASE_URL=file:./prisma/dev.db npx tsx scripts/e2e-mission-flow.ts   # flujo e2e real de misión
