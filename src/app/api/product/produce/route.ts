@@ -90,6 +90,9 @@ export async function POST(req: NextRequest) {
     const dossier = await db.productDossier.findUnique({
       where: { id: dossierId },
     });
+    if (process.env.KREA_DEBUG_PRODUCE === "1") {
+      console.log("[produce-debug-fetch] spec len:", dossier?.specification?.length ?? "NULL", "| title:", dossier?.title?.slice(0, 30));
+    }
 
     if (!dossier || dossier.userId !== user.id) {
       return NextResponse.json({ error: "Dossier not found" }, { status: 404 });
@@ -121,12 +124,49 @@ export async function POST(req: NextRequest) {
       }, { status: 201 });
     }
 
+    // Hallazgo 4.2/4.4: la fábrica produce desde la ESPECIFICACIÓN persistida
+    // en el dossier. Sin specification no hay contenido que fabricar (R3:
+    // nada de relleno) → gate honesto 400 SIN cobro.
+    let chapters: Array<{ index: number; title: string; synopsis: string; targetWords?: number }> = [];
+    if (dossier.specification) {
+      try {
+        const spec = JSON.parse(dossier.specification) as { chapters?: Array<{ title?: string; synopsis?: string; targetWords?: number }> };
+        chapters = (spec.chapters ?? []).map((ch, idx) => ({
+          index: idx,
+          title: ch.title ?? `Sección ${idx + 1}`,
+          synopsis: ch.synopsis ?? ch.title ?? "",
+          targetWords: ch.targetWords ?? 320,
+        })).filter((ch) => ch.title && ch.synopsis);
+      } catch {
+        chapters = [];
+      }
+    }
+    const specificationOk = chapters.length > 0;
+
+    // Hallazgo 4.5: dominio handoff_only no produce entregable → NO se cobra.
+    if (resolveFactory(dossier.domain as ProductType) === "handoff_only") {
+      return NextResponse.json(
+        { error: "Dominio handoff_only: no produce entregable por fábrica — NO se cobra. Usa /api/product/handoff.", factoryType: "handoff_only", charged: false },
+        { status: 400 }
+      );
+    }
+
     // Cobro atómico antes de lanzar la fábrica (12 créditos, product:produce)
     const charge = await chargeForCapability(token, "product:produce");
     if (!charge.ok) {
       return NextResponse.json({ error: charge.error }, { status: charge.status });
     }
     chargeRef = charge;
+
+    // Hallazgo 4.2/4.4: el gate de especificación corre DESPUÉS del cobro para
+    // que el 402 de créditos tenga prioridad; si falla → reembolso completo.
+    if (!specificationOk) {
+      await refundCharge(charge.userId, "product:produce");
+      return NextResponse.json(
+        { error: "El dossier no tiene especificación con capítulos. Ejecuta architect/specify antes de producir." },
+        { status: 400 }
+      );
+    }
 
     // FASE 2.4 — un solo run activo por producto. SQLite serializa escrituras:
     // la transición condicionada la gana EXACTAMENTE un POST concurrente; el
@@ -153,7 +193,8 @@ export async function POST(req: NextRequest) {
       title: dossier.title,
       author: user.name,
       requiredProviders: ["text", "image"],
-    };
+      chapters,
+    } as never;
 
     const execution = await db.factoryExecution.create({
       data: {

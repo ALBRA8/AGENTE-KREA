@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { db } from "@/lib/db";
 import { getSessionUser } from "@/lib/auth";
 import { chargeForCapability, refundCharge, type ChargeResult, type ChargeError } from "@/lib/credit-service";
 import { createProductSpecification } from "@/lib/product-specification";
@@ -14,7 +15,7 @@ export async function POST(req: NextRequest) {
 
   try {
     const body = await req.json();
-    const { architecture } = body;
+    const { architecture, dossierId } = body;
 
     if (!architecture) {
       return NextResponse.json(
@@ -36,6 +37,25 @@ export async function POST(req: NextRequest) {
     // Degradación honesta: fallback NOT_VERIFIED = proveedor no contribuyó → reembolso
     if (specification.evidence === "NOT_VERIFIED") {
       await refundCharge(charge.userId, "product:specify");
+    }
+
+    // Hallazgo 4.2: la etapa PERSISTE el campo en el dossier y avanza el
+    // estado con transición legal (SPECIFYING → SPECIFYING).
+    {
+      const dossier = await db.productDossier.findFirst({ where: { id: dossierId, userId: user.id } });
+      if (dossier) {
+        await db.productDossier.update({
+          where: { id: dossier.id },
+          data: {
+            specification: JSON.stringify(specification),
+            status: 'SPECIFYING',
+            timeline: JSON.stringify([
+              ...(dossier.timeline ? (JSON.parse(dossier.timeline) as unknown[]) : []),
+              { step: 'SPECIFICATION_SAVED', timestamp: new Date().toISOString() },
+            ]),
+          },
+        });
+      }
     }
 
     return NextResponse.json({

@@ -35,20 +35,37 @@ export async function POST(req: NextRequest) {
 
   try {
     const body = await req.json();
-    const { name, productType, targetAudience, marketEvidence } = body;
+    const { name, productType, targetAudience, marketEvidence, problem, description } = body;
 
     if (!name || !productType) {
       return NextResponse.json({ error: "name and productType are required" }, { status: 400 });
+    }
+
+    // Hallazgo 4.1: sin `problem` y `audience`, product-fit rechaza toda
+    // evaluación → TODA oportunidad creada por la API puntúa 0/SKIP y nunca
+    // hay GO. Ahora son obligatorios (400 si faltan).
+    const effectiveProblem = problem || marketEvidence || description;
+    if (!effectiveProblem || typeof effectiveProblem !== "string" || effectiveProblem.trim().length < 10) {
+      return NextResponse.json(
+        { error: "problem es obligatorio (≥10 caracteres): describe el problema que el producto resuelve" },
+        { status: 400 }
+      );
+    }
+    if (!targetAudience || typeof targetAudience !== "string" || targetAudience.trim().length < 3) {
+      return NextResponse.json(
+        { error: "audience es obligatorio: define para quién es el producto" },
+        { status: 400 }
+      );
     }
 
     const opportunity = await db.productOpportunity.create({
       data: {
         userId: user.id,
         title: name,
-        description: marketEvidence || "",
+        description: marketEvidence || description || effectiveProblem,
         domain: productType,
-        audience: targetAudience || "",
-        problem: "",
+        audience: targetAudience.trim(),
+        problem: effectiveProblem.trim(),
         status: "EVALUATING",
       },
     });

@@ -46,6 +46,40 @@ const ECONOMICS_JSON = JSON.stringify({
   timelineEstimate: "4 semanas",
 });
 
+const ARCHITECTURE_JSON = JSON.stringify({
+  architecture: "Libro práctico en PDF con tres capítulos secuenciales y plantillas descargables",
+  components: [
+    { name: "Capítulos", type: "contenido", description: "Tres capítulos con pasos y ejemplos", dependencies: [] },
+    { name: "Plantillas", type: "anexo", description: "Plantillas de respuesta listas para copiar", dependencies: ["Capítulos"] },
+  ],
+  dependencies: ["proveedor de texto", "proveedor de imagen"],
+  constraints: ["Sin herramientas de pago", "Consumible en una semana"],
+  estimatedDuration: "2 semanas de producción",
+  technologyStack: ["pdf-lib", "provider-registry"],
+  totalWordCount: 960,
+  chapters: [
+    { number: 1, title: "Ordena tu catálogo en el chat", description: "Cómo presentar productos en WhatsApp de forma clara", estimatedWords: 320, keyTopics: ["catálogo", "plantillas"] },
+    { number: 2, title: "Respuestas que venden", description: "Plantillas para las cinco preguntas más comunes", estimatedWords: 320, keyTopics: ["respuestas", "preguntas"] },
+    { number: 3, title: "Cobra sin fricción", description: "Cómo pedir el pago y confirmar sin romper la conversación", estimatedWords: 320, keyTopics: ["cobro"] },
+  ],
+  artDirection: "Estilo práctico y directo, tipografía sans-serif legible, paleta en grises con un acento",
+  format: "pdf",
+});
+
+const SPECIFICATION_JSON = JSON.stringify({
+  constraints: ["El producto se consume en una semana", "Sin herramientas de pago"],
+  acceptanceCriteria: [
+    { description: "El lector ordena su catálogo completo", priority: "MUST", verificationMethod: "revisión del catálogo ordenado" },
+    { description: "El lector responde las cinco preguntas base", priority: "MUST", verificationMethod: "revisión de respuestas" },
+  ],
+  modules: [],
+  chapters: [
+    { chapterNumber: 1, title: "Ordena tu catálogo en el chat", description: "Cómo presentar productos en WhatsApp de forma clara y ordenada", targetWordCount: 320, keyTopics: ["catálogo", "plantillas"], outline: ["Inventario", "Plantillas", "Registro"], acceptanceCriteria: ["Catálogo ordenado en una hora"] },
+    { chapterNumber: 2, title: "Respuestas que venden", description: "Plantillas para las cinco preguntas más comunes del chat", targetWordCount: 320, keyTopics: ["respuestas", "preguntas"], outline: ["Preguntas frecuentes", "Plantillas base"], acceptanceCriteria: ["Respuestas listas para copiar"] },
+    { chapterNumber: 3, title: "Cobra sin fricción", description: "Cómo pedir el pago y confirmar sin romper la conversación", targetWordCount: 320, keyTopics: ["cobro", "confirmación"], outline: ["Medios de cobro", "Confirmación"], acceptanceCriteria: ["Cobro definido"] },
+  ],
+});
+
 const COMMERCIAL_JSON = JSON.stringify({
   jobToBeDone:
     "Cuando el vendedor necesita ordenar su catálogo y responder rápido en el chat, quiere plantillas y pasos concretos para no perder ventas.",
@@ -80,11 +114,18 @@ function proseFor(prompt: string): string {
 
 function textFor(messages: unknown): string {
   const arr = Array.isArray(messages) ? messages : [];
-  const last = arr.length ? (arr[arr.length - 1] as { content?: string }) : undefined;
-  const prompt = typeof last?.content === "string" ? last.content : "";
+  // Rutado sobre TODO el intercambio (system + user): los system prompts de
+  // este repo describen el JSON esperado con sus nombres de campo.
+  const prompt = arr
+    .map((m) => (typeof (m as { content?: string })?.content === "string" ? (m as { content?: string }).content : ""))
+    .join("\n");
   if (/marketExistence|audienceClarity/.test(prompt)) return FIT_JSON;
   if (/developmentCost|pricePerUnit/.test(prompt)) return ECONOMICS_JSON;
   if (/jobToBeDone|valueProposition/.test(prompt)) return COMMERCIAL_JSON;
+  // Orden de rutado: primero keywords ÚNICAS de cada prompt estructurado.
+  if (/estimatedWords/.test(prompt)) return ARCHITECTURE_JSON;
+  if (/Product Specification Writer|chapterNumber/.test(prompt)) return SPECIFICATION_JSON;
+  if (/targetWordCount|outline\[\]|acceptanceCriteria/.test(prompt)) return SPECIFICATION_JSON;
   return proseFor(prompt);
 }
 

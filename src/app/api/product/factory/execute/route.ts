@@ -51,6 +51,21 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Dossier no encontrado o sin permisos" }, { status: 404 });
     }
 
+    // Hallazgo 4.5: el despacho SIEMPRE lo decide el domain del dossier
+    // (resolveFactory). El factoryType del cliente se ignora; y los dominios
+    // handoff_only NO se cobran: no producen entregable (R2).
+    const resolvedDispatch = resolveFactory(dossier.domain as ProductType);
+    if (resolvedDispatch === "handoff_only") {
+      return NextResponse.json(
+        {
+          error: "Dominio handoff_only: no produce entregable por fábrica — NO se cobra. Usa /api/product/handoff para la entrega externa.",
+          factoryType: resolvedDispatch,
+          charged: false,
+        },
+        { status: 400 }
+      );
+    }
+
     // Cobro atómico antes de lanzar la fábrica. Reembolso en cualquier fallo.
     const charge = await chargeForCapability(token, "product:factory-execute");
     if (!charge.ok) {
@@ -72,8 +87,8 @@ export async function POST(req: NextRequest) {
     }
 
     const contractObj = typeof contract === "string" && contract ? safeParse(contract) : (contract ?? {});
-    const resolvedType = (factoryType ??
-      resolveFactory(dossier.domain as ProductType)) as string;
+    // Hallazgo 4.5: el tipo mostrado/ejecutado es SIEMPRE el del dispatch real.
+    const resolvedType = resolvedDispatch as string;
 
     const execution = await db.factoryExecution.create({
       data: {

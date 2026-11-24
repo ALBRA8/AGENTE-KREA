@@ -15,7 +15,7 @@ export async function POST(req: NextRequest) {
 
   try {
     const body = await req.json();
-    const { opportunityId, productType, fitScore } = body;
+    const { opportunityId, productType, fitScore, dossierId } = body;
 
     if (!opportunityId) {
       return NextResponse.json(
@@ -76,6 +76,25 @@ export async function POST(req: NextRequest) {
     // Degradación honesta: fallback NOT_VERIFIED = proveedor no contribuyó → reembolso
     if (architecture.evidence === "NOT_VERIFIED") {
       await refundCharge(charge.userId, "product:architect");
+    }
+
+    // Hallazgo 4.2: la etapa PERSISTE el campo en el dossier y avanza el
+    // estado con transición legal (ARCHITECTING → SPECIFYING).
+    {
+      const dossier = await db.productDossier.findFirst({ where: { id: dossierId, userId: user.id } });
+      if (dossier) {
+        await db.productDossier.update({
+          where: { id: dossier.id },
+          data: {
+            architecture: JSON.stringify(architecture),
+            status: 'ARCHITECTING',
+            timeline: JSON.stringify([
+              ...(dossier.timeline ? (JSON.parse(dossier.timeline) as unknown[]) : []),
+              { step: 'ARCHITECTURE_SAVED', timestamp: new Date().toISOString() },
+            ]),
+          },
+        });
+      }
     }
 
     return NextResponse.json({

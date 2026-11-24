@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { db } from "@/lib/db";
 import { getSessionUser } from "@/lib/auth";
 import { chargeForCapability, refundCharge, type ChargeResult, type ChargeError } from "@/lib/credit-service";
 import { analyzeProductEconomics } from "@/lib/product-economics";
@@ -14,7 +15,7 @@ export async function POST(req: NextRequest) {
 
   try {
     const body = await req.json();
-    const { productId, architecture } = body;
+    const { productId, architecture, dossierId } = body;
 
     if (!productId || !architecture) {
       return NextResponse.json(
@@ -38,6 +39,25 @@ export async function POST(req: NextRequest) {
     // (proveedor caído o parse fallido) marca ESTIMATED → reembolso
     if (economics.evidence !== "INFERRED") {
       await refundCharge(charge.userId, "product:economics");
+    }
+
+    // Hallazgo 4.2: la etapa PERSISTE el campo en el dossier y avanza el
+    // estado con transición legal (ECONOMICS → READY_FOR_PRODUCING).
+    {
+      const dossier = await db.productDossier.findFirst({ where: { id: dossierId, userId: user.id } });
+      if (dossier) {
+        await db.productDossier.update({
+          where: { id: dossier.id },
+          data: {
+            economics: JSON.stringify(economics),
+            status: 'ECONOMICS',
+            timeline: JSON.stringify([
+              ...(dossier.timeline ? (JSON.parse(dossier.timeline) as unknown[]) : []),
+              { step: 'ECONOMICS_SAVED', timestamp: new Date().toISOString() },
+            ]),
+          },
+        });
+      }
     }
 
     return NextResponse.json({

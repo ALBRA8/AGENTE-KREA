@@ -12,7 +12,7 @@ export async function POST(req: NextRequest) {
 
   try {
     const body = await req.json();
-    const { opportunityId, fitScore } = body;
+    const { opportunityId } = body;
 
     if (!opportunityId) {
       return NextResponse.json(
@@ -34,11 +34,11 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Acceso denegado" }, { status: 403 });
     }
 
-    // Use provided fitScore or load from opportunity
+    // Hallazgo 4.3: el fitScore del body se IGNORA — la decisión usa el
+    // score PERSISTIDO con su evidencia. Cinco dimensiones en el body no
+    // fabrican un GO sin evidencia.
     let score: FitScore;
-    if (fitScore) {
-      score = fitScore;
-    } else if (opportunity.fitScore) {
+    if (opportunity.fitScore) {
       score = JSON.parse(opportunity.fitScore);
     } else {
       return NextResponse.json(

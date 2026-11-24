@@ -75,6 +75,44 @@ export async function runFactoryInBackground(opts: BackgroundRunOptions): Promis
     },
   });
 
+  // Hallazgo 4.4: los artefactos REALES se persisten como ProductAsset
+  // (checksum, tamaño, mime) — antes 0 filas en toda la BD y sin descarga.
+  try {
+    const { createHash } = await import("crypto");
+    const fsMod = await import("fs/promises");
+    for (const a of result.artifacts) {
+      if (!a.path) continue;
+      try {
+        const stat = await fsMod.stat(a.path);
+        const buf = await fsMod.readFile(a.path);
+        const checksum = createHash("sha256").update(buf).digest("hex");
+        await db.productAsset.upsert({
+          where: { assetId: (a as { assetId?: string }).assetId ?? `${opts.executionDbId}:${a.type}:${a.filename ?? "file"}` },
+          create: {
+            userId: opts.userId,
+            assetId: (a as { assetId?: string }).assetId ?? `${opts.executionDbId}:${a.type}:${a.filename ?? "file"}`,
+            productId: opts.dossierId ?? opts.blueprint.productId,
+            type: a.type,
+            filename: a.filename ?? a.path.split("/").pop() ?? "file",
+            mimeType: (a as { mimeType?: string }).mimeType ?? "application/octet-stream",
+            path: a.path,
+            size: stat.size,
+            checksum,
+            source: "book-factory",
+            provider: "factory-orchestrator",
+            status: "ACTIVE",
+            evidence: "VERIFIED",
+          },
+          update: { size: stat.size, checksum, status: "ACTIVE" },
+        });
+      } catch {
+        // archivo ausente: no se registra como asset VERIFIED (honesto)
+      }
+    }
+  } catch {
+    // best-effort: el fallo del registro de assets no revierte la producción
+  }
+
   // Avance del dossier SOLO desde PRODUCING (máquina de estados segura)
   if (opts.dossierId) {
     const dossier = await db.productDossier.findUnique({ where: { id: opts.dossierId } });

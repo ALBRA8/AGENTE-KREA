@@ -136,7 +136,16 @@ beforeAll(async () => {
   opportunityId = opp.id;
 
   const dossier = await db.productDossier.create({
-    data: { userId: richId, opportunityId, title: "Ebook de fermentación casera", description: "Guía completa de fermentación", domain: "ebook", status: "IDEA" },
+    data: {
+      userId: richId, opportunityId, title: "Ebook de fermentación casera", description: "Guía completa de fermentación", domain: "ebook", status: "IDEA",
+      // FASE 4.2/4.4: producir exige especificación con capítulos (gate honesto)
+      specification: JSON.stringify({
+        productId: "spec-fixture", version: "1.0.0",
+        chapters: [
+          { chapterNumber: 1, title: "Fundamentos de la fermentación", description: "Base científica y práctica", targetWordCount: 320, keyTopics: ["fermentación"], outline: ["Intro"], acceptanceCriteria: [{ description: "Conceptos claros", priority: "MUST", verificationMethod: "revisión" }] },
+        ],
+      }),
+    },
   });
   dossierId = dossier.id;
 
@@ -276,6 +285,10 @@ describe("produce — créditos de la fábrica completa", () => {
     const before = await creditsOf(richId);
 
     const res = await producePOST(req("/api/product/produce", { dossierId }, richToken));
+    if (res.status !== 202) {
+      const err = await res.clone().json().catch(() => ({}));
+      console.log("produce 400 →", JSON.stringify(err).slice(0, 200));
+    }
     expect(res.status).toBe(202);                 // respuesta inmediata
     const json = await res.json();
     expect(json.mode).toBe("async");

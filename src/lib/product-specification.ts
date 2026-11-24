@@ -146,6 +146,13 @@ export async function createProductSpecification(
 
     const data = parseResult.data;
 
+    // Hallazgo 4.2: una especificación sin criterios de aceptación NO es
+    // utilizable para producir — fail-closed a fallback (reembolso en ruta).
+    if (!data.acceptanceCriteria || !Array.isArray(data.acceptanceCriteria)) {
+      console.error("[ProductSpecification] LLM response missing acceptanceCriteria");
+      return createFallbackSpecification(productId, version, architecture, "LLM response missing acceptanceCriteria");
+    }
+
     // Build acceptance criteria with IDs and status
     const acceptanceCriteria: AcceptanceCriterion[] = data.acceptanceCriteria.map((ac) => ({
       id: generateCriterionId(),
@@ -190,7 +197,7 @@ export async function createBookSpecification(
 
   // Enhance with chapter outlines from architecture
   if (architecture.chapters && architecture.chapters.length > 0) {
-    const enhancedChapters: ChapterSpec[] = architecture.chapters.map((chapter) => ({
+    const enhancedChapters: ChapterSpec[] = (architecture.chapters ?? []).map((chapter) => ({
       chapterNumber: chapter.number,
       title: chapter.title,
       description: chapter.description,
@@ -294,7 +301,9 @@ function buildSpecificationPrompt(
   architecture: ProductArchitecture,
   existingConstraints?: string[]
 ): string {
-  const componentsSummary = architecture.components
+  // Hallazgo (FASE 4): las arquitecturas de fallback (proveedor caído) pueden
+  // venir sin components/dependencies/constraints — el prompt no debe crashear.
+  const componentsSummary = (architecture.components ?? [])
     .map((c) => `  - ${c.name} (${c.type}): ${c.description}`)
     .join("\n");
 
@@ -308,8 +317,8 @@ Product Type: ${architecture.productType}
 Architecture: ${architecture.architecture}
 Components:
 ${componentsSummary}
-Dependencies: ${architecture.dependencies.join(", ") || "none"}
-Existing Constraints: ${architecture.constraints.join("; ") || "none"}
+Dependencies: ${(architecture.dependencies ?? []).join(", ") || "none"}
+Existing Constraints: ${(architecture.constraints ?? []).join("; ") || "none"}
 ${constraintsStr}
 
 Provide a complete specification with acceptance criteria and detailed ${getSpecTypeHint(architecture.productType)}.`;
