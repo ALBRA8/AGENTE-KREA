@@ -26,6 +26,8 @@ export interface QAReport {
   productId: string;
   artifactPath: string;
   passed: boolean;
+  /** Hallazgo 3.6: nº de checks NOT_VERIFIED — no cuentan como pasa. */
+  unverifiedCount: number;
   checks: QACheck[];
   issues: QAIssue[];
   evidence: EvidenceTag;
@@ -271,25 +273,31 @@ export async function runVisualQA(
   // ── Check 8 (NOT_VERIFIED): Visual rendering quality ─────────────────
   // We CANNOT check these without a visual renderer:
   checks.push({
+    // Hallazgo 3.6: lo NOT_VERIFIED NO cuenta como pasa (R1/R10). El check
+    // queda en false hasta que exista un renderer real (Chrome en el entorno).
     name: "visual_rendering_quality",
-    passed: true, // Assumed OK — we cannot verify
+    passed: false,
     detail:
-      "Visual rendering quality (text cutoff, typography, layout) cannot be verified programmatically. Requires a visual renderer.",
+      "Visual rendering quality (text cutoff, typography, layout) cannot be verified programmatically. Requires a visual renderer — NOT counted as passed.",
     evidence: "NOT_VERIFIED",
   });
 
   // ── Check 9 (NOT_VERIFIED): Image quality ────────────────────────────
   checks.push({
+    // Hallazgo 3.6: idem — no verificado, no cuenta como pasa.
     name: "image_quality",
-    passed: true, // Assumed OK — we cannot verify
+    passed: false,
     detail:
-      "Image quality/resolution within PDF cannot be verified programmatically. Requires rendering.",
+      "Image quality/resolution within PDF cannot be verified programmatically. Requires rendering — NOT counted as passed.",
     evidence: "NOT_VERIFIED",
   });
 
-  // ── Determine pass/fail ──────────────────────────────────────────────
+  // ── Determine pass/fail (hallazgo 3.6: solo los checks VERIFIED deciden) ──
   const hasCritical = issues.some((i) => i.severity === "CRITICAL");
-  const passed = !hasCritical;
+  const verifiedChecks = checks.filter((c) => c.evidence === "VERIFIED");
+  const failedVerified = verifiedChecks.some((c) => !c.passed);
+  const unverifiedCount = checks.filter((c) => c.evidence === "NOT_VERIFIED").length;
+  const passed = !hasCritical && !failedVerified;
 
   // Overall evidence: VERIFIED if at least one real check was performed,
   // NOT_VERIFIED if we never opened the file
@@ -302,6 +310,7 @@ export async function runVisualQA(
     productId,
     artifactPath,
     passed,
+    unverifiedCount, // honesto: cuántos checks quedan sin verificar
     checks,
     issues,
     evidence: overallEvidence,

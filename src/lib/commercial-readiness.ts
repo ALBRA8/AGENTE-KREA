@@ -172,6 +172,22 @@ export function evaluateReadiness(
     requirements
   );
 
+  // ── Hallazgo 3.3: requisitos CRÍTICOS explícitos. Antes ningún scorer
+  // emitía dimensión "critical" → READY_FOR_SALE era alcanzable sin QA y sin
+  // artefacto. Ahora: QA pasado + artefacto producido son críticos.
+  requirements.push({
+    dimension: "critical",
+    requirement: "The product must have at least one produced artifact",
+    met: (assets?.artifactCount ?? 0) > 0,
+    evidence: (assets?.artifactCount ?? 0) > 0 ? "VERIFIED" : "NOT_VERIFIED",
+  });
+  requirements.push({
+    dimension: "critical",
+    requirement: "Product QA must be passed overall",
+    met: qaReport.overallPassed === true,
+    evidence: qaReport.overallPassed === true ? "VERIFIED" : "NOT_VERIFIED",
+  });
+
   // ── Dimension 3: Quality ──────────────────────────────────────────────────
   const quality = scoreQuality(qaReport, requirements);
 

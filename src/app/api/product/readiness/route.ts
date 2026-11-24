@@ -27,35 +27,86 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Producto comercial no encontrado" }, { status: 404 });
     }
 
-    // Compute readiness score from existing data
-    const keyBenefits = JSON.parse(product.keyBenefits || "[]");
-    const objections = JSON.parse(product.objections || "[]");
-    const proofReqs = JSON.parse(product.proofRequirements || "[]");
-    const launchReqs = JSON.parse(product.launchRequirements || "[]");
-    const risks = JSON.parse(product.risks || "[]");
+    const dossier = await db.productDossier.findFirst({
+      where: { id: productId, userId: user.id },
+    });
+    if (!dossier) {
+      return NextResponse.json({ error: "Dossier no encontrado" }, { status: 404 });
+    }
 
-    const scores: Record<string, number> = {};
-    scores.valueProposition = product.valueProposition ? 0.8 : 0.2;
-    scores.market = product.targetCustomer !== "{}" ? 0.7 : 0.2;
-    scores.pricing = product.priceStrategy !== "{}" ? 0.7 : 0.2;
-    scores.benefits = Math.min(1, keyBenefits.length * 0.2);
-    scores.objections = objections.length > 0 ? 0.7 : 0.3;
-    scores.proof = Math.min(1, proofReqs.length * 0.15);
-    scores.launch = Math.min(1, launchReqs.length * 0.2);
-    scores.risk = risks.length === 0 ? 0.8 : Math.max(0.2, 0.8 - risks.length * 0.1);
+    // Hallazgo 3.3: la ruta usa la LIBRERÍA (una sola implementación):
+    // evaluateReadiness con el QA real de la ejecución y los artefactos.
+    // Fail-closed: sin QA ejecutado, el QAReport sintético NO pasa.
+    const latestExec = await db.factoryExecution.findFirst({
+      where: { productId, userId: user.id },
+      orderBy: { startedAt: "desc" },
+    });
 
-    const overall = Object.values(scores).reduce((a, b) => a + b, 0) / Object.keys(scores).length;
-    const level = overall >= 0.7 ? "READY" : overall >= 0.4 ? "CONDITIONAL" : "NOT_READY";
+    const artifactRefs: Array<{ type: string; path?: string; name?: string }> = latestExec?.artifacts
+      ? (JSON.parse(latestExec.artifacts) as Array<{ type: string; path?: string; name?: string }>)
+      : [];
+    const hasPdf = artifactRefs.some((a) => a.type === "pdf");
 
-    const readiness = { overall: Math.round(overall * 100) / 100, level, scores };
+    const { evaluateReadiness } = await import("@/lib/commercial-readiness");
 
-    const updated = await db.commercialProduct.update({
+    // QA real si existe en la ejecución; si no, reporte fail-closed.
+    let qaReport;
+    if (latestExec?.qaReport) {
+      qaReport = JSON.parse(latestExec.qaReport);
+    } else {
+      qaReport = {
+        reportId: `no-qa-${productId}`,
+        productId,
+        version: product.productVersion || "1.0.0",
+        overallPassed: false,
+        artifactQA: { category: "artifact", passed: false, score: 0, checks: [], issues: [] },
+        contentQA: { category: "content", passed: false, score: 0, checks: [], issues: [] },
+        structureQA: { category: "structure", passed: false, score: 0, checks: [], issues: [] },
+        visualQA: { category: "visual", passed: false, score: 0, checks: [], issues: [] },
+        commercialQA: { category: "commercial", passed: false, score: 0, checks: [], issues: [] },
+        deliveryQA: { category: "delivery", passed: false, score: 0, checks: [], issues: [] },
+        overallScore: 0,
+        criticalIssues: [{ id: "no-qa", severity: "CRITICAL", category: "qa", description: "QA no ejecutado para este producto", repairable: true, repairAction: "run_qa" }],
+        warnings: [],
+        evidence: "NOT_VERIFIED",
+        inspectedAt: new Date(),
+      };
+    }
+
+    // Shape CommercialProduct (product-qa) desde la BD — flags honestos.
+    const commercial = {
+      hasPricing: product.priceStrategy !== "{}" && Boolean(product.priceStrategy),
+      hasTargetCustomer: product.targetCustomer !== "{}" && Boolean(product.targetCustomer),
+      hasValueProposition: Boolean(product.valueProposition),
+      hasProblemStatement: Boolean(product.problem),
+      hasDifferentiation: Boolean(product.differentiation),
+      testimonials: JSON.parse(product.proofRequirements || "[]").filter((p: { kind?: string }) => p?.kind === "testimonial"),
+      claims: JSON.parse(product.keyBenefits || "[]"),
+    };
+    const assetsInfo = {
+      artifactCount: artifactRefs.length,
+      hasBlueprint: Boolean(dossier.architecture),
+      hasSpecification: Boolean(dossier.specification),
+      hasEconomics: Boolean(dossier.economics),
+      hasArchitecture: Boolean(dossier.architecture),
+    };
+    const readiness = evaluateReadiness(
+      productId,
+      product.productVersion || "1.0.0",
+      qaReport,
+      commercial,
+      undefined,
+      assetsInfo
+    );
+
+    // Persistir el readiness REAL del modelo en commercialProduct
+    await db.commercialProduct.update({
       where: { id: product.id },
       data: { commercialReadiness: JSON.stringify(readiness) },
     });
 
     return NextResponse.json({
-      productId: updated.productId,
+      productId,
       readiness,
     });
   } catch (e: unknown) {

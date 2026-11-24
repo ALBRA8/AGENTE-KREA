@@ -366,8 +366,17 @@ describe("Golden Flow C — ciclo de vida completo del producto (puro)", () => {
     expect(getVersion(dossier.dossierId, "1.0.0")?.status).toBe("PUBLISHED");
 
     // 5) Readiness con QA real (fixture VERIFIED) → READY_FOR_SALE
+    // FASE 3.3: los requisitos críticos (artefacto producido + QA pasado) son
+    // obligatorios — el flujo pasa los assets reales del pipeline.
     const qa = makeQAPassedReport(dossier.dossierId, "1.0.0");
-    let readiness: CommercialReadiness = evaluateReadiness(dossier.dossierId, "1.0.0", qa);
+    const assetsProduced = {
+      artifactCount: 1,
+      hasBlueprint: true,
+      hasSpecification: true,
+      hasEconomics: true,
+      hasArchitecture: true,
+    };
+    let readiness: CommercialReadiness = evaluateReadiness(dossier.dossierId, "1.0.0", qa, undefined, undefined, assetsProduced);
     expect(readiness.blockers).toEqual([]);
     readiness = transitionReadiness(readiness, "READY_FOR_SALE");
     expect(readiness.state).toBe("READY_FOR_SALE");

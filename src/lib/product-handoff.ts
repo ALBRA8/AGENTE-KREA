@@ -147,6 +147,11 @@ export function registerHandoffProvider(provider: IHandoffProvider): void {
   providerRegistry.set(provider.providerId, provider);
 }
 
+/** Hallazgo 3.1: la ruta necesita saber si hay proveedor REAL para targetProvider. */
+export function getHandoffProvider(providerId: string): IHandoffProvider | undefined {
+  return providerRegistry.get(providerId);
+}
+
 /**
  * Check if a provider is available.
  */

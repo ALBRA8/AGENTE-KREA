@@ -341,3 +341,31 @@ $ npm run build     → exit 0
 - Nueva suite `money-refunds.test.ts`: **17 tests, 3 corridas consecutivas verdes** — D4 completo: 8 rutas con proveedor caído/vacío → 5xx + refunded:true + saldo restaurado EXACTO; batch concurrency 0 → 400 sin cobrar; variants count 1000 → 400; doble POST produce → 1 ejecución + 12 créditos netos UNA vez; doble refundCreditsOnce → UN incremento y UNA fila; cuadre del libro exacto.
 - Bugs encontrados al construir la evidencia: (1) `refundCreditsOnce` devolvía `true` cuando el reembolso YA existía (transacción vacía) — corregido con bandera de ejecución, probado con repro tsx (r1 true, r2 true, 1 fila → ahora r2 false); (2) email/catalog/nl-editor no comprobaban el éxito del proveedor (el hallazgo original era MÁS grave de lo documentado).
 
+
+---
+
+## FASE 3 — GATES HONESTOS (commit `fase-3`)
+
+### Qué se cambió
+1. **3.1 Handoff**: la ruta ya no mapea `send → SENT` con una tabla estática. `send` exige proveedor registrado para `targetProvider` (export `getHandoffProvider` en la lib): sin proveedor → 409 + fila READY + evidencia NOT_VERIFIED; con proveedor → isAvailable + send real; SENT solo con SENT_OK + providerRef + sentAt en `evidence`.
+2. **3.2 Launch package**: validación server-side (`validateLaunchPackage` + `getIntegrityIssues`) → `integrityCheck` PERSISTIDO; testimonio inventado/campos vacíos → 422 sin persistir; campos JSON del body normalizados (objeto o string).
+3. **3.3 Readiness**: la ruta llama a `evaluateReadiness` (una sola implementación: la librería) con el QA real de la última FactoryExecution — sin QA → reporte sintético fail-closed (overallPassed=false + critical "QA no ejecutado"). La lib ahora emite requisitos CRÍTICOS explícitos: "al menos un artefacto producido" + "QA pasado" → sin PDF y con QA CRITICAL jamás READY_FOR_SALE.
+4. **3.4 Publicación**: PATCH de dossiers con whitelist de transiciones; PUBLISHED exige readiness READY_FOR_SALE + versión registrada con qaPassed (409 sin puertas); QA ya no publica (arreglado en FASE 1).
+5. **3.5 Versiones**: semver estricto, propiedad del productId (ajeno → 404), `status` del cliente IGNORADO (siempre DRAFT), duplicado → 409.
+6. **3.6 visual-qa**: los 2 checks "Assumed OK" ahora `passed:false` (NOT_VERIFIED ≠ pasa); `passed` del report se decide solo por checks VERIFIED; `unverifiedCount` honesto añadido a QAReport.
+
+### Hallazgos del informe verificados como FALSOS-DESACTUALIZADOS en esta fase
+- B46 (QA pone PUBLISHED): ya arreglado en FASE 1 — el QA actual nunca publica.
+- B49 (product-qa sin PDF → passed:true): el código actual ya devuelve passed:false.
+- B50 (PLACEHOLDER_PATTERNS muerto): el check `no_placeholders` está vivo y falla con relleno.
+
+### Evidencia pegada (salidas reales)
+```
+$ npx tsc --noEmit  → 0 errores
+$ npm test          → Test Files 33 passed (33) · Tests 635 passed | 120 skipped (755)
+$ npm run lint      → 0 errores
+$ npm run build     → exit 0
+```
+- Nueva suite `honest-gates-fase3.test.ts`: 13 tests (handoff sin proveedor→409/READY/NOT_VERIFIED; launch-package 422 sin persistir con testimonio inventado + 201 válido con integrityCheck; readiness NUNCA READY_FOR_SALE sin QA (2 blockers críticos); publicar sin puertas→409; transición ilegal→409; semver/DRAFT/404 ajeno/409 duplicado; visual-qa unverifiedCount≥2 y checks 8/9 passed:false).
+- Golden Flow C actualizado al contrato nuevo (pasa assets reales del pipeline).
+

@@ -35,28 +35,91 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Dossier no encontrado o sin permisos" }, { status: 404 });
     }
 
+    // Hallazgo 3.2: el paquete se valida SERVER-SIDE (validateLaunchPackage +
+    // getIntegrityIssues) y el resultado se persiste en integrityCheck.
+    // Paquete inválido o con patrones deshonestos → 422 y NO se persiste.
+    const { getIntegrityIssues, validateLaunchPackage } = await import("@/lib/launch-package");
+    type LP = Parameters<typeof validateLaunchPackage>[0];
+    const parsed = <T>(raw: unknown, fallback: T): T => {
+      try { return (typeof raw === "string" ? JSON.parse(raw) : raw) as T; } catch { return fallback; }
+    };
+    const pkgForCheck = {
+      productId,
+      version: version || "1.0.0",
+      product: parsed(product || "{}", {}),
+      offer: parsed(offer || "{}", {}),
+      positioning: positioning || "",
+      targetCustomer: parsed(targetCustomer || "{}", {}),
+      corePromise,
+      benefits: parsed(benefits || "[]", []),
+      included: parsed(included || "[]", []),
+      bonuses: parsed(bonuses || "[]", []),
+      price: parsed(price || "{}", {}),
+      delivery: parsed(delivery || "{}", {}),
+      faq: parsed(faq || "[]", []),
+      objections: parsed(objections || "[]", []),
+      cta,
+      assets: parsed(assets || "[]", []),
+      proofStatus: parsed(proofStatus || "[]", []),
+      disclaimers: parsed(disclaimers || "[]", []),
+    } as unknown as LP;
+
+    // El validator espera pkg.integrityCheck pre-poblado: primero integridad
+    // (patrones deshonestos), luego validación completa con ese resultado.
+    const integrityIssues = getIntegrityIssues(pkgForCheck);
+    (pkgForCheck as { integrityCheck: { passes: boolean; issues: string[] } }).integrityCheck = {
+      passes: integrityIssues.length === 0,
+      issues: integrityIssues,
+    };
+    const validation = validateLaunchPackage(pkgForCheck);
+    const integrityCheck = JSON.stringify({
+      valid: validation.valid && integrityIssues.length === 0,
+      issues: validation.issues,
+      integrityIssues,
+      checkedAt: new Date().toISOString(),
+    });
+
+    if (!validation.valid || integrityIssues.length > 0) {
+      return NextResponse.json(
+        {
+          error: "El launch package no pasa la validación de integridad — NO se persiste",
+          validation,
+          integrityIssues,
+        },
+        { status: 422 }
+      );
+    }
+
+    // Los campos JSON aceptan objeto o string: se normalizan a string para la BD.
+    const asJson = (v: unknown, fallback: string): string => {
+      if (v === undefined || v === null) return fallback;
+      if (typeof v === "string") return v;
+      try { return JSON.stringify(v); } catch { return fallback; }
+    };
+
     const launchPackage = await db.launchPackage.create({
       data: {
         userId: user.id,
+        integrityCheck,
         packageId: createId(),
         productId,
         version: version || "1.0.0",
-        product: product || "{}",
-        offer: offer || "{}",
+        product: asJson(product, "{}"),
+        offer: asJson(offer, "{}"),
         positioning: positioning || "",
-        targetCustomer: targetCustomer || "{}",
+        targetCustomer: asJson(targetCustomer, "{}"),
         corePromise,
-        benefits: benefits || "[]",
-        included: included || "[]",
-        bonuses: bonuses || "[]",
-        price: price || "{}",
-        delivery: delivery || "{}",
-        faq: faq || "[]",
-        objections: objections || "[]",
+        benefits: asJson(benefits, "[]"),
+        included: asJson(included, "[]"),
+        bonuses: asJson(bonuses, "[]"),
+        price: asJson(price, "{}"),
+        delivery: asJson(delivery, "{}"),
+        faq: asJson(faq, "[]"),
+        objections: asJson(objections, "[]"),
         cta,
-        assets: assets || "[]",
-        proofStatus: proofStatus || "[]",
-        disclaimers: disclaimers || "[]",
+        assets: asJson(assets, "[]"),
+        proofStatus: asJson(proofStatus, "[]"),
+        disclaimers: asJson(disclaimers, "[]"),
       },
     });
 

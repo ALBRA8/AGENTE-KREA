@@ -41,13 +41,32 @@ export async function POST(req: NextRequest) {
 
   try {
     const body = await req.json();
-    const { productId, version, blueprintId, dossierId, executionId, assets, changes, parentId, status } = body;
+    const { productId, version, blueprintId, dossierId, executionId, assets, changes, parentId } = body;
 
     if (!productId || !version) {
       return NextResponse.json(
         { error: "productId y version son obligatorios" },
         { status: 400 }
       );
+    }
+
+    // Hallazgo 3.5: semver estricto + propiedad del producto + status SOLO DRAFT
+    // desde el cliente (publicar es una transición con puertas, no un campo del body).
+    const SEMVER = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
+    if (!SEMVER.test(String(version))) {
+      return NextResponse.json({ error: "version debe ser semver (MAJOR.MINOR.PATCH)" }, { status: 400 });
+    }
+    const dossier = await db.productDossier.findFirst({
+      where: { id: productId, userId: user.id },
+    });
+    if (!dossier) {
+      return NextResponse.json({ error: "Producto no encontrado" }, { status: 404 });
+    }
+    const duplicate = await db.productVersionRecord.findFirst({
+      where: { userId: user.id, productId, version: String(version) },
+    });
+    if (duplicate) {
+      return NextResponse.json({ error: `La versión ${version} ya existe` }, { status: 409 });
     }
 
     const record = await db.productVersionRecord.create({
@@ -61,7 +80,7 @@ export async function POST(req: NextRequest) {
         assets: assets || "[]",
         changes: changes || "",
         parentId: parentId || null,
-        status: status || "DRAFT",
+        status: "DRAFT", // el cliente NO puede publicar por el body (hallazgo 3.5)
       },
     });
 
