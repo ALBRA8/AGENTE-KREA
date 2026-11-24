@@ -40,8 +40,8 @@ Despliegue: **[DEPLOY.md](./DEPLOY.md)** · Costos de créditos: **README**.
 | Edición NL (`/api/commercial/edit`) | VERIFIED | 28.6s vía `images.generations.edit` (worklog §3.2) |
 | Arnés: validate-demand | VERIFIED (red real) | Google suggest vía producción completa 37.8s (worklog §3.2) |
 | Arnés: render Python de marca | NOT_VERIFIED en este entorno | sin Chrome (doctor: `{"chrome": null}`); degradación honesta implementada |
-| Launch section (UI) | NOT_VERIFIED (stub) | la sección siempre muestra vacío (`setPackages([])`); el paquete SÍ se crea y persiste por API (evidencia real `cmwso4qit…`) — pendiente de UI |
-| Botones UI "crear dossier"/"evaluar fit" | NOT_VERIFIED (no existen) | el dashboard crea oportunidad pero no dossier/fit; se hace por API (documentado en el walk) |
+| Launch section (UI) | VERIFIED | GET `/api/product/launch-package` (solo del usuario, fecha desc) + sección real con nombre/versión/evidencia/integridad y detalle por `[id]`; paquete real visible en navegador (worklog §UI4, captura 14; 20 tests UI1-UI3) |
+| Botones UI "crear dossier"/"evaluar fit" | VERIFIED | Evaluar fit (confirmación con costo de CREDIT_COSTS, anti doble clic, 402 claro; fit real 68% LLM) y Crear dossier (form precargado, navega a Dossiers); walk UI4 con capturas 07-09 |
 | Deployment | VERIFIED (referencia) | DEPLOY.md con env vars, 2 volúmenes persistentes, cron de `cleanup:generated`, recuperación al arrancar; sin despliegue real a producción |
 | Multi-usuario en cola de producción | NO_APLICABLE hoy | decisión síncrona-en-background single-process; cola como evolución futura si se requiere |
 
@@ -49,6 +49,6 @@ Despliegue: **[DEPLOY.md](./DEPLOY.md)** · Costos de créditos: **README**.
 
 1. **Revocar el token de GitHub** expuesto en el chat (sigue activo; usar token nuevo o SSH para futuros pushes).
 2. **Credenciales reales de tienda** (Shopify/Woo/TiendaNube) para pasar el export a VERIFIED-productivo (env vars ya documentadas).
-3. **UI pendiente**: sección Launch es stub; faltan botones "crear dossier" y "evaluar fit" en el dashboard (ambos disponibles por API).
+3. **UI puente por API**: architect/specify y generar launch package no tienen botón en el dashboard (invocados por API en el walk UI4, documentado); botón UI para ellos = ronda futura.
 4. **Chrome en el entorno de despliegue** si se quiere el render Python de marca.
 5. **Cola de producción** solo si se requiere multi-usuario intensivo (documentado en DEPLOY.md §6).
