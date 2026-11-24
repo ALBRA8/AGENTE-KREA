@@ -55,7 +55,21 @@ function makeCategory(category: string, checks: QACheck[]): QACategoryResult {
 
 async function main() {
   const evidence: string[] = [];
-  console.log("═══ FLUJO E2E DE MISIÓN — PROVEEDOR REAL ═══");
+  // FASE 0.5 — modo CI: proveedor determinista inyectado en el registry
+  // (mismo flujo de producción real: ai-gateway → registry → provider).
+  if (process.env.KREA_E2E_MOCK === "1") {
+    const { setProviderOverride } = await import("../src/contracts/provider-registry");
+    const { createDeterministicMockProvider } = await import("../src/test/mock-provider");
+    for (const t of ["text", "image", "image-edit", "voice"] as const) {
+      setProviderOverride(t, createDeterministicMockProvider(t));
+    }
+    console.log("═══ MODO MOCK (KREA_E2E_MOCK=1): proveedor determinista, sin red ═══");
+  }
+  console.log(
+    process.env.KREA_E2E_MOCK === "1"
+      ? "═══ FLUJO E2E DE MISIÓN — PROVEEDOR MOCKEADO (CI) ═══"
+      : "═══ FLUJO E2E DE MISIÓN — PROVEEDOR REAL ═══"
+  );
 
   // 0) Proveedor disponible
   const prov = await timed("0.provider", async () => ({

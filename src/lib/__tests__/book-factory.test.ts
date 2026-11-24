@@ -41,11 +41,14 @@ import type {
 const TINY_PNG =
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
 
-const tmpDir = "/tmp/krea-bookfactory-test";
-
-// Debe fijarse ANTES de que el módulo pdf-factory evalúe DEFAULT_OUTPUT_DIR
-vi.hoisted(() => {
-  process.env.KREA_PDF_OUTPUT_DIR = "/tmp/krea-bookfactory-test";
+// Hallazgo 0.4: nunca /tmp hardcodeado (en Windows caería en D:\tmp). Base
+// portable + nombre único por corrida; el directorio se crea en el beforeAll.
+// Debe fijarse ANTES de que el módulo pdf-factory evalúe DEFAULT_OUTPUT_DIR.
+const tmpDir = vi.hoisted(() => {
+  const base = process.env.TMPDIR || process.env.TEMP || "/tmp";
+  const dir = `${base}/krea-bookfactory-${process.pid}-${Date.now()}`;
+  process.env.KREA_PDF_OUTPUT_DIR = dir;
+  return dir;
 });
 
 const { chatCreate, imageCreate } = vi.hoisted(() => ({

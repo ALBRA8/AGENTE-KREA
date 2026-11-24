@@ -81,7 +81,12 @@ export class KreaDoctor {
   async checkAuthAPI(): Promise<HealthCheckResult> {
     const start = Date.now();
     try {
-      const res = await fetch("http://localhost:3000/api/auth/auto-login", { method: "POST" });
+      // Hallazgo (FASE 0): fetch sin timeout colgaba el doctor indefinidamente
+      // cuando algo escucha en :3000 sin responder. Degradación honesta: 5s.
+      const res = await fetch("http://localhost:3000/api/auth/auto-login", {
+        method: "POST",
+        signal: AbortSignal.timeout(5000),
+      });
       if (res.ok) {
         return {
           name: "auth_api",

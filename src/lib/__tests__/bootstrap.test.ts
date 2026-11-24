@@ -8,6 +8,10 @@ import { describe, it, expect, vi } from "vitest";
 import { KreaHarness } from "../krea-harness";
 import { bootstrapKrea, isBootstrapped } from "../bootstrap";
 
+/** Hallazgo 0.4: estas pruebas arrancan el bootstrap real (mockeando el SDK) —
+ * el primer import + bootstrap tarda; timeout de suite: 20s. */
+vi.setConfig({ testTimeout: 20_000 });
+
 // ─── Mock del adapter para evitar dependencias reales ──────────────
 
 vi.mock("../adapters/general-adapter", () => {

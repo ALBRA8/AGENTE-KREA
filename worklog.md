@@ -1,3 +1,69 @@
+# WORKLOG — ronda de CIERRE (FASE 0–8), 2026-11-24
+
+**Base de arranque:** `ce2371f` (FASE 1–5 del cierre anterior + FASE A–F).
+**Regla de hierro:** nada se marca VERIFIED sin la salida real del comando pegada aquí; lo no probado queda NOT_VERIFIED con motivo.
+**Nota sobre el informe:** `INFORME-AUDITORIA.md` NO existía en el repo (verificado con `ls`). Se reconstruye en ese archivo, numerando los hallazgos en orden de aparición (B1..Bn) y cerrándolos con evidencia fase a fase.
+
+---
+
+## FASE 0 — SANEAMIENTO (commit `fase-0`)
+
+### Qué se cambió
+1. **0.1 Migraciones reales** — borrado `prisma/migrations/20240101000000_init_product_models/` (3/20 tablas, sintaxis PostgreSQL `ALTER TABLE ... ADD CONSTRAINT`, sin `migration_lock.toml` — verificado antes de borrar). Regenerado baseline: `npx prisma migrate diff --from-empty --to-schema-datamodel prisma/schema.prisma --script > prisma/migrations/0001_init/migration.sql` (455 líneas, **20 CREATE TABLE**) + `migration_lock.toml` con `provider = "sqlite"`.
+2. **0.2 `db:push` no destructivo** — `db:push` sin flag; destructivo renombrado a `db:push:force`; nuevo `db:backup` (`scripts/backup-db.js`, `.backup` de sqlite3); documentado en DEPLOY.md §4.1.
+3. **0.3 BD de test aislada** — `src/test/global-setup.ts` (borra y empuja esquema a `file:./test.db` → `prisma/test.db`); `src/test/setup.ts` fija `DATABASE_URL` antes de cada suite + `$disconnect` en afterAll; `vitest.config.ts`: `environment: 'node'` por defecto, jsdom SOLO `**/*.test.tsx`, `fileParallelism: false`.
+4. **0.4 Tests frágiles** — `security-route-audit.test.ts`: timeout de suite 20s, inventario con igualdad EXACTA contra conteo independiente del filesystem, 2 `it()` con `return` temprano → `it.skipIf()` con análisis estático del `route.ts`, mock del SDK para las rutas doctor; `bootstrap.test.ts`: timeout 20s; `book-factory.test.ts` y `pdf-factory-cover.test.ts`: nada de `/tmp` hardcodeado (base portable + nombre único por corrida). **BORRADO** `scripts/ensure-db.js` (siembra `demo@p360.com/demo123` y fabrica tabla `_prisma_migrations` falsa; 0 referencias externas — grep). Creado `prisma/seed.ts` (exige `DEMO_PASSWORD` ≥8 chars, se niega en producción, hashea PBKDF2). Añadido `tsx` como devDependency (lo exigía `db:seed`).
+5. **0.5 CI** — `.github/workflows/ci.yml`: npm ci → prisma generate/db push → tsc → lint → test → build → e2e. `test:e2e` ya no es `echo && exit 0`: `scripts/e2e-ci.sh` levanta servidor de producción `next start -p 3123`, espera `/api/health`, y ejecuta `scripts/e2e-mission-flow.ts` con `KREA_E2E_MOCK=1` (mock determinista inyectado en el provider-registry vía `setProviderOverride` — mismo flujo de producción real: ai-gateway → registry → provider; BD, PDF y QA reales).
+
+### Hallazgos nuevos encontrados al ejecutar
+- **doctor colgaba indefinidamente**: `src/lib/doctor.ts:84` hacía `fetch("http://localhost:3000/api/auth/auto-login")` SIN timeout; con un proceso sordo escuchando en :3000 el doctor se cuelga para siempre (doctor-v2 y mcp-server ya usaban `AbortSignal.timeout`). Arreglado con `AbortSignal.timeout(5000)`.
+- **La línea base real no era 555/559**: la corrida pre-cambios dio **558/559 (1 solo timeout: `/doctor — GET`)**; los 3 timeouts de `bootstrap.test.ts` que cita el informe NO se reproducían. Documentado como hallazgo desactualizado; de todos modos se aplicó el endurecimiento.
+
+### Evidencia pegada (salidas reales)
+
+**Migraciones desde cero (aceptación 0.1):**
+```
+$ DATABASE_URL=file:/tmp/clean-migrate-test.db npx prisma migrate deploy
+All migrations have been successfully applied.
+TABLAS CREADAS: 20
+foreign_key_check filas: 0
+ACEPTACION 0.1: OK
+```
+
+**Línea base pre-cambios:** `Test Files 1 failed | 29 passed (30) · Tests 1 failed | 558 passed (559)` — timeout único `/doctor — GET` (5000ms), Duration 49.69s.
+
+**4 gates después de FASE 0:**
+```
+$ npx tsc --noEmit   → TSC: 0 errores
+$ npm run lint       → LINT EXIT: 0
+$ npm test           → Test Files 30 passed (30) · Tests 500 passed | 59 skipped (559) · Duration 27.67s
+$ npm run build      → exit 0 (rutas compiladas, ƒ Proxy (Middleware))
+```
+(los 59 skipped son los antiguos no-ops `return`-temprano, ahora skips declarados con `it.skipIf`; neto de aserciones: 500 reales ≥ las 558−58 no-ops anteriores)
+
+**Aislamiento de BD (aceptación 0.3), prueba por hash byte a byte:**
+```
+$ md5sum db/custom.db && npm test && md5sum db/custom.db
+0f8c090721d9adfb5a51a64000695da9  db/custom.db   (idéntica antes y después de la suite completa)
+═══ AISLAMIENTO PROBADO ═══
+```
+Además: 3 corridas consecutivas verdes (27.6s / 28.4s / 27.6s — todas <300s, exigencia del informe).
+
+**test:e2e con servidor + proveedor mockeado (aceptación 0.5):**
+```
+$ npm run test:e2e
+── [e2e-ci] /api/health OK
+═══ FLUJO E2E DE MISIÓN — PROVEEDOR MOCKEADO (CI) ═══
+• fit: overall=0.8, recomendación=PROCEED  • decisión: GO (riesgo LOW)
+• PDF real: 6117 bytes  • portada real (imagen IA)  • visual-qa: 9 checks
+• versión 1.0.0 publicada  • readiness: READY_FOR_SALE  • launch-package válido
+── [e2e-ci] E2E COMPLETO: servidor + proveedor mockeado + flujo de misión OK
+EXIT test:e2e: 0
+```
+
+### Not honesto todavía
+- El workflow de CI en GitHub Actions **NOT_VERIFIED** en esta fase: se verá en la primera corrida tras el push (el contenido es exactamente el mismo comando verificado aquí localmente).
+
 # INFORME-ESTADO — AGENTE-KREA (ronda de coherencia, 2026-11-22)
 
 **Base:** commit `57cf820` (fases 1–5 anteriores) + FASE A–D de esta ronda.

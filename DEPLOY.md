@@ -59,6 +59,27 @@ npx tsc --noEmit && npm run lint && npm test && npm run build   # gates
 npm run start                    # servidor de producción :3000
 ```
 
+### 4.1 Cambios de esquema y backup (FASE 0)
+
+- `npm run db:push` — NO destructivo por defecto: si el cambio implica pérdida de
+  datos, Prisma SE NIEGA y hay que decidir explícitamente.
+- `npm run db:push:force` — acepta pérdida de datos. Úsalo solo tras un backup y
+  con confirmación explícita del dueño.
+- `npm run db:backup` — copia segura con `.backup` de sqlite3 a `db/backups/`
+  (seguro con la BD en caliente; si no hay CLI sqlite3 hace copia de archivo y
+  advierte que debe hacerse con la app detenida).
+
+```bash
+npm run db:backup                # SIEMPRE antes de un cambio de esquema
+npm run db:push                  # cambio no destructivo
+# solo si Prisma exige perder datos y se aprueba:
+npm run db:push:force
+```
+
+En producción, con migraciones: `npx prisma migrate deploy` construye el esquema
+completo desde cero (baseline `0001_init` generada desde `schema.prisma`,
+verificada con 20 tablas y `PRAGMA foreign_key_check` = 0 filas).
+
 ## 5. Tareas programadas (cron del host o scheduler del contenedor)
 
 ```cron

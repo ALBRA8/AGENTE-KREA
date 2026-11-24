@@ -1,9 +1,29 @@
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import { NextRequest } from "next/server";
 import fs from "node:fs";
 import path from "node:path";
 import { security } from "@/lib/auth";
 import { db } from "@/lib/db";
+
+/**
+ * Hallazgo 0.4: las pruebas que importan TODOS los módulos de ruta (el primer
+ * import tarda: SDK, prisma, doctor) expiraban a 5000ms. Timeout de suite: 20s.
+ */
+vi.setConfig({ testTimeout: 20_000 });
+
+/**
+ * Hallazgo 0.4: el doctor de las rutas /doctor y /adn/doctor hace ZAI.create()
+ * real y en este entorno de test se cuelga >20s (red/SDK). El OBJETO de esta
+ * suite es el gate de auth (401) y el estado público (200/503), no la calidad
+ * del doctor: se mockea el SDK para que los handlers corran completos y rápidos.
+ */
+vi.mock("z-ai-web-dev-sdk", () => ({
+  default: {
+    create: async () => ({
+      chat: { completions: { create: async () => ({ choices: [{ message: { content: "ok" } }] }) } },
+    }),
+  },
+}));
 
 /**
  * FASE 3.1 — Auditoría de autenticación sobre TODAS las rutas de src/app/api:
@@ -46,6 +66,16 @@ function enumerateRoutes(): RouteDef[] {
   };
   walk(root);
   return routes.sort((a, b) => a.apiPath.localeCompare(b.apiPath));
+}
+
+/**
+ * ¿Exporta este route.ts el método HTTP dado? (análisis estático del filesystem,
+ * sin importar el módulo — evita pruebas que pasan sin afirmar nada).
+ */
+function exportsHandler(apiPath: string, method: "GET" | "POST" | "DELETE"): boolean {
+  const file = path.resolve("src/app/api", `.${apiPath}`, "route.ts");
+  const src = fs.readFileSync(file, "utf8");
+  return new RegExp(`export\\s+(?:async\\s+)?(?:function\\s+)?(?:const\\s+)?${method}\\b`).test(src);
 }
 
 // ── Política pública (por diseño) ───────────────────────────────
@@ -93,14 +123,28 @@ function routeParams(apiPath: string): Record<string, string> {
 describe("auditoría de auth sobre todas las rutas API (sin token)", () => {
   const routes = enumerateRoutes();
 
-  it("el inventario tiene al menos 55 rutas reales", () => {
+  it("el inventario coincide EXACTAMENTE con los route.ts del filesystem", () => {
+    // Hallazgo 0.4: antes se afirmaba `>= 55` (umbral blando). Ahora igualdad
+    // exacta contra un conteo independiente del filesystem.
+    let routeFiles = 0;
+    const countWalk = (dir: string) => {
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        const full = path.join(dir, entry.name);
+        if (entry.isDirectory()) countWalk(full);
+        else if (entry.name === "route.ts") routeFiles++;
+      }
+    };
+    countWalk(path.resolve("src/app/api"));
+    expect(routes.length).toBe(routeFiles);
     expect(routes.length).toBeGreaterThanOrEqual(55);
   });
 
   for (const route of routes) {
-    it(`${route.apiPath} — GET`, async () => {
+    // Hallazgo 0.4: antes `if (typeof mod.GET !== "function") return;` hacía
+    // pasar la prueba sin afirmar nada. Ahora el análisis estático del route.ts
+    // decide con it.skipIf (visible como skip, nunca como verde vacío).
+    it.skipIf(!exportsHandler(route.apiPath, "GET"))(`${route.apiPath} — GET`, async () => {
       const mod = await modules[route.moduleKey]() as Record<string, (req: NextRequest, ctx?: unknown) => Promise<Response>>;
-      if (typeof mod.GET !== "function") return; // la ruta no expone GET
       const res = await mod.GET(makeRequest("GET", route.apiPath), { params: Promise.resolve(routeParams(route.apiPath)) });
       if (PUBLIC_GET.has(route.apiPath)) {
         expect(res.status).toBe(200); // pública por diseño
@@ -111,10 +155,10 @@ describe("auditoría de auth sobre todas las rutas API (sin token)", () => {
       }
     });
 
-    it(`${route.apiPath} — POST/DELETE`, async () => {
+    it.skipIf(!exportsHandler(route.apiPath, "POST") && !exportsHandler(route.apiPath, "DELETE"))(`${route.apiPath} — POST/DELETE`, async () => {
       const mod = await modules[route.moduleKey]() as Record<string, (req: NextRequest, ctx?: unknown) => Promise<Response>>;
       const method = typeof mod.POST === "function" ? "POST" : typeof mod.DELETE === "function" ? "DELETE" : null;
-      if (!method) return;
+      if (!method) throw new Error("sin handler POST/DELETE tras pasar skipIf");
       const handler = mod[method];
       const res = await handler(makeRequest(method, route.apiPath), { params: Promise.resolve(routeParams(route.apiPath)) });
       const pub = publicPostExpectation(route.apiPath);

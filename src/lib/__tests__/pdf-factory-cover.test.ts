@@ -18,7 +18,7 @@ import fs from 'fs/promises';
 import path from 'path';
 import os from 'os';
 
-const tmpDir = path.join(os.tmpdir(), 'krea-pdf-cover-test');
+const tmpDir = path.join(os.tmpdir(), `krea-pdf-cover-${process.pid}-${Date.now()}`);
 const fixturesDir = path.resolve(
   process.cwd(),
   'src/lib/__tests__/fixtures'

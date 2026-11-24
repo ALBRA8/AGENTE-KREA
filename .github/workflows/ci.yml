@@ -1,0 +1,45 @@
+name: CI — 4 gates + E2E
+
+# FASE 0.5 — gates obligatorios: tsc → lint → test → build (+ E2E mockeado).
+# El workflow falla si cualquier gate falla.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  gates:
+    runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: file:./prisma/ci.db
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Instalar dependencias
+        run: npm ci
+
+      - name: Prisma generate + esquema
+        run: |
+          npx prisma generate
+          npx prisma db push
+
+      - name: Gate 1 — TypeScript (tsc --noEmit)
+        run: npx tsc --noEmit
+
+      - name: Gate 2 — ESLint
+        run: npm run lint
+
+      - name: Gate 3 — Tests
+        run: npm test
+
+      - name: Gate 4 — Build
+        run: npm run build
+
+      - name: E2E misión (servidor + proveedor mockeado)
+        run: npm run test:e2e
