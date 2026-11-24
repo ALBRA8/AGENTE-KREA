@@ -94,6 +94,16 @@ export async function POST(req: NextRequest) {
       reason = `Faltan env vars de credenciales: ${credentials.missingEnvVars.join(", ")}`;
     }
 
+    // Hallazgo 2.1: export fallido → reembolso (antes 200 + success:false SIN reembolso).
+    const exportResult = result as { success?: boolean };
+    if (exportResult.success === false) {
+      if (charge?.ok) await refundCharge(charge.userId, "commercial:export");
+      return NextResponse.json(
+        { success: false, error: "El export no se completó — créditos reembolsados", refunded: true, data: result, platformInfo },
+        { status: 502 }
+      );
+    }
+
     return NextResponse.json({
       success: (result as { success?: boolean }).success ?? true,
       data: result,

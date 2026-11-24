@@ -46,6 +46,11 @@ export async function editCreativeWithNL(params: NLEditParams): Promise<NLEditRe
 
     const imageData = (editResult.data as { base64?: string; url?: string }) ?? undefined;
 
+    // Hallazgo 2.1/2.2: edición sin imagen → pasar al fallback con error real.
+    if (!editResult.success || (!imageData?.base64 && !imageData?.url)) {
+      throw new Error(editResult.error || "La edición no produjo imagen");
+    }
+
     return {
       success: true,
       imageBase64: imageData?.base64 ?? undefined,
@@ -63,6 +68,16 @@ export async function editCreativeWithNL(params: NLEditParams): Promise<NLEditRe
         size: "1024x1024",
       });
       const genData = (genResult.data as { base64?: string; url?: string }) ?? undefined;
+
+      // Hallazgo 2.1/2.2: el fallback sin imagen = fallo total (reembolso).
+      if (!genResult.success || (!genData?.base64 && !genData?.url)) {
+        return {
+          success: false,
+          editInstruction,
+          prompt,
+          generatedAt: new Date().toISOString(),
+        };
+      }
 
       return {
         success: true,

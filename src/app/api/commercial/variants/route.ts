@@ -31,7 +31,20 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Cobro atómico único (reembolso en caso de fallo)
+        // Hallazgo 2.3: count × angles sin tope = llamadas reales ilimitadas
+    // por precio plano. Tope duro ANTES del cobro.
+    const MAX_COMBINATIONS = 12;
+    if (!Array.isArray(angles) || angles.length === 0 || angles.length > MAX_COMBINATIONS) {
+      return NextResponse.json({ error: `angles: entre 1 y ${MAX_COMBINATIONS}` }, { status: 400 });
+    }
+    if (!Number.isInteger(count) || count < 1 || count > MAX_COMBINATIONS) {
+      return NextResponse.json({ error: `count: entero entre 1 y ${MAX_COMBINATIONS}` }, { status: 400 });
+    }
+    if (count * angles.length > MAX_COMBINATIONS) {
+      return NextResponse.json({ error: `count × angles no puede superar ${MAX_COMBINATIONS} activos` }, { status: 400 });
+    }
+
+// Cobro atómico único (reembolso en caso de fallo)
     charge = await chargeForCapability(
       req.headers.get("authorization")?.replace("Bearer ", "") ?? "",
       "commercial:variants"
@@ -51,6 +64,16 @@ export async function POST(req: NextRequest) {
       angles,
       count,
     });
+
+    // Hallazgo 2.1: pack sin variantes → reembolso + 502.
+    const packVariants = (result as { variants?: unknown[] })?.variants ?? [];
+    if (packVariants.length === 0) {
+      if (charge?.ok) await refundCharge(charge.userId, "commercial:variants");
+      return NextResponse.json(
+        { success: false, error: "La generación no produjo variantes — créditos reembolsados", refunded: true, data: result },
+        { status: 502 }
+      );
+    }
 
     return NextResponse.json({ success: true, data: result, credits: charge.ok ? charge.creditsLeft : undefined });
   } catch (e: unknown) {

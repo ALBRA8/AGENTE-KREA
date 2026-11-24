@@ -451,6 +451,22 @@ model LaunchPackage {
 }
 
 // Commercial Feedback
+// FASE 2.6 — Libro de créditos: todo cargo/reembolso deja fila. El
+// @@unique([reference, kind]) hace el reembolso IDEMPOTENTE por referencia
+// (executionId): dos arranques concurrentes solo reembolsan una vez.
+model CreditTransaction {
+  id         String   @id @default(cuid())
+  userId     String
+  kind       String   // CHARGE | REFUND
+  amount     Int
+  capability String?
+  reference  String?  // p.ej. FactoryExecution.executionId — idempotencia
+  createdAt  DateTime @default(now())
+
+  @@unique([reference, kind])
+  @@index([userId, createdAt])
+}
+
 model CommercialFeedback {
   id          String   @id @default(cuid())
   userId      String

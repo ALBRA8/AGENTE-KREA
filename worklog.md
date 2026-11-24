@@ -316,3 +316,28 @@ $ npm run build           → exit 0
 - Nuevas suites: `security-fase1.test.ts` (16 tests: 11 aislamiento + register/login + logout + rate limit de coste) — todas verdes.
 - Audit: +4 tests por ruta (GET/POST sin token y con `Authorization: x`) — 401 real verificado en todas las no-públicas.
 
+
+---
+
+## FASE 2 — DINERO (commit `fase-2`)
+
+### Qué se cambió
+1. **Adapter no puede mentir (2.2)**: los 4 adapters ZAI devuelven `success:false` con payload vacío (texto "", base64+url "", audio 0 bytes) con evidencia OBSERVED.
+2. **Reembolso en la capa comercial (2.1)**: email-creative y catalog-generator (que NO comprobaban el resultado del proveedor) y nl-editor (ni edit ni fallback lo comprobaban) ahora FALLAN sin activo; las 7 rutas comerciales con resultado fallido → reembolso + 502 `success:false, refunded:true`.
+3. **Validación de entrada (2.3)**: batch — items ≤12 y concurrency int 1..5 ANTES de cobrar (400 sin cobro); paso seguro en el bucle del pipeline; variants — tope 12 combinaciones ANTES de cobrar. Cobro por activo: documentado como decisión de pricing pendiente del dueño (DEGRADADO-HONESTO).
+4. **Produce idempotente (2.4)**: transición condicionada del dossier; el POST perdedor → 409 + reembolso idempotente de su propio cobro. factory/execute con el mismo guard.
+5. **Recuperación exactly-once (2.5)**: `refundCreditsOnce` (transacción + `@@unique([reference, kind])`), completado/recuperación condicionados a estado, lease de 10 min para huérfanos. Heartbeat multi-instancia: degradación honesta documentada.
+6. **Libro de créditos (2.6)**: `CreditTransaction` nuevo; deductCredits escribe CHARGE; reembolso auditado en AuditEvent. Cuadre verificado en test.
+7. **Costos una sola fuente (2.7)**: `COST = costOf(...)` en las 6 rutas generate + saldo REAL en la respuesta.
+8. **Contenido vacío ≠ éxito (2.8)**: cascada del adapter + subtitle honesto (videoUrl → 400; sin SRT plantilla de video imposible).
+
+### Evidencia pegada (salidas reales)
+```
+$ npx tsc --noEmit  → 0 errores
+$ npm run lint      → 0 errores
+$ npm test          → Test Files 32 passed (32) · Tests 622 passed | 120 skipped (742) · 20.4s
+$ npm run build     → exit 0
+```
+- Nueva suite `money-refunds.test.ts`: **17 tests, 3 corridas consecutivas verdes** — D4 completo: 8 rutas con proveedor caído/vacío → 5xx + refunded:true + saldo restaurado EXACTO; batch concurrency 0 → 400 sin cobrar; variants count 1000 → 400; doble POST produce → 1 ejecución + 12 créditos netos UNA vez; doble refundCreditsOnce → UN incremento y UNA fila; cuadre del libro exacto.
+- Bugs encontrados al construir la evidencia: (1) `refundCreditsOnce` devolvía `true` cuando el reembolso YA existía (transacción vacía) — corregido con bandera de ejecución, probado con repro tsx (r1 true, r2 true, 1 fila → ahora r2 false); (2) email/catalog/nl-editor no comprobaban el éxito del proveedor (el hallazgo original era MÁS grave de lo documentado).
+

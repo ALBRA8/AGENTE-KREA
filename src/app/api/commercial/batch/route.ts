@@ -20,6 +20,16 @@ export async function POST(req: NextRequest) {
     if (!items || !Array.isArray(items) || items.length === 0) {
       return NextResponse.json({ error: "Missing or invalid: items (must be a non-empty array)" }, { status: 400 });
     }
+    // Hallazgo 2.3: arrays sin tope por precio plano = gasto real ilimitado.
+    if (items.length > 12) {
+      return NextResponse.json({ error: "items: máximo 12 por lote" }, { status: 400 });
+    }
+    // Hallazgo 2.3: concurrency 0/negativo → bucle infinito tras cobrar.
+    // Validación ANTES del cobro: int 1..5.
+    const conc = Number(concurrency ?? 3);
+    if (!Number.isInteger(conc) || conc < 1 || conc > 5) {
+      return NextResponse.json({ error: "concurrency: entero entre 1 y 5" }, { status: 400 });
+    }
 
     // Cobro atómico único (reembolso en caso de fallo)
     charge = await chargeForCapability(
@@ -31,7 +41,7 @@ export async function POST(req: NextRequest) {
     }
 
     const { executeBatch } = await import("@/lib/commercial/batch-pipeline");
-    const result = await executeBatch(items, concurrency ?? 3);
+    const result = await executeBatch(items, conc);
 
     return NextResponse.json({ success: true, data: result, credits: charge.ok ? charge.creditsLeft : undefined });
   } catch (e: unknown) {

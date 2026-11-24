@@ -346,7 +346,8 @@ describe("produce — créditos de la fábrica completa", () => {
     expect(after).toBe(before);
     expect(vi.mocked(executeFactory)).not.toHaveBeenCalled();
     const d = await db.productDossier.findUnique({ where: { id: dossierId } });
-    expect(d!.status).toBe("PRODUCING");
+    // FASE 5.3: execute:false ya NO simula un run real — estado honesto QUEUED
+    expect(d!.status).toBe("QUEUED");
     await db.productDossier.update({ where: { id: dossierId }, data: { status: "IDEA" } });
   });
 });
@@ -446,6 +447,9 @@ describe("recoverStaleRuns — huérfanos tras reinicio del servidor", () => {
         factoryType: "book_factory",
         contract: JSON.stringify({ chargedCredits: 12, capability: "product:produce" }),
         status: "RUNNING", startedAt: new Date(),
+        // FASE 2.5: lease de 10 min — solo se recupera lo que lleva inactivo
+        // más que el umbral (una run VIVA no se toca). updatedAt explícito.
+        updatedAt: new Date(Date.now() - 11 * 60 * 1000),
       },
     });
 

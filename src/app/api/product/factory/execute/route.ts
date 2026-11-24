@@ -3,6 +3,7 @@ import { getSessionUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { createId } from "@paralleldrive/cuid2";
 import { chargeForCapability, refundCharge, type ChargeResult } from "@/lib/credit-service";
+import { refundCreditsOnce } from "@/lib/auth";
 import {
   resolveFactory,
   type ExecutionBlueprint,
@@ -56,6 +57,19 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: charge.error }, { status: charge.status });
     }
     chargeRef = charge;
+
+    // FASE 2.4 — un solo run activo por producto (transición condicionada).
+    const claim = await db.productDossier.updateMany({
+      where: { id: productId, status: { not: "PRODUCING" } },
+      data: { status: "PRODUCING" },
+    });
+    if (claim.count === 0) {
+      await refundCreditsOnce(user.id, charge.cost, "product:factory-execute", `execute-claim-${productId}`);
+      return NextResponse.json(
+        { error: "Ya hay una producción activa para este producto", refunded: true },
+        { status: 409 }
+      );
+    }
 
     const contractObj = typeof contract === "string" && contract ? safeParse(contract) : (contract ?? {});
     const resolvedType = (factoryType ??

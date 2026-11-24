@@ -43,7 +43,7 @@ export async function executeBatch(
   };
 
   // Process in chunks of `concurrency`
-  for (let i = 0; i < items.length; i += concurrency) {
+  for (let i = 0; i < items.length; i += Math.max(1, Math.min(5, Math.floor(concurrency)))) {
     const chunk = items.slice(i, i + concurrency);
     const chunkPromises = chunk.map(async (item, chunkIndex) => {
       const globalIndex = i + chunkIndex;

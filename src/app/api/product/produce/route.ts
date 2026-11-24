@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getSessionUser } from "@/lib/auth";
+import { getSessionUser, refundCreditsOnce } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { createId } from "@paralleldrive/cuid2";
 import { chargeForCapability, refundCharge, type ChargeResult } from "@/lib/credit-service";
@@ -96,14 +96,16 @@ export async function POST(req: NextRequest) {
     }
 
     if (!shouldExecute) {
-      // execute:false: solo el registro PRODUCING — sin cobro, sin ejecución
+      // FASE 5.3: execute:false ya NO escribe PRODUCING (parecía un run real y
+      // la recuperación lo pasaba a FAILED "con reembolso fantasma"). Estado
+      // honesto: QUEUED — en cola, SIN cobro, sin worker.
       const updated = await db.productDossier.update({
         where: { id: dossierId },
         data: {
-          status: "PRODUCING",
+          status: "QUEUED",
           timeline: JSON.stringify([
             ...(dossier.timeline ? JSON.parse(dossier.timeline) as unknown[] : []),
-            { step: "PRODUCING", timestamp: new Date().toISOString() },
+            { step: "QUEUED", timestamp: new Date().toISOString(), note: "uncharged (execute:false)" },
           ]),
         },
       });
@@ -112,9 +114,9 @@ export async function POST(req: NextRequest) {
         dossierId: updated.id,
         productName: updated.title,
         productType: updated.domain,
-        status: "PRODUCING",
+        status: "QUEUED",
         progress: 0,
-        currentStep: "Initializing pipeline",
+        currentStep: "Queued (uncharged — execute:false)",
         createdAt: updated.createdAt,
       }, { status: 201 });
     }
@@ -125,6 +127,21 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: charge.error }, { status: charge.status });
     }
     chargeRef = charge;
+
+    // FASE 2.4 — un solo run activo por producto. SQLite serializa escrituras:
+    // la transición condicionada la gana EXACTAMENTE un POST concurrente; el
+    // otro recibe 409 y reembolso idempotente de su propio cobro.
+    const claim = await db.productDossier.updateMany({
+      where: { id: dossierId, status: { not: "PRODUCING" } },
+      data: { status: "PRODUCING" },
+    });
+    if (claim.count === 0) {
+      await refundCreditsOnce(user.id, charge.cost, "product:produce", `produce-claim-${dossierId}`);
+      return NextResponse.json(
+        { error: "Ya hay una producción activa para este producto", refunded: true },
+        { status: 409 }
+      );
+    }
 
     // Ejecución registrada ANTES de responder: el cobro queda en el contract
     // (chargedCredits) para el reembolso en fallo y en la recuperación

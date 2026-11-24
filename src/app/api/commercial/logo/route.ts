@@ -45,6 +45,16 @@ export async function POST(req: NextRequest) {
       language: language ?? "es",
     });
 
+    // Hallazgo 2.1: el generador convierte el fallo en resultado sin activos —
+    // si no hay entregable NO se cobra: reembolso + 502 (R2/R4).
+    if (!result.success) {
+      if (charge?.ok) await refundCharge(charge.userId, "commercial:logo");
+      return NextResponse.json(
+        { success: false, error: "La generación no produjo ningún activo — créditos reembolsados", refunded: true, data: result },
+        { status: 502 }
+      );
+    }
+
     return NextResponse.json({ success: true, data: result, credits: charge.ok ? charge.creditsLeft : undefined });
   } catch (e: unknown) {
     if (charge?.ok) await refundCharge(charge.userId, "commercial:logo");

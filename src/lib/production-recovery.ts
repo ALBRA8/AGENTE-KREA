@@ -14,7 +14,7 @@
  */
 
 import { db } from "@/lib/db";
-import { refundCredits } from "@/lib/auth";
+import { refundCredits, refundCreditsOnce } from "@/lib/auth";
 import { executeFactory, type ExecutionBlueprint } from "@/lib/product-factory-orchestrator";
 
 export type ProductCapability = "product:produce" | "product:factory-execute";
@@ -95,9 +95,9 @@ export async function runFactoryInBackground(opts: BackgroundRunOptions): Promis
     }
   }
 
-  // Fallo del pipeline → reembolso (los pasos parciales son pérdida del sistema)
+  // Fallo del pipeline → reembolso IDEMPOTENTE (2.5/2.6)
   if (failed && opts.chargedCredits > 0) {
-    await refundCredits(opts.userId, opts.chargedCredits);
+    await refundCreditsOnce(opts.userId, opts.chargedCredits, opts.capability, opts.executionDbId);
   }
 }
 
@@ -151,25 +151,40 @@ export async function recoverStaleRuns(): Promise<RecoveryReport> {
     refundedCredits: 0,
   };
 
-  // 1) Ejecuciones huérfanas (RUNNING/QUEUED sin worker vivo) → FAILED + reembolso
+  // 1) Ejecuciones huérfanas (RUNNING/QUEUED sin worker vivo) → FAILED + reembolso.
+  //    FASE 2.5: solo se consideran huérfanas las filas cuya última actividad
+  //    supera el umbral de LEASE (una run VIVA de otra instancia no se toca).
+  //    El modo multi-instancia con heartbeat explícito sigue documentado como
+  //    evolución (single-instance es el despliegue de referencia en DEPLOY.md).
+  const LEASE_STALE_MS = 10 * 60 * 1000; // 10 minutos
+  const staleBefore = new Date(Date.now() - LEASE_STALE_MS);
   const staleExecutions = await db.factoryExecution.findMany({
-    where: { status: { in: ["RUNNING", "QUEUED"] } },
+    where: {
+      status: { in: ["RUNNING", "QUEUED"] },
+      updatedAt: { lt: staleBefore },
+    },
   });
 
   for (const exec of staleExecutions) {
     const contract = safeParse(exec.contract);
     const charged = typeof contract.chargedCredits === "number" ? contract.chargedCredits : 0;
 
-    await db.factoryExecution.update({
-      where: { id: exec.id },
+    // Condicionado: si otra instancia ya la cerró, no la pisamos.
+    const took = await db.factoryExecution.updateMany({
+      where: { id: exec.id, status: { in: ["RUNNING", "QUEUED"] } },
       data: { status: "FAILED", error: "server_restart_recovery", completedAt: new Date() },
     });
+    if (took.count === 0) continue;
     report.recoveredExecutions++;
 
     if (charged > 0) {
-      await refundCredits(exec.userId, charged);
-      report.refundsIssued++;
-      report.refundedCredits += charged;
+      // Idempotente por (reference=execution.id, REFUND): aunque el proceso
+      // muera entre estado y reembolso, el libro garantiza exactamente-una-vez.
+      const refunded = await refundCreditsOnce(exec.userId, charged, typeof contract.capability === "string" ? contract.capability : "product:produce", exec.id);
+      if (refunded) {
+        report.refundsIssued++;
+        report.refundedCredits += charged;
+      }
     }
 
     // El dossier del producto, si quedó PRODUCING, pasa a FAILED con timeline

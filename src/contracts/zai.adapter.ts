@@ -52,11 +52,25 @@ export class ZAITextAdapter implements IGenerationProvider {
     );
 
     const content = response.choices[0]?.message?.content || "";
+    // Hallazgo 2.2: contenido vacío NO es éxito — las rutas deben rechazar y
+    // reembolsar (R2: nunca success:true sin artefacto real).
     const evidence: ProviderEvidence = {
       truthLevel: "VERIFIED",
       model: "zai-chat",
       timestamp: new Date().toISOString(),
     };
+
+    if (!content.trim()) {
+      return {
+        success: false,
+        error: "El proveedor de texto devolvió una respuesta vacía",
+        data: { content: "" },
+        providerId: this.config.id,
+        cost: 0,
+        latencyMs: Date.now() - start,
+        evidence: { ...evidence, truthLevel: "OBSERVED" },
+      };
+    }
 
     return {
       success: true,
@@ -171,6 +185,19 @@ export class ZAIImageAdapter implements IGenerationProvider {
       timestamp: new Date().toISOString(),
     };
 
+    // Hallazgo 2.2: base64 y url vacíos = payload inválido → success:false.
+    if (!base64 && !url) {
+      return {
+        success: false,
+        error: "El proveedor de imagen devolvió un payload vacío",
+        data: { base64: "", url: undefined, size },
+        providerId: this.config.id,
+        cost: 0,
+        latencyMs: Date.now() - start,
+        evidence: { ...evidence, truthLevel: "OBSERVED" },
+      };
+    }
+
     return {
       success: true,
       data: { base64, url, size },
@@ -231,6 +258,19 @@ export class ZAIImageEditAdapter implements IGenerationProvider {
       timestamp: new Date().toISOString(),
     };
 
+    // Hallazgo 2.2: edición sin imagen resultante = fallo, no éxito.
+    if (!base64 && !url) {
+      return {
+        success: false,
+        error: "La edición devolvió un payload vacío (sin imagen)",
+        data: { base64: "", url: undefined, size },
+        providerId: this.config.id,
+        cost: 0,
+        latencyMs: Date.now() - start,
+        evidence: { ...evidence, truthLevel: "OBSERVED" },
+      };
+    }
+
     return {
       success: true,
       data: { base64, url, size },
@@ -282,6 +322,19 @@ export class ZAIVoiceAdapter implements IGenerationProvider {
       model: "krea-tts-v1",
       timestamp: new Date().toISOString(),
     };
+
+    // Hallazgo 2.2: audio vacío (0 bytes) = fallo, no éxito.
+    if (!arrayBuffer || arrayBuffer.byteLength === 0) {
+      return {
+        success: false,
+        error: "El proveedor de voz devolvió audio vacío",
+        data: { arrayBuffer, voice },
+        providerId: this.config.id,
+        cost: 0,
+        latencyMs: Date.now() - start,
+        evidence: { ...evidence, truthLevel: "OBSERVED" },
+      };
+    }
 
     return {
       success: true,

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSessionUser, deductCredits, refundCredits } from "@/lib/auth";
-import { enforceCostRateLimit } from "@/lib/credit-service";
+import { enforceCostRateLimit, costOf } from "@/lib/credit-service";
 import { db } from "@/lib/db";
 import { getProvider } from "@/contracts/provider-registry";
 import {
@@ -12,7 +12,7 @@ import {
 import path from "path";
 import fs from "fs/promises";
 
-const COST = 8;
+const COST = costOf("generate:ebook"); // hallazgo 2.7: una sola fuente de costos (credit-service)
 
 export async function POST(req: NextRequest) {
   const token = req.headers.get("authorization")?.replace("Bearer ", "");
@@ -28,8 +28,8 @@ export async function POST(req: NextRequest) {
   if (!topic)
     return NextResponse.json({ error: "Tema requerido" }, { status: 400 });
 
-  const ok = await deductCredits(user.id, COST);
-  if (!ok)
+  const newBalance = await deductCredits(user.id, COST); // hallazgo 2.7: saldo real tras el cobro
+  if (newBalance === null)
     return NextResponse.json(
       { error: "Créditos insuficientes" },
       { status: 402 }
@@ -132,12 +132,12 @@ Genera contenido de alta calidad, profesional y útil. Cada capítulo debe tener
       pageCount: pdfResult.pageCount,
       metadata: pdfResult.metadata,
       evidence: pdfResult.evidence,
-      credits: user.credits - COST,
+      credits: newBalance,
     });
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : "Error generando eBook";
     await refundCredits(user.id, COST);
-    return NextResponse.json({ error: msg }, { status: 500 });
+    return NextResponse.json({ success: false, error: msg, refunded: true }, { status: 500 }); // hallazgo 2.1/2.8: reembolso explícito y visible
   }
 }
 

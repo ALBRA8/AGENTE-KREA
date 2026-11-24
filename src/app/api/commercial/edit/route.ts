@@ -40,7 +40,17 @@ export async function POST(req: NextRequest) {
       language: language ?? "es",
     });
 
-    return NextResponse.json({ success: (result as { success?: boolean }).success ?? true, data: result, credits: charge.ok ? charge.creditsLeft : undefined });
+    // Hallazgo 2.1: edición sin imagen resultante → reembolso + 502.
+    const editResult = result as { success?: boolean };
+    if (editResult.success === false) {
+      if (charge?.ok) await refundCharge(charge.userId, "commercial:edit");
+      return NextResponse.json(
+        { success: false, error: "La edición no produjo imagen — créditos reembolsados", refunded: true, data: result },
+        { status: 502 }
+      );
+    }
+
+    return NextResponse.json({ success: true, data: result, credits: charge.ok ? charge.creditsLeft : undefined });
   } catch (e: unknown) {
     if (charge?.ok) await refundCharge(charge.userId, "commercial:edit");
     const message = e instanceof Error ? e.message : "Error editing creative";

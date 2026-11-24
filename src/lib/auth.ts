@@ -41,7 +41,11 @@ export async function getSessionUser(token: string): Promise<SessionUser | null>
  * read-then-write race is impossible by construction. Returns the new balance,
  * or null if the user doesn't exist or has insufficient credits.
  */
-export async function deductCredits(userId: string, amount: number): Promise<number | null> {
+export async function deductCredits(
+  userId: string,
+  amount: number,
+  opts?: { capability?: string; reference?: string }
+): Promise<number | null> {
   try {
     const result = await db.user.updateMany({
       where: { id: userId, credits: { gte: amount } },
@@ -50,6 +54,14 @@ export async function deductCredits(userId: string, amount: number): Promise<num
     if (result.count === 0) return null;
 
     const user = await db.user.findUnique({ where: { id: userId } });
+
+    // FASE 2.6 — libro de créditos: todo cargo deja fila (mismo flujo que la
+    // deducción; si el libro falla, el saldo ya bajó — se registra el error
+    // sin revertir la deducción atómica).
+    await db.creditTransaction.create({
+      data: { userId, kind: "CHARGE", amount, capability: opts?.capability ?? null, reference: opts?.reference ?? null },
+    }).catch(() => {});
+
     return user?.credits ?? null;
   } catch {
     return null;
@@ -66,7 +78,59 @@ export async function refundCredits(userId: string, amount: number): Promise<voi
       where: { id: userId },
       data: { credits: { increment: amount } },
     });
+    await db.creditTransaction.create({
+      data: { userId, kind: "REFUND", amount },
+    }).catch(() => {});
   } catch {
-    // Silent fail — credit refund is best-effort
+    // best-effort
+  }
+}
+
+/**
+ * FASE 2.5/2.6 — reembolso IDEMPOTENTE por referencia y ATÓMICO:
+ * el estado y el reembolso son una sola transacción con guarda de unicidad
+ * @@unique([reference, kind]). Dos arranques concurrentes (o un crash entre
+ * las dos escrituras) ya NO pueden reembolsar dos veces ni perder el reembolso
+ * sin rastro: o está la fila del libro, o no se reembolsó.
+ * Devuelve true si esta llamada ejecutó el reembolso.
+ */
+export async function refundCreditsOnce(
+  userId: string,
+  amount: number,
+  capability: string,
+  reference: string
+): Promise<boolean> {
+  if (amount <= 0 || !reference) return false;
+  let executed = false;
+  try {
+    await db.$transaction(async (tx) => {
+      const existing = await tx.creditTransaction.findUnique({
+        where: { reference_kind: { reference, kind: "REFUND" } },
+      });
+      if (existing) return; // ya reembolsado antes — idempotente
+      executed = true;
+      await tx.creditTransaction.create({
+        data: { userId, kind: "REFUND", amount, capability, reference },
+      });
+      await tx.user.update({
+        where: { id: userId },
+        data: { credits: { increment: amount } },
+      });
+    });
+    if (!executed) return false; // ya estaba reembolsado — esta llamada NO lo ejecutó
+    await security.auditLog({
+      action: "credit_refund",
+      resource: `capability:${capability}`,
+      userId,
+      result: "success",
+      details: { amount, reference },
+    }).catch(() => {});
+    return true;
+  } catch (e: unknown) {
+    // Violación de unicidad = otro proceso reembolsó primero → NO es error.
+    const msg = e instanceof Error ? e.message : String(e);
+    if (msg.includes("Unique constraint")) return false;
+    console.error("[refundCreditsOnce]", msg);
+    return false;
   }
 }

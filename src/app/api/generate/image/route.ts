@@ -1,13 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSessionUser, deductCredits, refundCredits } from "@/lib/auth";
-import { enforceCostRateLimit } from "@/lib/credit-service";
+import { enforceCostRateLimit, costOf } from "@/lib/credit-service";
 import { db } from "@/lib/db";
 import { getProvider } from "@/contracts/provider-registry";
 import { writeFileSync, mkdirSync } from "fs";
 import { join } from "path";
 import { randomUUID } from "crypto";
 
-const COST = 3;
+const COST = costOf("generate:image"); // hallazgo 2.7: una sola fuente de costos (credit-service)
 
 // ZAI SDK requires size between 512-2880 and multiple of 32
 const VALID_SIZES = ["512x512", "768x768", "1024x1024", "1024x1536", "1536x1024"] as const;
@@ -24,8 +24,8 @@ export async function POST(req: NextRequest) {
   const { prompt, style, size = "1024x1024" } = await req.json();
   if (!prompt) return NextResponse.json({ error: "Prompt requerido" }, { status: 400 });
 
-  const ok = await deductCredits(user.id, COST);
-  if (!ok) return NextResponse.json({ error: "Créditos insuficientes" }, { status: 402 });
+  const newBalance = await deductCredits(user.id, COST); // hallazgo 2.7: saldo real tras el cobro
+  if (newBalance === null) return NextResponse.json({ error: "Créditos insuficientes" }, { status: 402 });
 
   try {
     const fullPrompt = style
@@ -64,10 +64,10 @@ export async function POST(req: NextRequest) {
       },
     });
 
-    return NextResponse.json({ imageUrl: `/generated/${filename}`, credits: user.credits - COST });
+    return NextResponse.json({ imageUrl: `/generated/${filename}`, credits: newBalance });
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : "Error generando imagen";
     await refundCredits(user.id, COST);
-    return NextResponse.json({ error: msg }, { status: 500 });
+    return NextResponse.json({ success: false, error: msg, refunded: true }, { status: 500 }); // hallazgo 2.1/2.8: reembolso explícito y visible
   }
 }

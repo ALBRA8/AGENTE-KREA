@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSessionUser, deductCredits, refundCredits } from "@/lib/auth";
-import { enforceCostRateLimit } from "@/lib/credit-service";
+import { enforceCostRateLimit, costOf } from "@/lib/credit-service";
 import { db } from "@/lib/db";
 import { getProvider } from "@/contracts/provider-registry";
 
-const COST = 2;
+const COST = costOf("generate:text"); // hallazgo 2.7: una sola fuente de costos (credit-service)
 
 const SYSTEM_PROMPTS: Record<string, string> = {
   copy: `Eres un experto copywriter especializado en marketing digital y conversión. Genera textos persuasivos, titulares que captan atención y descripciones que venden. Responde siempre en español. Formato limpio y listo para usar.`,
@@ -30,8 +30,8 @@ export async function POST(req: NextRequest) {
   const { prompt, type = "copy" } = await req.json();
   if (!prompt) return NextResponse.json({ error: "Prompt requerido" }, { status: 400 });
 
-  const ok = await deductCredits(user.id, COST);
-  if (!ok) return NextResponse.json({ error: "Créditos insuficientes" }, { status: 402 });
+  const newBalance = await deductCredits(user.id, COST); // hallazgo 2.7: saldo real tras el cobro
+  if (newBalance === null) return NextResponse.json({ error: "Créditos insuficientes" }, { status: 402 });
 
   try {
     const systemPrompt = SYSTEM_PROMPTS[type] || SYSTEM_PROMPTS.copy;
@@ -57,10 +57,10 @@ export async function POST(req: NextRequest) {
       },
     });
 
-    return NextResponse.json({ text: result, credits: user.credits - COST });
+    return NextResponse.json({ text: result, credits: newBalance });
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : "Error generando texto";
     await refundCredits(user.id, COST);
-    return NextResponse.json({ error: msg }, { status: 500 });
+    return NextResponse.json({ success: false, error: msg, refunded: true }, { status: 500 }); // hallazgo 2.1/2.8: reembolso explícito y visible
   }
 }

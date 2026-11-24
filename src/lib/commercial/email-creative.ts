@@ -91,6 +91,17 @@ export async function generateEmailCreative(params: EmailCreativeParams): Promis
     const imageResult = await getProvider("image").generate({ prompt, size });
     const imageData = (imageResult.data as { base64?: string; url?: string }) ?? undefined;
 
+    // Hallazgo 2.1/2.2: sin imagen NO hay éxito — la ruta debe reembolsar.
+    if (!imageResult.success || (!imageData?.base64 && !imageData?.url)) {
+      return {
+        success: false,
+        creativeType: effectiveType,
+        dimensions: layout.dimensions,
+        prompt,
+        generatedAt: new Date().toISOString(),
+      };
+    }
+
     return {
       success: true,
       imageBase64: imageData?.base64 ?? undefined,
