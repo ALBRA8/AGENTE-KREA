@@ -102,10 +102,13 @@ interface LaunchPkg {
   id: string;
   packageId: string;
   productId: string;
+  version: string;
+  productName: string;
   corePromise: string;
   positioning: string;
   cta: string;
   evidence: string;
+  integrityValid: boolean | null;
   generatedAt: string;
   createdAt: string;
 }
@@ -1497,22 +1500,54 @@ function AssetsSection() {
 
 /* ════════════ Launch Section ════════════ */
 
+/** Normaliza una fila de la API al shape que renderiza la sección. */
+function normalizeLaunchPkg(row: any): LaunchPkg {
+  let productName = "";
+  try {
+    const p = typeof row.product === "string" ? JSON.parse(row.product) : row.product;
+    if (p && typeof p.name === "string" && p.name) productName = p.name;
+  } catch {}
+  let integrityValid: boolean | null = null;
+  try {
+    const ic = typeof row.integrityCheck === "string" ? JSON.parse(row.integrityCheck) : row.integrityCheck;
+    if (ic && typeof ic.valid === "boolean") integrityValid = ic.valid;
+  } catch {}
+  return {
+    id: row.id,
+    packageId: row.packageId || row.id,
+    productId: row.productId || "",
+    version: row.version || "1.0.0",
+    productName: productName || "Launch Package",
+    corePromise: row.corePromise || "",
+    positioning: row.positioning || "",
+    cta: row.cta || "",
+    evidence: row.evidence || "INFERRED",
+    integrityValid,
+    generatedAt: row.generatedAt || row.createdAt,
+    createdAt: row.createdAt,
+  };
+}
+
 function LaunchSection() {
   const [packages, setPackages] = useState<LaunchPkg[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [detail, setDetail] = useState<any>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
     setError("");
     try {
-      // Launch packages are loaded via dossiers for now
       const token = getToken();
-      const res = await fetch("/api/product/dossiers", {
+      const res = await fetch("/api/product/launch-package", {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (!res.ok) throw new Error("Error al cargar launch packages");
-      setPackages([]);
+      const data = await res.json();
+      const rows = Array.isArray(data) ? data : data.packages || [];
+      setPackages(rows.map(normalizeLaunchPkg));
     } catch (e: any) {
       setError(e.message || "Error de conexión");
     } finally {
@@ -1522,6 +1557,19 @@ function LaunchSection() {
 
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { load(); }, [load]);
+
+  const loadDetail = async (id: string) => {
+    setSelectedId(id);
+    setDetailLoading(true);
+    try {
+      const token = getToken();
+      const res = await fetch(`/api/product/launch-package/${id}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) setDetail(await res.json());
+    } catch {}
+    setDetailLoading(false);
+  };
 
   return (
     <div>
@@ -1552,51 +1600,141 @@ function LaunchSection() {
           subtitle="Genera un launch package desde un producto comercial listo para lanzar"
         />
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          {packages.map((pkg, i) => (
-            <motion.div
-              key={pkg.id}
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: i * 0.05 }}
-              className="p-4 rounded-2xl bg-[#0f1629] border border-white/[0.06] hover:border-[#3b82f6]/20 transition-all group"
-            >
-              <div className="flex items-start justify-between mb-3">
-                <div className="flex items-center gap-2">
-                  <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-rose-400/20 to-amber-400/20 flex items-center justify-center">
-                    <Rocket className="w-4 h-4 text-rose-400" />
+        <>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {packages.map((pkg, i) => (
+              <motion.div
+                key={pkg.id}
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: i * 0.05 }}
+                className={`p-4 rounded-2xl border transition-all group cursor-pointer ${
+                  selectedId === pkg.id
+                    ? "bg-[#3b82f6]/10 border-[#3b82f6]/20"
+                    : "bg-[#0f1629] border-white/[0.06] hover:border-[#3b82f6]/20"
+                }`}
+                onClick={() => loadDetail(pkg.id)}
+              >
+                <div className="flex items-start justify-between mb-3">
+                  <div className="flex items-center gap-2">
+                    <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-rose-400/20 to-amber-400/20 flex items-center justify-center">
+                      <Rocket className="w-4 h-4 text-rose-400" />
+                    </div>
+                    <div>
+                      <p className="text-sm font-semibold truncate max-w-[180px]">{pkg.productName}</p>
+                      <p className="text-[10px] text-white/30">v{pkg.version}</p>
+                    </div>
                   </div>
-                  <div>
-                    <p className="text-sm font-semibold">Launch Package</p>
-                    <p className="text-[10px] text-white/30">{pkg.productId}</p>
+                  <div className="flex flex-col items-end gap-1">
+                    <StatusBadge status={pkg.evidence} />
+                    {pkg.integrityValid !== null && (
+                      <span className={`text-[10px] px-1.5 py-0.5 rounded border ${
+                        pkg.integrityValid
+                          ? "bg-emerald-400/10 text-emerald-400 border-emerald-400/20"
+                          : "bg-red-400/10 text-red-400 border-red-400/20"
+                      }`}>
+                        {pkg.integrityValid ? "Integridad OK" : "Integridad fallida"}
+                      </span>
+                    )}
                   </div>
                 </div>
-              </div>
 
-              <div className="space-y-2 mb-3">
-                <p className="text-xs text-white/60 line-clamp-2">{pkg.corePromise}</p>
-                <p className="text-[10px] text-white/30 truncate">
-                  <span className="text-white/50">Posición:</span> {pkg.positioning}
-                </p>
-                <p className="text-[10px] text-white/30 truncate">
-                  <span className="text-white/50">CTA:</span> {pkg.cta}
-                </p>
-              </div>
+                <div className="space-y-2 mb-3">
+                  <p className="text-xs text-white/60 line-clamp-2">{pkg.corePromise}</p>
+                  {pkg.positioning && (
+                    <p className="text-[10px] text-white/30 truncate">
+                      <span className="text-white/50">Posición:</span> {pkg.positioning}
+                    </p>
+                  )}
+                  <p className="text-[10px] text-white/30 truncate">
+                    <span className="text-white/50">CTA:</span> {pkg.cta}
+                  </p>
+                </div>
 
-              <div className="flex items-center justify-between pt-2 border-t border-white/[0.06]">
-                <span className="text-[10px] text-white/30 flex items-center gap-1">
-                  <Clock className="w-3 h-3" /> {formatDate(pkg.generatedAt)}
-                </span>
-                <span className={`text-[10px] px-1.5 py-0.5 rounded ${
-                  pkg.evidence === "VERIFIED" ? "bg-emerald-400/10 text-emerald-400" :
-                  "bg-amber-400/10 text-amber-400"
-                }`}>
-                  {pkg.evidence}
-                </span>
-              </div>
-            </motion.div>
-          ))}
-        </div>
+                <div className="flex items-center justify-between pt-2 border-t border-white/[0.06]">
+                  <span className="text-[10px] text-white/30 flex items-center gap-1">
+                    <Clock className="w-3 h-3" /> {formatDate(pkg.createdAt)}
+                  </span>
+                  <span className="text-[10px] text-[#3b82f6] flex items-center gap-1">
+                    <Eye className="w-3 h-3" /> Ver detalle
+                  </span>
+                </div>
+              </motion.div>
+            ))}
+          </div>
+
+          {/* Detail view via /api/product/launch-package/[id] */}
+          {selectedId && (
+            <div className="mt-4">
+              {detailLoading ? (
+                <div className="flex items-center justify-center py-10 text-white/30">
+                  <Loader2 className="w-5 h-5 animate-spin mr-2" /> Cargando detalle...
+                </div>
+              ) : detail ? (
+                <motion.div
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  className="p-5 rounded-2xl bg-[#0f1629] border border-white/[0.06] space-y-4"
+                >
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <h3 className="text-lg font-bold">{normalizeLaunchPkg(detail).productName}</h3>
+                      <p className="text-xs text-white/40 mt-1">
+                        v{detail.version} · {detail.evidence} · Creado {formatDate(detail.createdAt)}
+                      </p>
+                    </div>
+                    <StatusBadge status={detail.evidence} />
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div className="p-3 rounded-xl bg-white/[0.02] border border-white/[0.06]">
+                      <h4 className="text-[10px] font-bold text-white/40 mb-1.5 uppercase tracking-wider">Promesa central</h4>
+                      <p className="text-xs text-white/60">{detail.corePromise}</p>
+                    </div>
+                    <div className="p-3 rounded-xl bg-white/[0.02] border border-white/[0.06]">
+                      <h4 className="text-[10px] font-bold text-white/40 mb-1.5 uppercase tracking-wider">CTA</h4>
+                      <p className="text-xs text-white/60">{detail.cta}</p>
+                    </div>
+                    <div className="p-3 rounded-xl bg-white/[0.02] border border-white/[0.06]">
+                      <h4 className="text-[10px] font-bold text-white/40 mb-1.5 uppercase tracking-wider">Posicionamiento</h4>
+                      <p className="text-xs text-white/60">{detail.positioning || "—"}</p>
+                    </div>
+                    <div className="p-3 rounded-xl bg-white/[0.02] border border-white/[0.06]">
+                      <h4 className="text-[10px] font-bold text-white/40 mb-1.5 uppercase tracking-wider">Precio</h4>
+                      <p className="text-xs text-white/60">
+                        {(() => {
+                          try {
+                            const p = typeof detail.price === "string" ? JSON.parse(detail.price) : detail.price;
+                            return p && p.amount !== undefined ? `${p.currency || ""} ${p.amount}` : "—";
+                          } catch { return "—"; }
+                        })()}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2 text-[10px] text-white/30">
+                    <span>packageId: <span className="text-white/50">{detail.packageId}</span></span>
+                    <span>·</span>
+                    <span>dossier: <span className="text-white/50">{detail.productId}</span></span>
+                  </div>
+
+                  <details className="group">
+                    <summary className="text-[10px] text-white/30 cursor-pointer hover:text-white/50 flex items-center gap-1">
+                      <Eye className="w-3 h-3" /> Ver JSON completo
+                    </summary>
+                    <pre className="mt-2 p-3 rounded-xl bg-black/30 text-[10px] text-white/30 overflow-auto max-h-64">
+                      {JSON.stringify(detail, null, 2)}
+                    </pre>
+                  </details>
+                </motion.div>
+              ) : (
+                <div className="flex items-center justify-center py-10 text-white/20">
+                  No se pudo cargar el detalle
+                </div>
+              )}
+            </div>
+          )}
+        </>
       )}
     </div>
   );

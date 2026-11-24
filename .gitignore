@@ -61,9 +61,12 @@ server.log
 # Tool results / agent artifacts
 tool-results/
 
-# Upload and download directories (user/generated content)
-upload/
-download/
+# Upload and download directories (user/generated content) — anclados a la
+# raíz: un patrón sin "/" inicial ignoraría CUALQUIER carpeta llamada
+# download/ o upload/ dentro de src/ (p. ej. la ruta de código
+# src/app/api/product/assets/[assetId]/download/).
+/upload/
+/download/
 
 # Agent context files
 agent-ctx/

@@ -4,6 +4,29 @@ import { db } from "@/lib/db";
 import { createId } from "@paralleldrive/cuid2";
 
 /**
+ * GET /api/product/launch-package
+ * List the authenticated user's launch packages, newest first.
+ * Aislamiento por userId (nunca filtra paquetes de otros usuarios).
+ */
+export async function GET(req: NextRequest) {
+  const token = req.headers.get("authorization")?.replace("Bearer ", "") || "";
+  const user = await getSessionUser(token);
+  if (!user) return NextResponse.json({ error: "No autorizado" }, { status: 401 });
+
+  try {
+    const packages = await db.launchPackage.findMany({
+      where: { userId: user.id },
+      orderBy: { createdAt: "desc" },
+    });
+
+    return NextResponse.json({ packages });
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : "Error listando launch packages";
+    return NextResponse.json({ error: msg }, { status: 500 });
+  }
+}
+
+/**
  * POST /api/product/launch-package
  * Generate a launch package for a product.
  */
