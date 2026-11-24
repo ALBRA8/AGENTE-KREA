@@ -1206,7 +1206,11 @@ function ProductionSection() {
                 </div>
                 <div className="flex items-center gap-2">
                   <StatusBadge status={job.status} />
-                  {job.status === "RUNNING" && (
+                  {/* FIX UI4: el listado nunca devuelve "RUNNING" (devuelve
+                      PRODUCING/QA/PUBLISHED/FAILED) — con la condición anterior
+                      el botón de refresco jamás aparecía y el badge quedaba
+                      congelado en PRODUCING sin poder hacer polling manual. */}
+                  {(job.status === "RUNNING" || job.status === "PRODUCING") && (
                     <button
                       onClick={() => pollJob(job.id)}
                       className="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-white/40 hover:text-white transition-colors"
