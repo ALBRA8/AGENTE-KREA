@@ -80,24 +80,29 @@ function exportsHandler(apiPath: string, method: "GET" | "POST" | "DELETE"): boo
 
 // ── Política pública (por diseño) ───────────────────────────────
 
+// FASE 1 (hallazgo 1.1): /bootstrap, /doctor y /harness ya NO son públicos —
+// validan sesión real en el handler con requireSession().
+// FASE 1 (hallazgo 1.2): /adn/memory, /adn/feedback y /adn/agent-comm también
+// exigen sesión + userId (antes exponían datos de TODOS los usuarios).
 const PUBLIC_GET = new Set([
-  "/", "/health", "/bootstrap", "/harness",
+  "/", "/health",
   "/commercial", "/commercial/templates",
-  "/adn/capabilities", "/adn/identity", "/adn/mission", "/adn/tools", "/adn/skills", "/adn/memory",
-  "/adn/agent-comm", "/adn/events", "/adn/feedback", "/adn/mcp",
+  "/adn/capabilities", "/adn/identity", "/adn/mission", "/adn/tools", "/adn/skills",
+  "/adn/events", "/adn/mcp",
 ]);
 
 /** Lecturas públicas que pueden responder 503 (doctor degradado en entorno de test) */
-const PUBLIC_GET_ALLOW_503 = new Set(["/adn/doctor", "/doctor"]);
+// /doctor protegido (FASE 1.1). /adn/doctor sigue público-deliberado (diagnóstico
+// del agente, sin datos de usuario por usuario — decisión documentada en la
+// ronda anterior y re-validada en FASE 1: no expone recursos por usuario).
+const PUBLIC_GET_ALLOW_503 = new Set(["/adn/doctor"]);
 
 // POST públicos con expectativa especial (login/registro/auto-login)
 function publicPostExpectation(apiPath: string): { expect: number[]; ok: number[] } | null {
   if (apiPath === "/auth/register") return { expect: [400], ok: [400] };
   if (apiPath === "/auth/login") return { expect: [400, 401], ok: [400, 401] }; // 401 = credenciales inválidas, no es el gate
   if (apiPath === "/auth/auto-login") return { expect: [403], ok: [403] }; // DEMO_MODE=false
-  // POST mixto: ops de estado públicas (health/list/knowledge-*) y execute-skill
-  // con cobro real (401/402 verificado en mission-routes). Body vacío → 400.
-  if (apiPath === "/harness") return { expect: [400], ok: [400] };
+  // /harness POST ya NO es público (FASE 1.1): 401 sin sesión.
   return null;
 }
 
@@ -161,6 +166,37 @@ describe("auditoría de auth sobre todas las rutas API (sin token)", () => {
       if (!method) throw new Error("sin handler POST/DELETE tras pasar skipIf");
       const handler = mod[method];
       const res = await handler(makeRequest(method, route.apiPath), { params: Promise.resolve(routeParams(route.apiPath)) });
+      const pub = publicPostExpectation(route.apiPath);
+      if (pub) {
+        expect(pub.expect).toContain(res.status);
+      } else {
+        expect(res.status).toBe(401);
+      }
+    });
+
+    // ── FASE 1.1: aceptación — `Authorization: x` NO autentica. El middleware
+    // ya no finge; el handler valida el token contra la BD → 401 real.
+    it.skipIf(!exportsHandler(route.apiPath, "GET"))(`${route.apiPath} — GET con Authorization: x → 401 real`, async () => {
+      const mod = await modules[route.moduleKey]() as Record<string, (req: NextRequest, ctx?: unknown) => Promise<Response>>;
+      const urlPath = route.apiPath.replace(/\[(\w+)\]/g, "test-id");
+      const url = `http://localhost:3000/api${urlPath === "/" ? "" : urlPath}`;
+      const req = new NextRequest(url, { method: "GET", headers: { "content-type": "application/json", authorization: "Bearer x" } });
+      const res = await mod.GET(req, { params: Promise.resolve(routeParams(route.apiPath)) });
+      if (PUBLIC_GET.has(route.apiPath) || PUBLIC_GET_ALLOW_503.has(route.apiPath)) {
+        expect([200, 503]).toContain(res.status);
+      } else {
+        expect(res.status).toBe(401);
+      }
+    });
+
+    it.skipIf(!exportsHandler(route.apiPath, "POST") && !exportsHandler(route.apiPath, "DELETE"))(`${route.apiPath} — POST/DELETE con Authorization: x → 401 real`, async () => {
+      const mod = await modules[route.moduleKey]() as Record<string, (req: NextRequest, ctx?: unknown) => Promise<Response>>;
+      const method = typeof mod.POST === "function" ? "POST" : typeof mod.DELETE === "function" ? "DELETE" : null;
+      if (!method) throw new Error("sin handler POST/DELETE tras pasar skipIf");
+      const urlPath = route.apiPath.replace(/\[(\w+)\]/g, "test-id");
+      const url = `http://localhost:3000/api${urlPath === "/" ? "" : urlPath}`;
+      const req = new NextRequest(url, { method, headers: { "content-type": "application/json", authorization: "Bearer x" }, body: JSON.stringify({}) });
+      const res = await mod[method](req, { params: Promise.resolve(routeParams(route.apiPath)) });
       const pub = publicPostExpectation(route.apiPath);
       if (pub) {
         expect(pub.expect).toContain(res.status);

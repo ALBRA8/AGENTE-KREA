@@ -672,7 +672,20 @@ export default function AppPage({ onLogout, user: initialUser }: AppShellProps) 
     }
   }, []);
 
-  const logout = () => { localStorage.removeItem("p360_token"); localStorage.removeItem("p360_user"); onLogout(); };
+  const logout = () => {
+    // Hallazgo 1.5: revocar la sesión en el servidor (antes solo se borraba
+    // localStorage y el token seguía válido en la BD).
+    const token = localStorage.getItem("p360_token");
+    if (token) {
+      fetch("/api/auth/logout", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      }).catch(() => {});
+    }
+    localStorage.removeItem("p360_token");
+    localStorage.removeItem("p360_user");
+    onLogout();
+  };
   const refreshUser = async () => {
     const token = localStorage.getItem("p360_token");
     if (!token) return;

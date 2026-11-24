@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getSessionUser } from "@/lib/auth";
 import { AgentCommManager } from "@/lib/agent-comm";
 import { db } from "@/lib/db";
+import { getSessionUser } from "@/lib/auth";
+import { requireSession } from "@/lib/require-session";
 
 const agentCommManager = new AgentCommManager();
 
@@ -11,6 +12,9 @@ const agentCommManager = new AgentCommManager();
  * Query params: agent, status, limit
  */
 export async function GET(req: NextRequest) {
+  const auth = await requireSession(req);
+  if (auth.response) return auth.response;
+  const user = auth.user;
   try {
     const { searchParams } = new URL(req.url);
     const agent = searchParams.get("agent") || undefined;
@@ -22,6 +26,7 @@ export async function GET(req: NextRequest) {
     const interactions = await agentCommManager.getHistory({
       targetAgent: agent,
       status,
+      userId: user.id, // hallazgo 1.2: solo interacciones del propio usuario
       limit,
     });
 
@@ -56,6 +61,7 @@ export async function POST(req: NextRequest) {
     const response = await agentCommManager.sendRequest({
       target,
       objective,
+      userId: user.id, // FASE 1.2: la interacción queda asociada a su dueño
       input: input || {},
     });
 

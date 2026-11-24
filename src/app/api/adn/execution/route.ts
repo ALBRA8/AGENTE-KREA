@@ -20,7 +20,9 @@ export async function GET(req: NextRequest) {
       | "PENDING" | "RUNNING" | "SUCCEEDED" | "FAILED" | "CANCELLED"
       | undefined;
     const limit = searchParams.get("limit") ? parseInt(searchParams.get("limit")!) : 50;
-    const userId = searchParams.get("userId") || undefined;
+    // Hallazgo 1.2: el parámetro ?userId= lo ponía el cliente y sin él listaba
+    // TODO. Se IGNORA el parámetro y se usa SIEMPRE la sesión real.
+    const userId = user.id;
 
     const executions = await executionTracer.list({
       status,

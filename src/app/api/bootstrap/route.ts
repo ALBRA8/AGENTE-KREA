@@ -1,4 +1,5 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
+import { requireSession } from "@/lib/require-session";
 
 /**
  * GET /api/bootstrap — Inicializa KREA (pone el chaleco al agente)
@@ -8,7 +9,10 @@ import { NextResponse } from "next/server";
  *
  * Es idempotente — llamarlo múltiples veces no tiene efecto negativo.
  */
-export async function GET() {
+export async function GET(req: NextRequest) {
+  // Hallazgo 1.1: el bootstrap enciende el arnés y muta estado — sesión real.
+  const auth = await requireSession(req);
+  if (auth.response) return auth.response;
   try {
     const { bootstrapKrea } = await import("@/lib/bootstrap");
     const result = await bootstrapKrea();

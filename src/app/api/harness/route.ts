@@ -1,10 +1,11 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { kreaHarness, getAgent } from "@/lib/krea-harness";
 import { adapterRegistry } from "@/lib/agent-adapter";
 import { bridgeRegistry } from "@/lib/bridges/types";
 import { skillRegistry } from "@/lib/harness/types";
 import { knowledgeRegistry } from "@/lib/harness/knowledge-registry";
 import { chargeForCapability, refundCharge, type Capability, type ChargeResult, type ChargeError } from "@/lib/credit-service";
+import { requireSession } from "@/lib/require-session";
 
 /**
  * Operaciones de skill que cobran créditos. Las operaciones puras en TS
@@ -20,10 +21,12 @@ const SKILL_COSTS: Record<string, Capability> = {
 };
 
 /**
- * GET /api/harness — Status del arnés KREA
+ * GET /api/harness — Status del arnés KREA (REQUIERE sesión — hallazgo 1.1)
  * POST /api/harness — Operaciones: mount, swap, health, list-adapters, list-skills, list-bridges, list-knowledge
  */
-export async function GET() {
+export async function GET(req: NextRequest) {
+  const auth = await requireSession(req);
+  if (auth.response) return auth.response;
   try {
     const status = kreaHarness.status();
     const health = await kreaHarness.healthCheck();
@@ -43,7 +46,11 @@ export async function GET() {
   }
 }
 
-export async function POST(request: Request) {
+export async function POST(request: NextRequest) {
+  // Hallazgo 1.1: sesión real antes de CUALQUIER operación (mount/swap son
+  // mutantes y list-* expone la configuración interna del arnés).
+  const auth = await requireSession(request);
+  if (auth.response) return auth.response;
   let charge: ChargeResult | ChargeError | null = null;
   try {
     const body = await request.json();

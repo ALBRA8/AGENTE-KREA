@@ -86,7 +86,13 @@ export interface SSRFCheckResult {
 const SALT_LENGTH = 32;
 const KEY_LENGTH = 64;
 const HASH_ITERATIONS = 100000;
-const TOKEN_EXPIRY_HOURS = 24;
+// Hallazgo 1.5: expiración acortada (antes 24h) — sesiones de 8 horas.
+const TOKEN_EXPIRY_HOURS = 8;
+
+/** Hallazgo 1.5: en la BD SOLO vive el SHA-256 del token, nunca el token. */
+function hashToken(token: string): string {
+  return crypto.createHash("sha256").update(token, "utf8").digest("hex");
+}
 const TOKEN_BYTES = 48;
 
 // Prompt injection patterns (regex)
@@ -533,13 +539,10 @@ export class SecurityManager {
   }
 
   verifyPassword(password: string, hash: string): boolean {
-    if (!hash.startsWith("$pbkdf2$")) {
-      // Legacy: compare directly (not ideal but supports migration)
-      return crypto.timingSafeEqual(
-        Buffer.from(password, "utf8"),
-        Buffer.from(hash, "utf8")
-      );
-    }
+    // Hallazgo 1.4: SIN rama legacy en texto plano (era un oráculo de
+    // enumeración: hash malformado lanzaba timingSafeEqual → 500 con e.message).
+    // Cualquier hash malformado o no-$pbkdf2$ devuelve false sin lanzar.
+    if (typeof hash !== "string" || !hash.startsWith("$pbkdf2$")) return false;
 
     const parts = hash.split("$");
     // $pbkdf2$iterations$salt$derivedKey
@@ -549,6 +552,13 @@ export class SecurityManager {
     const salt = parts[3];
     const storedKey = parts[4];
 
+    // Validación estricta ANTES de comparar: evita lanzamientos de
+    // timingSafeEqual por longitudes distintas y limita iteraciones absurdas.
+    if (!Number.isFinite(iterations) || iterations <= 0 || iterations > 2_000_000) return false;
+    if (!salt || !/^[0-9a-f]+$/i.test(salt)) return false;
+    if (!storedKey || !/^[0-9a-f]+$/i.test(storedKey)) return false;
+    if (storedKey.length !== KEY_LENGTH * 2) return false;
+
     const derivedKey = crypto.pbkdf2Sync(
       password,
       salt,
@@ -557,7 +567,7 @@ export class SecurityManager {
       "sha512"
     ).toString("hex");
 
-    // Constant-time comparison
+    // Constant-time comparison (buffers de longitud garantizada igual).
     return crypto.timingSafeEqual(
       Buffer.from(derivedKey, "hex"),
       Buffer.from(storedKey, "hex")
@@ -572,10 +582,12 @@ export class SecurityManager {
     const token = crypto.randomBytes(TOKEN_BYTES).toString("hex");
     const expiresAt = new Date(Date.now() + TOKEN_EXPIRY_HOURS * 60 * 60 * 1000);
 
+    // Hallazgo 1.5: se guarda SOLO el hash del token. Un volcado de la BD no
+    // sirve para hacerse pasar por un usuario.
     await db.session.create({
       data: {
         userId,
-        token,
+        token: hashToken(token),
         expiresAt,
       },
     });
@@ -588,7 +600,7 @@ export class SecurityManager {
 
     try {
       const session = await db.session.findUnique({
-        where: { token },
+        where: { token: hashToken(token) },
         include: { user: true },
       });
 
@@ -609,7 +621,7 @@ export class SecurityManager {
 
   async revokeToken(token: string): Promise<boolean> {
     try {
-      await db.session.delete({ where: { token } });
+      await db.session.delete({ where: { token: hashToken(token) } });
       return true;
     } catch {
       return false;
@@ -632,6 +644,17 @@ export class SecurityManager {
   // ──────────────────────────────────────────────
 
   rateLimit(key: string, limit: number, windowMs: number): { allowed: boolean; remaining: number; resetAt: number } {
+    // Hallazgo 1.4: el mapa de rate limit crecía sin tope (memoria). Tope
+    // duro + limpieza de expirados cuando se supera.
+    if (this.rateLimitStore.size > 10_000) {
+      this.cleanupRateLimits();
+      if (this.rateLimitStore.size > 20_000) {
+        // Bajo presión extrema: vaciar el mapa (degradación honesta — pierde
+        // límites pero no memoria ni disponibilidad).
+        this.rateLimitStore.clear();
+      }
+    }
+
     const now = Date.now();
     const entry = this.rateLimitStore.get(key);
 
@@ -654,6 +677,11 @@ export class SecurityManager {
   /**
    * Clean up expired rate limit entries to prevent memory leaks.
    */
+  /** Limpia TODOS los buckets (uso exclusivo de tests — aísla el mapa compartido entre suites del mismo worker). */
+  resetRateLimits(): void {
+    this.rateLimitStore.clear();
+  }
+
   cleanupRateLimits(): number {
     const now = Date.now();
     let cleaned = 0;

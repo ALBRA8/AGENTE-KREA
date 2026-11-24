@@ -14,13 +14,18 @@ export async function GET(req: NextRequest) {
     if (!user) return NextResponse.json({ error: "No autorizado" }, { status: 401 });
 
     const { searchParams } = new URL(req.url);
-    const userId = searchParams.get("userId") || undefined;
     const action = searchParams.get("action") || undefined;
     const limit = searchParams.get("limit") ? parseInt(searchParams.get("limit")!) : 50;
 
+    // Hallazgo 1.2: el audit trail era global y legible por cualquiera con
+    // token. Lectura SOLO del propio usuario (?userId= del cliente se ignora);
+    // una lectura global exigiría un rol admin que hoy NO existe — se documenta
+    // como degradación honesta en vez de prometer un control que no hay.
+    const userId = user.id;
+
     // Build where clause
     const where: Record<string, unknown> = {};
-    if (userId) where.userId = userId;
+    where.userId = userId;
     if (action) where.action = { contains: action };
 
     const auditEvents = await db.auditEvent.findMany({

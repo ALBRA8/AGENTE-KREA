@@ -34,8 +34,11 @@ describe("SecurityManager password hashing", () => {
     expect(security.verifyPassword("wrong-pass", hash)).toBe(false);
   });
 
-  it("accepts legacy plaintext hashes (migration path)", () => {
-    expect(security.verifyPassword("demo123", "demo123")).toBe(true);
+  // FASE 1.4: la comparación legacy en texto plano fue ELIMINADA (era un
+  // oráculo de enumeración). Un hash malformado/plano → false sin lanzar.
+  it("rejects legacy plaintext hashes (comparison removed — hallazgo 1.4)", () => {
+    expect(security.verifyPassword("demo123", "demo123")).toBe(false);
+    expect(() => security.verifyPassword("demo123", "demo123")).not.toThrow();
   });
 });
 

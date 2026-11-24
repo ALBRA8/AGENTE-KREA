@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getSessionUser } from "@/lib/auth";
 import { FeedbackManager } from "@/lib/feedback";
+import { getSessionUser } from "@/lib/auth";
+import { requireSession } from "@/lib/require-session";
 
 const feedbackManager = new FeedbackManager();
 
@@ -10,6 +11,9 @@ const feedbackManager = new FeedbackManager();
  * Query params: type, validationStatus, limit
  */
 export async function GET(req: NextRequest) {
+  const auth = await requireSession(req);
+  if (auth.response) return auth.response;
+  const user = auth.user;
   try {
     const { searchParams } = new URL(req.url);
     const feedbackType = searchParams.get("type") as
@@ -24,6 +28,7 @@ export async function GET(req: NextRequest) {
     const feedbacks = await feedbackManager.list({
       feedbackType,
       validationStatus,
+      userId: user.id, // hallazgo 1.2: solo feedback del propio usuario
       limit,
     });
 

@@ -11,7 +11,7 @@
  * simple; capacidades multi-activo cobran por lote).
  */
 
-import { getSessionUser, deductCredits, refundCredits } from "@/lib/auth";
+import { getSessionUser, deductCredits, refundCredits, security } from "@/lib/auth";
 
 export const CREDIT_COSTS = {
   // ── Producción creativa (/api/generate/*) — costos ya existentes ──
@@ -75,13 +75,36 @@ export interface ChargeResult {
 
 export interface ChargeError {
   ok: false;
-  status: 401 | 402;
+  status: 401 | 402 | 429;
   error: string;
+}
+
+/**
+ * Hallazgo 1.6 — rate limit de COSTE: antes `security.canGenerate()` era
+ * código muerto y nada limitaba los endpoints caros. Límite por usuario y
+ * capacidad: 12 llamadas/minuto (suficiente para flujo normal y lotes; el
+ * test de aceptación hace N+1 y recibe 429 SIN cobro).
+ */
+const COST_RATE_LIMIT_PER_MIN = 12;
+
+export type RateLimitResult = { ok: true } | { ok: false; status: 429; error: string };
+
+export function enforceCostRateLimit(userId: string, capability: Capability): RateLimitResult {
+  const rl = security.rateLimit(`cost:${userId}:${capability}`, COST_RATE_LIMIT_PER_MIN, 60_000);
+  if (!rl.allowed) {
+    return {
+      ok: false,
+      status: 429,
+      error: "Límite de generación alcanzado (12/min por capacidad). Espera unos segundos e inténtalo de nuevo.",
+    };
+  }
+  return { ok: true };
 }
 
 /**
  * Valida sesión y cobra la capacidad de forma atómica.
  * En caso de fallo de la generación posterior, llamar refundCharge().
+ * Aplica ANTES del cobro el rate limit de coste (hallazgo 1.6).
  */
 export async function chargeForCapability(
   token: string | null,
@@ -91,6 +114,9 @@ export async function chargeForCapability(
   if (!user) {
     return { ok: false, status: 401, error: "No autorizado" };
   }
+
+  const rl = enforceCostRateLimit(user.id, capability);
+  if (!rl.ok) return rl;
 
   const cost = costOf(capability);
   const newBalance = await deductCredits(user.id, cost);

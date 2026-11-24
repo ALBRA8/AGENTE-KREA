@@ -33,16 +33,18 @@ describe('SecurityManager', () => {
       expect(security.verifyPassword('', hash)).toBe(true);
     });
 
-    it('should throw for malformed hash with different length (timingSafeEqual limitation)', () => {
-      // timingSafeEqual requires equal-length buffers
-      // A non-pbkdf2 hash with different length than password will throw
-      expect(() => security.verifyPassword('test', 'not-a-hash')).toThrow();
+    it('should return false (not throw) for malformed hash — hallazgo 1.4', () => {
+      // Antes: la rama legacy con timingSafeEqual LANZABA cuando la longitud
+      // difería → 500 con e.message (oráculo de enumeración de usuarios).
+      // Ahora: hash malformado → false sin lanzar, siempre.
+      expect(security.verifyPassword('test', 'not-a-hash')).toBe(false);
+      expect(security.verifyPassword('', 'not-a-hash')).toBe(false);
     });
 
-    it('should return false for same-length non-pbkdf2 hash', () => {
-      // If the legacy hash is same length as password, timingSafeEqual works
+    it('should return false for plaintext (legacy) hashes — ya no se aceptan', () => {
+      // Hallazgo 1.4: la comparación en texto plano eliminada.
       const password = 'test';
-      const fakeHash = 'xxxx'; // same length as 'test'
+      const fakeHash = 'xxxx'; // misma longitud que la password
       expect(security.verifyPassword(password, fakeHash)).toBe(false);
     });
 

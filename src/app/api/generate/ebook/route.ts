@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSessionUser, deductCredits, refundCredits } from "@/lib/auth";
+import { enforceCostRateLimit } from "@/lib/credit-service";
 import { db } from "@/lib/db";
 import { getProvider } from "@/contracts/provider-registry";
 import {
@@ -18,6 +19,10 @@ export async function POST(req: NextRequest) {
   const user = await getSessionUser(token || "");
   if (!user)
     return NextResponse.json({ error: "No autorizado" }, { status: 401 });
+
+  // Hallazgo 1.6: rate limit de coste ANTES de cobrar (429 sin cobro).
+  const rl = enforceCostRateLimit(user.id, "generate:ebook");
+  if (!rl.ok) return NextResponse.json({ error: rl.error }, { status: rl.status });
 
   const { topic, chapters = 5, targetAudience = "general" } = await req.json();
   if (!topic)

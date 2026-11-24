@@ -492,13 +492,14 @@ export class ObservabilityManager {
    * Get aggregated metrics for a time range.
    * All metrics are derived from real database data — never fabricated.
    */
-  async getMetrics(timeRange: TimeRange, agentId?: string): Promise<AggregatedMetrics> {
+  async getMetrics(timeRange: TimeRange, agentId?: string, userId?: string): Promise<AggregatedMetrics> {
     const effectiveAgentId = agentId || this.defaultAgentId;
 
     // ── Execution Metrics ──
     const executions = await db.execution.findMany({
       where: {
         agentId: effectiveAgentId,
+        ...(userId ? { userId } : {}), // hallazgo 1.2: filtrar por usuario
         createdAt: { gte: timeRange.start, lte: timeRange.end },
       },
     });
@@ -738,18 +739,19 @@ export class ObservabilityManager {
   /**
    * Get dashboard-ready data with the most relevant metrics.
    */
-  async getDashboard(agentId?: string): Promise<DashboardData> {
+  async getDashboard(agentId?: string, userId?: string): Promise<DashboardData> {
     const effectiveAgentId = agentId || this.defaultAgentId;
+    const userScope = userId ? { userId } : {}; // hallazgo 1.2: alcance por usuario
 
     // Overview stats
     const executionStats = await db.execution.aggregate({
-      where: { agentId: effectiveAgentId },
+      where: { agentId: effectiveAgentId, ...userScope },
       _count: true,
       _avg: { cost: true },
     });
 
     const succeededCount = await db.execution.count({
-      where: { agentId: effectiveAgentId, status: "SUCCEEDED" },
+      where: { agentId: effectiveAgentId, status: "SUCCEEDED", ...userScope },
     });
 
     const totalExecutions = executionStats._count;
@@ -759,6 +761,7 @@ export class ObservabilityManager {
     const completedExecutions = await db.execution.findMany({
       where: {
         agentId: effectiveAgentId,
+        ...userScope,
         startedAt: { not: null },
         completedAt: { not: null },
       },

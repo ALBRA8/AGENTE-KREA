@@ -168,6 +168,7 @@ model AgentInteraction {
   input           String?  // JSON
   constraints     String?  // JSON
   requestedOutput String?  // JSON
+  userId          String?  // FASE 1.2: dueño de la interacción (null = filas históricas previas al fix)
   status          String   @default("PENDING") // PENDING|SENT|RECEIVED|SUCCEEDED|FAILED|TIMEOUT
   result          String?  // JSON
   evidence        String?  // JSON

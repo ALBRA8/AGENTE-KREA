@@ -28,6 +28,7 @@ export type InteractionStatus = "PENDING" | "SENT" | "RECEIVED" | "SUCCEEDED" | 
 export interface AgentRequest {
   target: string;           // Target agent ID
   objective: string;        // What we want the agent to do
+  userId?: string;          // FASE 1.2: dueño de la interacción (aislamiento)
   input: Record<string, unknown>;  // Input data
   constraints?: Record<string, unknown>;  // Constraints/limitations
   expectedOutput?: Record<string, unknown>;  // Expected output schema
@@ -153,6 +154,7 @@ export class AgentCommManager {
         requesterAgent: this.sourceAgent,
         targetAgent: request.target,
         objective: request.objective,
+        userId: request.userId ?? null, // FASE 1.2: aislamiento por usuario
         input: JSON.stringify(request.input),
         constraints: request.constraints ? JSON.stringify(request.constraints) : null,
         requestedOutput: request.expectedOutput ? JSON.stringify(request.expectedOutput) : null,
@@ -419,12 +421,14 @@ export class AgentCommManager {
     correlationId?: string;
     targetAgent?: string;
     status?: InteractionStatus;
+    userId?: string; // hallazgo 1.2: aislamiento por usuario
     limit?: number;
   }): Promise<unknown[]> {
     const where: Record<string, unknown> = {
       requesterAgent: this.sourceAgent,
     };
 
+    if (options.userId) where.userId = options.userId;
     if (options.correlationId) where.correlationId = options.correlationId;
     if (options.targetAgent) where.targetAgent = options.targetAgent;
     if (options.status) where.status = options.status;

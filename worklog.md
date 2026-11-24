@@ -293,3 +293,26 @@ Todo lo que antes estaba "VERIFIED por prueba general previa" que no tiene prueb
 - `.env` solo contiene `DATABASE_URL`; `.gitignore` cubre `.env*`; `.env.example` sin secretos.
 - `/api/harness execute-skill` ahora valida sesión real y cobra créditos (antes: puerta abierta).
 - Rate-limit con IP robusta (no confía ciegamente en `x-forwarded-for`) — sin cambios en esta ronda.
+
+---
+
+## FASE 1 — SEGURIDAD Y MULTI-TENANT (commit `fase-1`)
+
+### Qué se cambió
+1. **1.1 Guard real**: `src/lib/require-session.ts` (`requireSession(req)` valida contra la BD). Cableado en `/api/bootstrap` GET, `/api/doctor` GET, `/api/harness` GET+POST (antes: solo existía el header). El middleware ya no finge autenticar. Aceptación: ciclo nuevo en el audit — con `Authorization: x`, TODA ruta no-pública → 401 real (+73 pruebas).
+2. **1.2 Multi-tenant**: adn/memory (GET con userId en recall; DELETE con propiedad, ajeno→404), adn/execution (?userId= ignorado), adn/security/audit (solo propio; global exige rol admin inexistente → degradación honesta), adn/observability (getMetrics/getDashboard con userId), adn/feedback + agent-comm (auth+userId; columna `userId` aditiva en AgentInteraction vía `db push` no destructivo), product/qa (fin de la sonda de rutas: propiedad por dossier id+userId → 404; artifactPath solo dentro del storage root → 400; canónico assetId de ProductAsset), product/dossiers (opportunityId ajeno → 404). Acceptance: 11 pruebas con 2 usuarios reales por ruta tocada — ajeno → 404, nunca 403.
+3. **1.3 CORS**: condición invertida en middleware (sin allowlist explícita → deny). DEMO_MODE ya gateado (`!== "true"`); INICIAR-KREA.vbs no existe en el repo (NO APLICA).
+4. **1.4 Login/registro**: rama legacy texto plano ELIMINADA en verifyPassword (malformado → false sin lanzar, sin oráculo); client-ip usa el ÚLTIMO salto de XFF; tope+cleanup del mapa de rate limits; test que codificaba el fallo como esperado, corregido.
+5. **1.5 Sesiones**: BD guarda SOLO SHA-256 del token; `POST /api/auth/logout` nuevo; UI de logout llama al endpoint; expiración 24h→8h.
+6. **1.6 Rate limit de coste**: `enforceCostRateLimit` en `chargeForCapability` (choke point de commercial/harness/product) y en las 6 rutas `/api/generate/*`, ANTES de cobrar.
+
+### Evidencia pegada (salidas reales)
+```
+$ npx tsc --noEmit        → 0 errores
+$ npm run lint            → 0 errores
+$ npm test                → Test Files 31 passed (31) · Tests 605 passed | 120 skipped (725) · 19.4s
+$ npm run build           → exit 0
+```
+- Nuevas suites: `security-fase1.test.ts` (16 tests: 11 aislamiento + register/login + logout + rate limit de coste) — todas verdes.
+- Audit: +4 tests por ruta (GET/POST sin token y con `Authorization: x`) — 401 real verificado en todas las no-públicas.
+

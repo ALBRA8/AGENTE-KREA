@@ -42,6 +42,17 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "productName is required" }, { status: 400 });
     }
 
+    // Hallazgo 1.2: no crear dossiers sobre oportunidades ajenas. Una
+    // opportunityId que no es del usuario → 404 (sin revelar existencia).
+    if (opportunityId) {
+      const opp = await db.productOpportunity.findFirst({
+        where: { id: opportunityId, userId: user.id },
+      });
+      if (!opp) {
+        return NextResponse.json({ error: "Oportunidad no encontrada" }, { status: 404 });
+      }
+    }
+
     const dossier = await db.productDossier.create({
       data: {
         userId: user.id,

@@ -1,15 +1,21 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
 import { MemoryManager } from "@/lib/memory";
+import { requireSession } from "@/lib/require-session";
+import { db } from "@/lib/db";
 
 const memoryManager = new MemoryManager();
 
 /**
  * GET /api/adn/memory
- * Recall memories (no auth required for reading).
+ * Recall memories — SOLO las del usuario autenticado (hallazgo 1.2: antes
+ * devolvía memorias de TODOS los usuarios sin auth).
  * Query params: domain, type, limit
  */
 export async function GET(req: NextRequest) {
+  const auth = await requireSession(req);
+  if (auth.response) return auth.response;
+  const user = auth.user;
   try {
     const { searchParams } = new URL(req.url);
     const domain = searchParams.get("domain") || undefined;
@@ -17,7 +23,7 @@ export async function GET(req: NextRequest) {
     const limit = searchParams.get("limit") ? parseInt(searchParams.get("limit")!) : 20;
 
     const memories = await memoryManager.recall(
-      { domain, type },
+      { domain, type, userId: user.id }, // aislamiento por usuario
       { limit }
     );
 
@@ -64,7 +70,8 @@ export async function POST(req: NextRequest) {
 
 /**
  * DELETE /api/adn/memory
- * Invalidate a memory (auth required).
+ * Invalidate a memory (auth required + PROPIETARIO — hallazgo 1.2: antes
+ * invalidaba cualquier id sin comprobar dueño).
  * Body: id, reason
  */
 export async function DELETE(req: NextRequest) {
@@ -78,6 +85,12 @@ export async function DELETE(req: NextRequest) {
 
     if (!id) {
       return NextResponse.json({ error: "Memory id is required" }, { status: 400 });
+    }
+
+    // Aislamiento: una memoria ajena → 404 (sin revelar existencia).
+    const mem = await db.memory.findUnique({ where: { id } });
+    if (!mem || mem.userId !== user.id) {
+      return NextResponse.json({ error: "No encontrada" }, { status: 404 });
     }
 
     await memoryManager.invalidate(id, reason || "Invalidated via API");
