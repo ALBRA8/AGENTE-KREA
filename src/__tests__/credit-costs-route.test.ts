@@ -6,7 +6,7 @@
  *        manejo 402/404/500 y render del resultado (puntaje, decisión, evidencia).
  */
 
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import { NextRequest } from "next/server";
 import { security } from "@/lib/auth";
 import { db } from "@/lib/db";

@@ -1,20 +1,20 @@
 {
-  "timestamp": "2026-11-21T08:25:49.054Z",
+  "timestamp": "2026-11-24T06:24:03.297Z",
   "capabilities": {
     "text": {
       "status": "VERIFIED",
-      "latencyMs": 527,
+      "latencyMs": 496,
       "outputChars": 2,
       "sample": "OK"
     },
     "image": {
       "status": "VERIFIED",
-      "latencyMs": 46682,
-      "outputBytes": 144942
+      "latencyMs": 31552,
+      "outputBytes": 30141
     },
     "voice": {
       "status": "VERIFIED",
-      "latencyMs": 1164,
+      "latencyMs": 1185,
       "outputBytes": 173920
     }
   }
