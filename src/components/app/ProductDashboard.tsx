@@ -248,7 +248,7 @@ type FitMessage =
   | { kind: "error"; text: string }
   | { kind: "notice"; text: string };
 
-function OpportunitiesSection() {
+function OpportunitiesSection({ onNavigate }: { onNavigate?: (section: Section, focusDossierId?: string) => void }) {
   const [opportunities, setOpportunities] = useState<Opportunity[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -270,6 +270,15 @@ function OpportunitiesSection() {
   const [fitConfirmId, setFitConfirmId] = useState<string | null>(null);
   const [fitMessages, setFitMessages] = useState<Record<string, FitMessage | undefined>>({});
   const fitBusyRef = useRef<string | null>(null);
+
+  // Crear dossier desde la oportunidad (UI3): formulario inline precargado
+  // (nombre/tipo de la oportunidad), anti doble clic y navegación a Dossiers.
+  const [dossierFormId, setDossierFormId] = useState<string | null>(null);
+  const [dossierName, setDossierName] = useState("");
+  const [dossierType, setDossierType] = useState("ebook");
+  const [dossierSubmitting, setDossierSubmitting] = useState(false);
+  const [dossierError, setDossierError] = useState("");
+  const dossierBusyRef = useRef(false);
 
   useEffect(() => {
     let alive = true;
@@ -309,6 +318,57 @@ function OpportunitiesSection() {
   const askFit = (oppId: string) => {
     setFitMessages((m) => ({ ...m, [oppId]: undefined }));
     setFitConfirmId(oppId);
+  };
+
+  /** Abre el formulario inline de dossier precargado con la oportunidad (UI3). */
+  const askDossier = (opp: Opportunity) => {
+    setFitConfirmId(null);
+    setDossierFormId(opp.id);
+    setDossierName(opp.name || "");
+    setDossierType(opp.productType || "ebook");
+    setDossierError("");
+  };
+
+  /** POST /api/product/dossiers — la máquina de estados del dossier NO cambia. */
+  const createDossier = async (oppId: string) => {
+    if (dossierBusyRef.current) return; // anti doble clic (ref, no solo estado)
+    if (!dossierName.trim() || !dossierType.trim()) {
+      setDossierError("El nombre y el tipo del producto son obligatorios.");
+      return;
+    }
+    dossierBusyRef.current = true;
+    setDossierSubmitting(true);
+    setDossierError("");
+    try {
+      const token = getToken();
+      const res = await fetch("/api/product/dossiers", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          opportunityId: oppId,
+          productName: dossierName.trim(),
+          productType: dossierType.trim(),
+        }),
+      });
+      if (res.status === 201) {
+        const dossier = await res.json();
+        setDossierFormId(null);
+        setDossierName("");
+        // navega/focaliza la sección Dossiers con el nuevo dossier visible
+        onNavigate?.("dossiers", dossier.id);
+      } else {
+        const data = await res.json().catch(() => ({} as { error?: string }));
+        let text = data.error || "Error al crear el dossier";
+        if (res.status === 401) text = "Sesión expirada. Inicia sesión de nuevo.";
+        if (res.status === 404) text = "Oportunidad no encontrada.";
+        setDossierError(text);
+      }
+    } catch (e: any) {
+      setDossierError(e.message || "Error de conexión");
+    } finally {
+      dossierBusyRef.current = false;
+      setDossierSubmitting(false);
+    }
   };
 
   /** POST /api/product/fit con guard anti doble clic (ref, no solo estado). */
@@ -610,12 +670,12 @@ function OpportunitiesSection() {
                 </div>
               )}
 
-              {/* UI2: botón Evaluar fit — deshabilitado mientras corre (anti doble cobro) */}
-              {fitConfirmId !== opp.id && (
-                <div className="mb-2">
+              {/* UI2+UI3: acciones de la oportunidad */}
+              {fitConfirmId !== opp.id && dossierFormId !== opp.id && (
+                <div className="flex items-center gap-2 mb-2">
                   <button
                     onClick={() => askFit(opp.id)}
-                    disabled={fitBusyId !== null}
+                    disabled={fitBusyId !== null || dossierSubmitting}
                     className="px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 text-white/70 hover:text-white hover:border-[#3b82f6]/40 text-[10px] font-bold transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
                   >
                     {fitBusyId === opp.id ? (
@@ -629,6 +689,60 @@ function OpportunitiesSection() {
                       </>
                     )}
                   </button>
+                  <button
+                    onClick={() => askDossier(opp)}
+                    disabled={fitBusyId !== null || dossierSubmitting}
+                    className="px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 text-white/70 hover:text-white hover:border-emerald-400/40 text-[10px] font-bold transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
+                  >
+                    <FolderOpen className="w-3 h-3" /> Crear dossier
+                  </button>
+                </div>
+              )}
+
+              {/* UI3: formulario inline para crear el dossier desde esta oportunidad */}
+              {dossierFormId === opp.id && (
+                <div className="mb-3 p-2.5 rounded-xl bg-emerald-400/[0.04] border border-emerald-400/20 space-y-2">
+                  <h4 className="text-[10px] font-bold text-white/60 uppercase tracking-wider flex items-center gap-1">
+                    <FolderOpen className="w-3 h-3 text-emerald-400" /> Crear dossier
+                  </h4>
+                  <input
+                    type="text"
+                    value={dossierName}
+                    onChange={(e) => setDossierName(e.target.value)}
+                    className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white text-xs placeholder:text-white/30 focus:outline-none focus:border-emerald-400 transition-colors"
+                    placeholder="Nombre del producto"
+                  />
+                  <select
+                    value={dossierType}
+                    onChange={(e) => setDossierType(e.target.value)}
+                    className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white text-xs focus:outline-none focus:border-emerald-400"
+                  >
+                    {productTypes.map((t) => (
+                      <option key={t} value={t} className="bg-[#0a0f1e]">{t}</option>
+                    ))}
+                  </select>
+                  {dossierError && <p className="text-red-400 text-[10px]">{dossierError}</p>}
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => createDossier(opp.id)}
+                      disabled={dossierSubmitting || !dossierName.trim() || !dossierType.trim()}
+                      className="px-3 py-1.5 rounded-lg bg-gradient-to-b from-emerald-500 to-emerald-700 text-white font-bold text-[10px] hover:brightness-110 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
+                    >
+                      {dossierSubmitting ? (
+                        <>
+                          <Loader2 className="w-3 h-3 animate-spin" /> Creando...
+                        </>
+                      ) : (
+                        "Crear dossier"
+                      )}
+                    </button>
+                    <button
+                      onClick={() => { setDossierFormId(null); setDossierError(""); }}
+                      className="px-3 py-1.5 rounded-lg bg-white/5 text-white/50 hover:text-white/80 text-[10px] transition-colors"
+                    >
+                      Cancelar
+                    </button>
+                  </div>
                 </div>
               )}
 
@@ -648,7 +762,25 @@ function OpportunitiesSection() {
 
 /* ════════════ Dossiers Section ════════════ */
 
-function DossiersSection() {
+/** La API devuelve columnas crudas (title/domain/fitScore+decision como JSON). */
+function normalizeDossier(row: any): Dossier {
+  let fit: { overall?: number } | null = null;
+  try { fit = typeof row.fitScore === "string" ? JSON.parse(row.fitScore) : row.fitScore; } catch {}
+  let dec: { decision?: string } | null = null;
+  try { dec = typeof row.decision === "string" ? JSON.parse(row.decision) : row.decision; } catch {}
+  return {
+    id: row.id,
+    productName: row.productName || row.title || "",
+    productType: row.productType || row.domain || "",
+    status: row.status || "IDEA",
+    fitScore: fit && typeof fit.overall === "number" ? fit.overall : undefined,
+    decision: dec && typeof dec.decision === "string" ? dec.decision : undefined,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  };
+}
+
+function DossiersSection({ focusDossierId }: { focusDossierId?: string | null }) {
   const [dossiers, setDossiers] = useState<Dossier[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -666,7 +798,8 @@ function DossiersSection() {
       });
       if (!res.ok) throw new Error("Error al cargar dossiers");
       const data = await res.json();
-      setDossiers(Array.isArray(data) ? data : data.dossiers || []);
+      const rows = Array.isArray(data) ? data : data.dossiers || [];
+      setDossiers(rows.map(normalizeDossier));
     } catch (e: any) {
       setError(e.message || "Error de conexión");
     } finally {
@@ -677,7 +810,7 @@ function DossiersSection() {
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { load(); }, [load]);
 
-  const loadDetail = async (id: string) => {
+  const loadDetail = useCallback(async (id: string) => {
     setSelectedId(id);
     setDetailLoading(true);
     try {
@@ -685,10 +818,20 @@ function DossiersSection() {
       const res = await fetch(`/api/product/dossiers/${id}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
-      if (res.ok) setDetail(await res.json());
+      if (res.ok) {
+        const row = await res.json();
+        // normaliza columnas crudas (title/domain/fitScore+decision JSON) para el render
+        setDetail({ ...row, ...normalizeDossier(row) });
+      }
     } catch {}
     setDetailLoading(false);
-  };
+  }, []);
+
+  // UI3: al llegar desde "Crear dossier", abre el detalle del nuevo dossier
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (focusDossierId) loadDetail(focusDossierId);
+  }, [focusDossierId, loadDetail]);
 
   const statusSteps = ["IDEA", "RESEARCH", "EVALUATE", "DECIDE", "ARCHITECT", "SPECIFY", "PRODUCE", "QA", "PUBLISH"];
 
@@ -1934,6 +2077,8 @@ interface ProductDashboardProps {
 
 export default function ProductDashboard({ initialSection = "opportunities" }: ProductDashboardProps) {
   const [internalSection, setInternalSection] = useState<Section>(initialSection);
+  // UI3: dossier a focalizar al navegar desde "Crear dossier"
+  const [focusDossierId, setFocusDossierId] = useState<string | null>(null);
   // When the parent changes the initialSection (different nav item clicked), update internal state
   // FIX (FASE 4): la lógica anterior forzaba activeSection de vuelta a
   // initialSection en cuanto internalSection cambiaba (initialSection está
@@ -1955,8 +2100,8 @@ export default function ProductDashboard({ initialSection = "opportunities" }: P
 
   const renderSection = () => {
     switch (activeSection) {
-      case "opportunities": return <OpportunitiesSection />;
-      case "dossiers": return <DossiersSection />;
+      case "opportunities": return <OpportunitiesSection onNavigate={(s, focusId) => { setFocusDossierId(focusId ?? null); setActiveSection(s); }} />;
+      case "dossiers": return <DossiersSection focusDossierId={focusDossierId} />;
       case "commercial": return <CommercialSection />;
       case "production": return <ProductionSection />;
       case "factory": return <FactorySection />;
