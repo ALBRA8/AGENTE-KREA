@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import {
   Lightbulb, FolderOpen, Factory, Send, ChevronRight, Loader2,
   RefreshCw, Plus, Search, Eye, Play, CheckCircle2, AlertTriangle,
@@ -24,6 +24,7 @@ interface Opportunity {
   status: string;
   fitScore?: number;
   recommendation?: string;
+  evidence?: string;
   createdAt: string;
 }
 
@@ -222,6 +223,31 @@ function ErrorBanner({ message, onRetry }: { message: string; onRetry?: () => vo
 
 /* ════════════ Opportunities Section ════════════ */
 
+/** La API devuelve las columnas crudas del modelo (title/domain/fitScore JSON). */
+function normalizeOpportunity(row: any): Opportunity {
+  let fit: { overall?: number; recommendation?: string; evidence?: string } | null = null;
+  try {
+    fit = typeof row.fitScore === "string" ? JSON.parse(row.fitScore) : row.fitScore;
+  } catch {}
+  return {
+    id: row.id,
+    name: row.title || row.name || "",
+    productType: row.domain || row.productType || "",
+    targetAudience: row.audience || row.targetAudience || "",
+    marketEvidence: row.description || row.marketEvidence || "",
+    status: row.status || "EVALUATING",
+    fitScore: fit && typeof fit.overall === "number" ? fit.overall : undefined,
+    recommendation: fit && typeof fit.recommendation === "string" ? fit.recommendation : undefined,
+    evidence: fit && typeof fit.evidence === "string" ? fit.evidence : undefined,
+    createdAt: row.createdAt,
+  };
+}
+
+type FitMessage =
+  | { kind: "result"; score: number; recommendation: string; evidence: string; reasoning?: string; refunded?: boolean }
+  | { kind: "error"; text: string }
+  | { kind: "notice"; text: string };
+
 function OpportunitiesSection() {
   const [opportunities, setOpportunities] = useState<Opportunity[]>([]);
   const [loading, setLoading] = useState(true);
@@ -236,6 +262,28 @@ function OpportunitiesSection() {
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState("");
 
+  // Evaluar fit (UI2): costo leído de la tabla CREDIT_COSTS vía
+  // /api/product/credit-costs (nunca escrito fijo en el componente),
+  // confirmación inline antes de cobrar y bloqueo anti doble clic.
+  const [fitCost, setFitCost] = useState<number | null>(null);
+  const [fitBusyId, setFitBusyId] = useState<string | null>(null);
+  const [fitConfirmId, setFitConfirmId] = useState<string | null>(null);
+  const [fitMessages, setFitMessages] = useState<Record<string, FitMessage | undefined>>({});
+  const fitBusyRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    fetch("/api/product/credit-costs", {
+      headers: { Authorization: `Bearer ${getToken()}` },
+    })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (alive && d && typeof d.costs?.["product:fit"] === "number") setFitCost(d.costs["product:fit"]);
+      })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, []);
+
   const load = useCallback(async () => {
     setLoading(true);
     setError("");
@@ -246,7 +294,8 @@ function OpportunitiesSection() {
       });
       if (!res.ok) throw new Error("Error al cargar oportunidades");
       const data = await res.json();
-      setOpportunities(Array.isArray(data) ? data : data.opportunities || []);
+      const rows = Array.isArray(data) ? data : data.opportunities || [];
+      setOpportunities(rows.map(normalizeOpportunity));
     } catch (e: any) {
       setError(e.message || "Error de conexión");
     } finally {
@@ -254,8 +303,63 @@ function OpportunitiesSection() {
     }
   }, []);
 
-  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { load(); }, [load]);
+
+  /** Abre la confirmación inline mostrando el costo ANTES de cobrar (UI2). */
+  const askFit = (oppId: string) => {
+    setFitMessages((m) => ({ ...m, [oppId]: undefined }));
+    setFitConfirmId(oppId);
+  };
+
+  /** POST /api/product/fit con guard anti doble clic (ref, no solo estado). */
+  const runFit = async (oppId: string) => {
+    if (fitBusyRef.current) return; // ya hay una evaluación en curso
+    fitBusyRef.current = oppId;
+    setFitBusyId(oppId);
+    setFitConfirmId(null);
+    try {
+      const token = getToken();
+      const res = await fetch("/api/product/fit", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ opportunityId: oppId }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const fit = data.data || {};
+        setFitMessages((m) => ({
+          ...m,
+          [oppId]: {
+            kind: "result",
+            score: typeof fit.overall === "number" ? fit.overall : 0,
+            recommendation: fit.recommendation || "—",
+            evidence: fit.evidence || "—",
+            reasoning: fit.reasoning,
+            refunded: data.refunded === true,
+          },
+        }));
+        load(); // refresca la lista con el nuevo fitScore persistido
+      } else {
+        const data = await res.json().catch(() => ({} as { error?: string }));
+        let text = data.error || "Error al evaluar fit";
+        if (res.status === 401) text = "Sesión expirada. Inicia sesión de nuevo.";
+        if (res.status === 402) {
+          const cost = fitCost !== null ? `${fitCost} créditos` : "créditos (ver tabla de costos)";
+          text = `Sin créditos suficientes: evaluar fit cuesta ${cost}.`;
+        }
+        if (res.status === 404) {
+          text = "Oportunidad no encontrada.";
+          load();
+        }
+        setFitMessages((m) => ({ ...m, [oppId]: { kind: "error", text } }));
+      }
+    } catch (e: any) {
+      setFitMessages((m) => ({ ...m, [oppId]: { kind: "error", text: e.message || "Error de conexión" } }));
+    } finally {
+      fitBusyRef.current = null;
+      setFitBusyId(null);
+    }
+  };
 
   const createOpportunity = async () => {
     setSubmitting(true);
@@ -444,6 +548,88 @@ function OpportunitiesSection() {
                 <p className="text-[10px] text-white/30 mb-2 truncate">
                   Recomendación: <span className="text-white/50">{opp.recommendation}</span>
                 </p>
+              )}
+
+              {/* UI2: resultado de la evaluación de fit (puntaje, decisión, evidencia) */}
+              {fitMessages[opp.id]?.kind === "result" && (() => {
+                const r = fitMessages[opp.id] as Extract<FitMessage, { kind: "result" }>;
+                return (
+                  <div className="mb-3 p-2.5 rounded-xl bg-white/[0.02] border border-white/[0.06] space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <span className={`text-sm font-bold ${fitScoreColor(r.score)}`}>
+                        Fit: {(r.score * 100).toFixed(0)}%
+                      </span>
+                      <StatusBadge status={r.recommendation} />
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] text-white/40">Evidencia:</span>
+                      <span className="text-[10px] text-white/60">{r.evidence}</span>
+                      {r.refunded && (
+                        <span className="text-[10px] text-amber-400">(proveedor no respondió — créditos reembolsados)</span>
+                      )}
+                    </div>
+                    {r.reasoning && (
+                      <p className="text-[10px] text-white/30 line-clamp-3">{r.reasoning}</p>
+                    )}
+                  </div>
+                );
+              })()}
+
+              {/* UI2: error/aviso de la evaluación de fit */}
+              {fitMessages[opp.id] && fitMessages[opp.id]!.kind !== "result" && (() => {
+                const m = fitMessages[opp.id] as Extract<FitMessage, { kind: "error" | "notice" }>;
+                return (
+                  <p className={`text-[10px] mb-2 ${m.kind === "error" ? "text-red-400" : "text-amber-400"}`}>
+                    {m.text}
+                  </p>
+                );
+              })()}
+
+              {/* UI2: confirmación inline con el costo ANTES de cobrar */}
+              {fitConfirmId === opp.id && (
+                <div className="mb-3 p-2.5 rounded-xl bg-[#3b82f6]/5 border border-[#3b82f6]/20">
+                  <p className="text-[11px] text-white/70 mb-2">
+                    Evaluar fit cuesta <span className="font-bold text-[#3b82f6]">
+                      {fitCost !== null ? `${fitCost} créditos` : "créditos (tabla de costos)"}
+                    </span>. ¿Continuar?
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => runFit(opp.id)}
+                      className="px-3 py-1.5 rounded-lg bg-gradient-to-b from-[#3b82f6] to-[#1e40af] text-white font-bold text-[10px] hover:brightness-110 transition-all"
+                    >
+                      Confirmar
+                    </button>
+                    <button
+                      onClick={() => setFitConfirmId(null)}
+                      className="px-3 py-1.5 rounded-lg bg-white/5 text-white/50 hover:text-white/80 text-[10px] transition-colors"
+                    >
+                      Cancelar
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* UI2: botón Evaluar fit — deshabilitado mientras corre (anti doble cobro) */}
+              {fitConfirmId !== opp.id && (
+                <div className="mb-2">
+                  <button
+                    onClick={() => askFit(opp.id)}
+                    disabled={fitBusyId !== null}
+                    className="px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 text-white/70 hover:text-white hover:border-[#3b82f6]/40 text-[10px] font-bold transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
+                  >
+                    {fitBusyId === opp.id ? (
+                      <>
+                        <Loader2 className="w-3 h-3 animate-spin" /> Evaluando...
+                      </>
+                    ) : (
+                      <>
+                        <Target className="w-3 h-3" /> Evaluar fit
+                        {fitCost !== null && <span className="text-white/30">· {fitCost} cr</span>}
+                      </>
+                    )}
+                  </button>
+                </div>
               )}
 
               <div className="flex items-center justify-between pt-2 border-t border-white/[0.06]">
